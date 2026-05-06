@@ -1,12 +1,88 @@
-import hashlib, datetime, os
+import hashlib, datetime, os, secrets, string
 from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder=".")
-DB = {"ventes": [], "tickets": [], "jeux": ["Bingo Classique", "Bingo Or", "Bingo Tropical", "Super Jackpot"]}
+
+DB = {
+    "ventes": [], "tickets": [],
+    "jeux": ["Bingo Classique", "Bingo Or", "Bingo Tropical", "Super Jackpot"],
+    "codes": {
+        "ADMIN2024": {"duree": 36500, "nom": "Administrateur", "actif": True}
+    },
+    "sessions": {}
+}
+
+def gen_code(longueur=8):
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(secrets.choice(chars) for _ in range(longueur))
+
+def verif_session(token):
+    s = DB["sessions"].get(token)
+    if not s: return None
+    if datetime.datetime.now() > datetime.datetime.fromisoformat(s["expire"]):
+        del DB["sessions"][token]
+        return None
+    return s
 
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    code = request.json.get("code", "").strip().upper()
+    info = DB["codes"].get(code)
+    if not info or not info["actif"]:
+        return jsonify({"ok": False, "msg": "Code invalide ou expiré"}), 401
+    expire = datetime.datetime.now() + datetime.timedelta(days=1)
+    token = secrets.token_hex(16)
+    DB["sessions"][token] = {
+        "code": code, "nom": info["nom"],
+        "expire": expire.isoformat(),
+        "admin": info.get("admin", False)
+    }
+    return jsonify({"ok": True, "token": token, "nom": info["nom"], "admin": info.get("admin", False)})
+
+@app.route("/api/admin/generer", methods=["POST"])
+def admin_generer():
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    d = request.json
+    nom = d.get("nom", "Client").strip()
+    duree = int(d.get("duree", 30))
+    code = gen_code()
+    while code in DB["codes"]:
+        code = gen_code()
+    DB["codes"][code] = {"duree": duree, "nom": nom, "actif": True,
+        "created": datetime.datetime.now().isoformat(),
+        "expire": (datetime.datetime.now() + datetime.timedelta(days=duree)).isoformat()}
+    return jsonify({"ok": True, "code": code, "nom": nom, "duree": duree})
+
+@app.route("/api/admin/codes")
+def admin_codes():
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    codes = []
+    for c, info in DB["codes"].items():
+        if c == "ADMIN2024": continue
+        codes.append({"code": c, "nom": info["nom"], "duree": info["duree"],
+            "actif": info["actif"], "expire": info.get("expire", "")})
+    return jsonify(codes)
+
+@app.route("/api/admin/desactiver", methods=["POST"])
+def admin_desactiver():
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    code = request.json.get("code", "").strip().upper()
+    if code in DB["codes"]:
+        DB["codes"][code]["actif"] = False
+    return jsonify({"ok": True})
 
 @app.route("/api/jeux")
 def get_jeux():
