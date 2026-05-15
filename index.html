@@ -417,12 +417,28 @@ function supprimerTicketDoc(){
 
 async function uploadDoc(file,type){
   try{
-    const fd=new FormData();fd.append("file",file);fd.append("upload_preset",PRESET);
-    const endpoint=type==="pdf"?`https://api.cloudinary.com/v1_1/${CLOUD}/raw/upload`:`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`;
-    const r=await fetch(endpoint,{method:"POST",body:fd});
-    const d=await r.json();
-    return d.secure_url||null;
-  }catch(e){return null;}
+    if(type === "pdf"){
+      // Pour les PDFs - envoyer au serveur directement
+      const reader = new FileReader();
+      const pdf_b64 = await new Promise((resolve) => {
+        reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch("/api/upload-pdf", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({pdf_b64})
+      });
+      const d = await r.json();
+      return d.ok ? d.pdf_url : null;
+    } else {
+      // Pour les photos - utiliser Cloudinary
+      const fd=new FormData();fd.append("file",file);fd.append("upload_preset",PRESET);
+      const r=await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`,{method:"POST",body:fd});
+      const d=await r.json();
+      return d.secure_url||null;
+    }
+  }catch(e){console.error(e);return null;}
 }
 
 async function enregistrerVente(){
@@ -604,16 +620,16 @@ async function chargerPDFJoueur(url, cleCoches, overlay, cochesExistantes, pageD
   pageDebutActuel = pageDebut || 1;
   try{
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    // Utiliser notre propre proxy pour éviter les erreurs CORS
-    const proxyUrl = `/api/pdf-proxy?url=${encodeURIComponent(url)}`;
-    pdfDoc = await pdfjsLib.getDocument({url: proxyUrl, withCredentials: false}).promise;
+    // Le PDF est sur notre propre serveur - pas besoin de proxy !
+    pdfDoc = await pdfjsLib.getDocument({url: url, withCredentials: false}).promise;
     pageFinActuel = Math.min(pageFin || 9999, pdfDoc.numPages);
     pageNum = pageDebutActuel;
     cochesParPage = cochesExistantes || {};
     await renderPageJoueur(pageNum, cleCoches, overlay);
   }catch(e){
+    console.error("PDF error:", e);
     const loading = overlay.querySelector('#pdf-loading');
-    if(loading){loading.textContent='❌ Erreur de chargement — Vérifiez votre connexion';loading.style.color='#f87171';}
+    if(loading){loading.textContent='❌ Erreur de chargement — '+e.message;loading.style.color='#f87171';}
   }
 }
 
