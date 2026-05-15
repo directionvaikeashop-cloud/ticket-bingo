@@ -1,4 +1,5 @@
-import hashlib, datetime, os, secrets, string, json, urllib.request, urllib.parse
+import hashlib, datetime, os, secrets, string, json, base64
+import urllib.request, urllib.parse
 from flask import Flask, request, jsonify, send_from_directory, Response
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -11,30 +12,27 @@ FROM_NAME = "Ticket Bingo"
 CLOUDINARY_CLOUD = os.environ.get("CLOUDINARY_CLOUD", "dz556b0ee")
 CLOUDINARY_PRESET = "alerte_upload"
 
-# Fichier de persistance
 DATA_FILE = "/tmp/ticketbingo_data.json"
+PDF_DIR = "/tmp/ticketbingo_pdfs"
+
+# Créer le dossier PDFs
+os.makedirs(PDF_DIR, exist_ok=True)
 
 def load_data():
     try:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
-                # S'assurer que toutes les clés existent
-                if "tickets_acheteurs" not in data:
-                    data["tickets_acheteurs"] = {}
-                if "acces_docs" not in data:
-                    data["acces_docs"] = {}
+                for k in ["tickets_acheteurs","acces_docs"]:
+                    if k not in data: data[k] = {}
                 return data
-    except:
-        pass
+    except: pass
     return {
         "ventes": [], "tickets": [],
         "jeux": ["P6", "OHANA 75", "QUINES 90", "OHANA 75 4 SERIE"],
         "tournois": [],
         "codes": {"ADMIN2024": {"duree": 36500, "nom": "Administrateur", "actif": True, "admin": True}},
-        "sessions": {},
-        "acces_docs": {},
-        "tickets_acheteurs": {}
+        "sessions": {}, "acces_docs": {}, "tickets_acheteurs": {}
     }
 
 def save_data():
@@ -56,6 +54,22 @@ def verif_session(token):
         del DB["sessions"][token]
         return None
     return s
+
+def upload_cloudinary_image(image_b64):
+    try:
+        data = urllib.parse.urlencode({
+            "file": f"data:image/jpeg;base64,{image_b64}",
+            "upload_preset": CLOUDINARY_PRESET
+        }).encode('utf-8')
+        url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD}/image/upload"
+        req = urllib.request.Request(url, data=data, method='POST')
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        resp = urllib.request.urlopen(req, timeout=30)
+        result = json.loads(resp.read().decode())
+        return result.get("secure_url")
+    except Exception as e:
+        print(f"[CLOUDINARY ERR] {e}")
+        return None
 
 @app.route("/")
 def index():
@@ -99,13 +113,8 @@ def creer_tournoi():
     if not s or not s.get("admin"):
         return jsonify({"ok": False, "msg": "Accès refusé"}), 403
     d = request.json
-    tournoi = {
-        "id": gen_code(6),
-        "nom": d.get("nom",""),
-        "jeu": d.get("jeu",""),
-        "date_tournoi": d.get("date_tournoi",""),
-        "created": datetime.datetime.now().isoformat()
-    }
+    tournoi = {"id": gen_code(6), "nom": d.get("nom",""), "jeu": d.get("jeu",""),
+        "date_tournoi": d.get("date_tournoi",""), "created": datetime.datetime.now().isoformat()}
     DB["tournois"].insert(0, tournoi)
     save_data()
     return jsonify({"ok": True, "tournoi": tournoi})
@@ -113,6 +122,40 @@ def creer_tournoi():
 @app.route("/api/tournois")
 def get_tournois():
     return jsonify(DB["tournois"])
+
+@app.route("/api/upload-pdf", methods=["POST"])
+def upload_pdf():
+    """Stocke un PDF sur le serveur et retourne un ID"""
+    try:
+        d = request.json
+        pdf_b64 = d.get("pdf_b64","")
+        if not pdf_b64:
+            return jsonify({"ok": False, "msg": "PDF manquant"}), 400
+        pdf_id = secrets.token_hex(16)
+        pdf_path = os.path.join(PDF_DIR, f"{pdf_id}.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(base64.b64decode(pdf_b64))
+        return jsonify({"ok": True, "pdf_id": pdf_id, "pdf_url": f"/api/pdf/{pdf_id}"})
+    except Exception as e:
+        print(f"[PDF UPLOAD ERR] {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
+@app.route("/api/pdf/<pdf_id>")
+def serve_pdf(pdf_id):
+    """Sert un PDF stocké sur le serveur"""
+    # Sécurité - vérifier que pdf_id est valide
+    if not all(c in '0123456789abcdef' for c in pdf_id):
+        return jsonify({"ok": False}), 400
+    pdf_path = os.path.join(PDF_DIR, f"{pdf_id}.pdf")
+    if not os.path.exists(pdf_path):
+        return jsonify({"ok": False, "msg": "PDF introuvable"}), 404
+    with open(pdf_path, "rb") as f:
+        data = f.read()
+    return Response(data, content_type="application/pdf", headers={
+        "Access-Control-Allow-Origin": "*",
+        "Content-Disposition": "inline",
+        "Cache-Control": "no-store"
+    })
 
 @app.route("/api/vente", methods=["POST"])
 def nouvelle_vente():
@@ -134,16 +177,13 @@ def nouvelle_vente():
         "serie": d["serie"], "prix": int(d.get("prix", 0)), "total": total,
         "photo_url": d.get("photo_url", None),
         "pdf_url": d.get("pdf_url", None),
-        "token_doc": token_doc,
-        "tournoi_id": tournoi_id,
+        "token_doc": token_doc, "tournoi_id": tournoi_id,
         "date_expiration": date_expiration,
         "date": datetime.datetime.now().isoformat()
     }
     DB["ventes"].insert(0, vente)
-    DB["acces_docs"][token_doc] = {
-        "vente_id": vente["id"], "client": vente["client"],
-        "jeu": vente["jeu"], "date_expiration": date_expiration, "acces_count": 0
-    }
+    DB["acces_docs"][token_doc] = {"vente_id": vente["id"], "client": vente["client"],
+        "jeu": vente["jeu"], "date_expiration": date_expiration, "acces_count": 0}
     save_data()
     return jsonify({"ok": True, "vente": vente})
 
@@ -162,27 +202,21 @@ def enregistrer_ticket():
     d = request.json
     if not d.get("acheteur") or not d.get("jeu") or not d.get("serie"):
         return jsonify({"ok": False, "msg": "Champs manquants"}), 400
-    
-    # Générer un code unique pour l'acheteur
     code_acheteur = gen_code(6)
-    
     ticket = {
         "id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
-        "acheteur": d["acheteur"],
-        "email_acheteur": d.get("email_acheteur",""),
-        "jeu": d["jeu"], "serie": d["serie"],
+        "acheteur": d["acheteur"], "jeu": d["jeu"], "serie": d["serie"],
         "prix": int(d.get("prix", 0)),
         "photo_url": d.get("photo_url", None),
         "pdf_url": d.get("pdf_url", None),
+        "page_debut": d.get("page_debut", None),
+        "page_fin": d.get("page_fin", None),
         "code_acheteur": code_acheteur,
         "date": datetime.datetime.now().isoformat()
     }
     DB["tickets"].insert(0, ticket)
-    
-    # Enregistrer le code acheteur
     DB["tickets_acheteurs"][code_acheteur] = ticket["id"]
     save_data()
-    
     return jsonify({"ok": True, "ticket": ticket, "code_acheteur": code_acheteur})
 
 @app.route("/api/tickets")
@@ -249,20 +283,3 @@ def admin_desactiver():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-@app.route("/api/pdf-proxy")
-def pdf_proxy():
-    url = request.args.get("url","")
-    if not url:
-        return jsonify({"ok": False}), 400
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        resp = urllib.request.urlopen(req, timeout=30)
-        data = resp.read()
-        return Response(data, content_type="application/pdf", headers={
-            "Access-Control-Allow-Origin": "*",
-            "Content-Disposition": "inline"
-        })
-    except Exception as e:
-        print(f"[PDF PROXY ERR] {e}")
-        return jsonify({"ok": False, "msg": str(e)}), 500
