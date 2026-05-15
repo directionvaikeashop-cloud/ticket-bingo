@@ -15,8 +15,10 @@ CLOUDINARY_PRESET = "alerte_upload"
 DB = {
     "ventes": [], "tickets": [],
     "jeux": ["Bingo Classique", "Bingo Or", "Bingo Tropical", "Super Jackpot"],
+    "tournois": [],
     "codes": {"ADMIN2024": {"duree": 36500, "nom": "Administrateur", "actif": True, "admin": True}},
-    "sessions": {}
+    "sessions": {},
+    "acces_docs": {}
 }
 
 def gen_code(n=8):
@@ -32,12 +34,7 @@ def verif_session(token):
 
 def envoyer_email(dest_email, dest_nom, sujet, contenu_html):
     try:
-        message = Mail(
-            from_email=(FROM_EMAIL, FROM_NAME),
-            to_emails=dest_email,
-            subject=sujet,
-            html_content=contenu_html
-        )
+        message = Mail(from_email=(FROM_EMAIL, FROM_NAME), to_emails=dest_email, subject=sujet, html_content=contenu_html)
         sg = SendGridAPIClient(SENDGRID_API_KEY)
         sg.send(message)
         return True
@@ -71,12 +68,42 @@ def add_jeu():
         DB["jeux"].append(nom)
     return jsonify(DB["jeux"])
 
+@app.route("/api/tournoi", methods=["POST"])
+def creer_tournoi():
+    token = request.headers.get("X-Token","")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    d = request.json
+    tournoi = {
+        "id": gen_code(6),
+        "nom": d.get("nom",""),
+        "jeu": d.get("jeu",""),
+        "date_tournoi": d.get("date_tournoi",""),
+        "created": datetime.datetime.now().isoformat()
+    }
+    DB["tournois"].insert(0, tournoi)
+    return jsonify({"ok": True, "tournoi": tournoi})
+
+@app.route("/api/tournois")
+def get_tournois():
+    return jsonify(DB["tournois"])
+
 @app.route("/api/vente", methods=["POST"])
 def nouvelle_vente():
     d = request.json
     if not d.get("client") or not d.get("jeu") or not d.get("serie"):
         return jsonify({"ok": False, "msg": "Champs manquants"}), 400
     total = int(d.get("qty", 1)) * int(d.get("prix", 0))
+    token_doc = secrets.token_hex(16)
+    tournoi_id = d.get("tournoi_id","")
+    
+    # Trouver la date du tournoi
+    date_expiration = None
+    tournoi = next((t for t in DB["tournois"] if t["id"] == tournoi_id), None)
+    if tournoi and tournoi.get("date_tournoi"):
+        date_expiration = tournoi["date_tournoi"]
+    
     vente = {
         "id": hashlib.md5(f"{d['client']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
         "client": d["client"], "email": d.get("email",""), "jeu": d["jeu"],
@@ -85,20 +112,46 @@ def nouvelle_vente():
         "serie": d["serie"], "prix": int(d.get("prix", 0)), "total": total,
         "photo_url": d.get("photo_url", None),
         "pdf_url": d.get("pdf_url", None),
+        "token_doc": token_doc,
+        "tournoi_id": tournoi_id,
+        "date_expiration": date_expiration,
         "date": datetime.datetime.now().isoformat()
     }
     DB["ventes"].insert(0, vente)
+    DB["acces_docs"][token_doc] = {
+        "vente_id": vente["id"],
+        "client": vente["client"],
+        "jeu": vente["jeu"],
+        "date_expiration": date_expiration,
+        "acces_count": 0
+    }
     return jsonify({"ok": True, "vente": vente})
 
 @app.route("/api/ventes")
 def get_ventes():
     return jsonify(DB["ventes"])
 
-@app.route("/api/vente/<vente_id>/document")
-def get_document(vente_id):
-    vente = next((v for v in DB["ventes"] if v["id"] == vente_id), None)
+@app.route("/api/doc/<token>")
+def get_doc_securise(token):
+    acces = DB["acces_docs"].get(token)
+    if not acces:
+        return jsonify({"ok": False, "msg": "Document introuvable"}), 404
+    
+    # Vérifier expiration
+    if acces.get("date_expiration"):
+        try:
+            date_exp = datetime.datetime.fromisoformat(acces["date_expiration"])
+            if datetime.datetime.now() > date_exp:
+                return jsonify({"ok": False, "msg": "Ce document a expiré — le tournoi est terminé"}), 403
+        except:
+            pass
+    
+    vente = next((v for v in DB["ventes"] if v["id"] == acces["vente_id"]), None)
     if not vente:
         return jsonify({"ok": False, "msg": "Vente introuvable"}), 404
+    
+    acces["acces_count"] += 1
+    
     return jsonify({
         "ok": True,
         "client": vente["client"],
@@ -107,29 +160,25 @@ def get_document(vente_id):
         "pack": vente["pack"],
         "qty": vente["qty"],
         "photo_url": vente.get("photo_url"),
-        "pdf_url": vente.get("pdf_url")
+        "pdf_url": vente.get("pdf_url"),
+        "date_expiration": acces.get("date_expiration"),
+        "acces_count": acces["acces_count"]
     })
 
 @app.route("/api/stats")
 def get_stats():
     today = datetime.date.today().isoformat()
     vj = [v for v in DB["ventes"] if v["date"][:10] == today]
-    return jsonify({
-        "ventes_jour": len(vj),
-        "tickets_jour": sum(v["total_feuilles"] for v in vj),
-        "total_jour": sum(v["total"] for v in vj)
-    })
+    return jsonify({"ventes_jour": len(vj), "tickets_jour": sum(v["total_feuilles"] for v in vj), "total_jour": sum(v["total"] for v in vj)})
 
 @app.route("/api/ticket", methods=["POST"])
 def enregistrer_ticket():
     d = request.json
     if not d.get("acheteur") or not d.get("jeu") or not d.get("serie"):
         return jsonify({"ok": False, "msg": "Champs manquants"}), 400
-    ticket = {
-        "id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
+    ticket = {"id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
         "acheteur": d["acheteur"], "jeu": d["jeu"], "serie": d["serie"],
-        "prix": int(d.get("prix", 0)), "date": datetime.datetime.now().isoformat()
-    }
+        "prix": int(d.get("prix", 0)), "date": datetime.datetime.now().isoformat()}
     DB["tickets"].insert(0, ticket)
     return jsonify({"ok": True, "ticket": ticket})
 
@@ -157,11 +206,9 @@ def admin_generer():
     code = gen_code()
     while code in DB["codes"]:
         code = gen_code()
-    DB["codes"][code] = {
-        "duree": duree, "nom": nom, "actif": True,
+    DB["codes"][code] = {"duree": duree, "nom": nom, "actif": True,
         "created": datetime.datetime.now().isoformat(),
-        "expire": (datetime.datetime.now() + datetime.timedelta(days=duree)).isoformat()
-    }
+        "expire": (datetime.datetime.now() + datetime.timedelta(days=duree)).isoformat()}
     return jsonify({"ok": True, "code": code, "nom": nom, "duree": duree})
 
 @app.route("/api/admin/codes")
