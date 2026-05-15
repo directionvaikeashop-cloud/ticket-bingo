@@ -1,5 +1,4 @@
-import hashlib, datetime, os, secrets, string
-import urllib.request, urllib.parse, json
+import hashlib, datetime, os, secrets, string, json
 from flask import Flask, request, jsonify, send_from_directory
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -12,14 +11,40 @@ FROM_NAME = "Ticket Bingo"
 CLOUDINARY_CLOUD = os.environ.get("CLOUDINARY_CLOUD", "dz556b0ee")
 CLOUDINARY_PRESET = "alerte_upload"
 
-DB = {
-    "ventes": [], "tickets": [],
-    "jeux": ["Bingo Classique", "Bingo Or", "Bingo Tropical", "Super Jackpot"],
-    "tournois": [],
-    "codes": {"ADMIN2024": {"duree": 36500, "nom": "Administrateur", "actif": True, "admin": True}},
-    "sessions": {},
-    "acces_docs": {}
-}
+# Fichier de persistance
+DATA_FILE = "/tmp/ticketbingo_data.json"
+
+def load_data():
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+                # S'assurer que toutes les clés existent
+                if "tickets_acheteurs" not in data:
+                    data["tickets_acheteurs"] = {}
+                if "acces_docs" not in data:
+                    data["acces_docs"] = {}
+                return data
+    except:
+        pass
+    return {
+        "ventes": [], "tickets": [],
+        "jeux": ["P6", "OHANA 75", "QUINES 90", "OHANA 75 4 SERIE"],
+        "tournois": [],
+        "codes": {"ADMIN2024": {"duree": 36500, "nom": "Administrateur", "actif": True, "admin": True}},
+        "sessions": {},
+        "acces_docs": {},
+        "tickets_acheteurs": {}
+    }
+
+def save_data():
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump(DB, f, ensure_ascii=False, default=str)
+    except Exception as e:
+        print(f"[SAVE ERR] {e}")
+
+DB = load_data()
 
 def gen_code(n=8):
     return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(n))
@@ -31,16 +56,6 @@ def verif_session(token):
         del DB["sessions"][token]
         return None
     return s
-
-def envoyer_email(dest_email, dest_nom, sujet, contenu_html):
-    try:
-        message = Mail(from_email=(FROM_EMAIL, FROM_NAME), to_emails=dest_email, subject=sujet, html_content=contenu_html)
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        sg.send(message)
-        return True
-    except Exception as e:
-        print(f"[EMAIL ERR] {e}")
-        return False
 
 @app.route("/")
 def index():
@@ -55,6 +70,7 @@ def login():
     expire = datetime.datetime.now() + datetime.timedelta(hours=12)
     token = secrets.token_hex(16)
     DB["sessions"][token] = {"code": code, "nom": info["nom"], "expire": expire.isoformat(), "admin": info.get("admin", False)}
+    save_data()
     return jsonify({"ok": True, "token": token, "nom": info["nom"], "admin": info.get("admin", False)})
 
 @app.route("/api/jeux")
@@ -66,6 +82,14 @@ def add_jeu():
     nom = request.json.get("nom", "").strip()
     if nom and nom not in DB["jeux"]:
         DB["jeux"].append(nom)
+        save_data()
+    return jsonify(DB["jeux"])
+
+@app.route("/api/jeux/<nom>", methods=["DELETE"])
+def del_jeu(nom):
+    if nom in DB["jeux"]:
+        DB["jeux"].remove(nom)
+        save_data()
     return jsonify(DB["jeux"])
 
 @app.route("/api/tournoi", methods=["POST"])
@@ -83,6 +107,7 @@ def creer_tournoi():
         "created": datetime.datetime.now().isoformat()
     }
     DB["tournois"].insert(0, tournoi)
+    save_data()
     return jsonify({"ok": True, "tournoi": tournoi})
 
 @app.route("/api/tournois")
@@ -97,13 +122,10 @@ def nouvelle_vente():
     total = int(d.get("qty", 1)) * int(d.get("prix", 0))
     token_doc = secrets.token_hex(16)
     tournoi_id = d.get("tournoi_id","")
-    
-    # Trouver la date du tournoi
     date_expiration = None
     tournoi = next((t for t in DB["tournois"] if t["id"] == tournoi_id), None)
     if tournoi and tournoi.get("date_tournoi"):
         date_expiration = tournoi["date_tournoi"]
-    
     vente = {
         "id": hashlib.md5(f"{d['client']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
         "client": d["client"], "email": d.get("email",""), "jeu": d["jeu"],
@@ -119,51 +141,15 @@ def nouvelle_vente():
     }
     DB["ventes"].insert(0, vente)
     DB["acces_docs"][token_doc] = {
-        "vente_id": vente["id"],
-        "client": vente["client"],
-        "jeu": vente["jeu"],
-        "date_expiration": date_expiration,
-        "acces_count": 0
+        "vente_id": vente["id"], "client": vente["client"],
+        "jeu": vente["jeu"], "date_expiration": date_expiration, "acces_count": 0
     }
+    save_data()
     return jsonify({"ok": True, "vente": vente})
 
 @app.route("/api/ventes")
 def get_ventes():
     return jsonify(DB["ventes"])
-
-@app.route("/api/doc/<token>")
-def get_doc_securise(token):
-    acces = DB["acces_docs"].get(token)
-    if not acces:
-        return jsonify({"ok": False, "msg": "Document introuvable"}), 404
-    
-    # Vérifier expiration
-    if acces.get("date_expiration"):
-        try:
-            date_exp = datetime.datetime.fromisoformat(acces["date_expiration"])
-            if datetime.datetime.now() > date_exp:
-                return jsonify({"ok": False, "msg": "Ce document a expiré — le tournoi est terminé"}), 403
-        except:
-            pass
-    
-    vente = next((v for v in DB["ventes"] if v["id"] == acces["vente_id"]), None)
-    if not vente:
-        return jsonify({"ok": False, "msg": "Vente introuvable"}), 404
-    
-    acces["acces_count"] += 1
-    
-    return jsonify({
-        "ok": True,
-        "client": vente["client"],
-        "jeu": vente["jeu"],
-        "serie": vente["serie"],
-        "pack": vente["pack"],
-        "qty": vente["qty"],
-        "photo_url": vente.get("photo_url"),
-        "pdf_url": vente.get("pdf_url"),
-        "date_expiration": acces.get("date_expiration"),
-        "acces_count": acces["acces_count"]
-    })
 
 @app.route("/api/stats")
 def get_stats():
@@ -176,15 +162,42 @@ def enregistrer_ticket():
     d = request.json
     if not d.get("acheteur") or not d.get("jeu") or not d.get("serie"):
         return jsonify({"ok": False, "msg": "Champs manquants"}), 400
-    ticket = {"id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
-        "acheteur": d["acheteur"], "jeu": d["jeu"], "serie": d["serie"],
-        "prix": int(d.get("prix", 0)), "date": datetime.datetime.now().isoformat()}
+    
+    # Générer un code unique pour l'acheteur
+    code_acheteur = gen_code(6)
+    
+    ticket = {
+        "id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
+        "acheteur": d["acheteur"],
+        "email_acheteur": d.get("email_acheteur",""),
+        "jeu": d["jeu"], "serie": d["serie"],
+        "prix": int(d.get("prix", 0)),
+        "photo_url": d.get("photo_url", None),
+        "pdf_url": d.get("pdf_url", None),
+        "code_acheteur": code_acheteur,
+        "date": datetime.datetime.now().isoformat()
+    }
     DB["tickets"].insert(0, ticket)
-    return jsonify({"ok": True, "ticket": ticket})
+    
+    # Enregistrer le code acheteur
+    DB["tickets_acheteurs"][code_acheteur] = ticket["id"]
+    save_data()
+    
+    return jsonify({"ok": True, "ticket": ticket, "code_acheteur": code_acheteur})
 
 @app.route("/api/tickets")
 def get_tickets():
     return jsonify(DB["tickets"])
+
+@app.route("/api/ticket/acheteur/<code>")
+def get_ticket_acheteur(code):
+    ticket_id = DB["tickets_acheteurs"].get(code.upper())
+    if not ticket_id:
+        return jsonify({"ok": False, "msg": "Code introuvable"}), 404
+    ticket = next((t for t in DB["tickets"] if t["id"] == ticket_id), None)
+    if not ticket:
+        return jsonify({"ok": False, "msg": "Ticket introuvable"}), 404
+    return jsonify({"ok": True, "ticket": ticket})
 
 @app.route("/api/verifier", methods=["POST"])
 def verifier():
@@ -209,6 +222,7 @@ def admin_generer():
     DB["codes"][code] = {"duree": duree, "nom": nom, "actif": True,
         "created": datetime.datetime.now().isoformat(),
         "expire": (datetime.datetime.now() + datetime.timedelta(days=duree)).isoformat()}
+    save_data()
     return jsonify({"ok": True, "code": code, "nom": nom, "duree": duree})
 
 @app.route("/api/admin/codes")
@@ -229,6 +243,7 @@ def admin_desactiver():
     code = request.json.get("code","").strip().upper()
     if code in DB["codes"]:
         DB["codes"][code]["actif"] = False
+    save_data()
     return jsonify({"ok": True})
 
 if __name__ == "__main__":
