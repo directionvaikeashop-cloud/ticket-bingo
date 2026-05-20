@@ -375,13 +375,13 @@ async function doLogin(){
     const d=await r.json();
     if(d.ok){TOKEN=d.token;ADMIN=d.admin;USER_NOM=d.nom;
       document.getElementById("user-nom").textContent=d.nom;
-      if(ADMIN){document.getElementById("nb-admin").style.display="flex";document.getElementById("nb-tirage").style.display="flex";}
+      if(ADMIN){document.getElementById("nb-admin").style.display="flex";}
       show("s-app");loadJeux();loadVentes();loadStats();loadDocs();loadTournois();}
     else toast("toast-login",d.msg||"Code invalide",false);
   }catch(e){toast("toast-login","Erreur",false);}
 }
 
-function logout(){TOKEN="";ADMIN=false;document.getElementById("login-code").value="";document.getElementById("nb-admin").style.display="none";document.getElementById("nb-tirage").style.display="none";show("s-login");}
+function logout(){TOKEN="";ADMIN=false;document.getElementById("login-code").value="";document.getElementById("nb-admin").style.display="none";show("s-login");}
 
 function switchTab(n,el){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
