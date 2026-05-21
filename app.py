@@ -14,7 +14,7 @@ CLOUDINARY_CLOUD = os.environ.get("CLOUDINARY_CLOUD", "dz556b0ee")
 CLOUDINARY_PRESET = "alerte_upload"
 CLOUDINARY_PRESET_PDF = "bingo_pdf"
 
-DATA_FILE = "/tmp/ticketbingo_data.json"
+DATA_FILE = "/opt/render/project/src/ticketbingo_data.json"
 
 def load_data():
     try:
@@ -83,7 +83,7 @@ def login():
     info = DB["codes"].get(code)
     if not info or not info["actif"]:
         return jsonify({"ok": False, "msg": "Code invalide ou expiré"}), 401
-    expire = datetime.datetime.now() + datetime.timedelta(hours=12)
+    expire = datetime.datetime.now() + datetime.timedelta(days=30)
     token = secrets.token_hex(16)
     DB["sessions"][token] = {"code": code, "nom": info["nom"], "expire": expire.isoformat(), "admin": info.get("admin", False)}
     save_data()
