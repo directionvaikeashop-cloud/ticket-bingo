@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Ticket Bingo</title>
+<title>Ticket Bingo v2.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
 <meta name="application-name" content="Ticket Bingo"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Ticket Bingo"/>
@@ -727,7 +730,7 @@ async function chargerPDFsOrganisateur(){
     if(!el) return;
     
     if(!pdfs.length){
-      el.innerHTML = '<div style="font-size:13px;color:var(--mu);text-align:center;padding:8px">Aucun PDF disponible — Vous devez d'abord recevoir un PDF de votre boutique</div>';
+      el.innerHTML = '<div style="font-size:13px;color:var(--mu);text-align:center;padding:8px">Aucun PDF disponible</div>';
       return;
     }
     
