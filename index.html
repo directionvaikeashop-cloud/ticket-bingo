@@ -600,7 +600,7 @@ function ouvrirPDFJoueur(url,nom,venteId,pageDebut,pageFin,jeu,serie){
     </div>
   `;
   document.body.appendChild(overlay);
-  if(jeu&&serie) setBingoTicket(nom, jeu, serie, venteId);
+  if(jeu&&serie) setBingoTicket(nom, jeu, serie, venteId, url, pageDebut, pageFin);
   chargerPDFJoueur(url,cleCoches,overlay,cochesExistantes,pdDebut,pdFin);
 }
 
@@ -973,8 +973,8 @@ function resetTirage(){
 // === BINGO ===
 let bingoTicketActuel = null;
 
-function setBingoTicket(acheteur, jeu, serie, ticketId){
-  bingoTicketActuel = {acheteur, jeu, serie, ticketId};
+function setBingoTicket(acheteur, jeu, serie, ticketId, pdfUrl, pageDebut, pageFin){
+  bingoTicketActuel = {acheteur, jeu, serie, ticketId, pdf_url: pdfUrl||null, page_debut: pageDebut||1, page_fin: pageFin||9999};
 }
 
 async function declarerBingo(){
@@ -1019,6 +1019,7 @@ async function loadAlertesBingo(){
       </div>
       <div style="font-size:12px;color:var(--mu);margin-bottom:8px">${a.jeu} · Série ${a.serie}</div>
       <div style="font-size:11px;color:var(--mu);margin-bottom:8px">${new Date(a.date).toLocaleString('fr-FR')}</div>
+      ${a.pdf_url?`<button onclick="ouvrirPDFJoueur('${a.pdf_url}','${a.acheteur}','bingo_${a.id}','${a.page_debut||1}','${a.page_fin||9999}')" style="width:100%;padding:8px;background:rgba(99,102,241,.2);color:#818cf8;border:0.5px solid #6366f1;border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:8px">📄 Voir la feuille du joueur</button>`:''}
       ${a.statut==='en_attente'?`<div style="display:flex;gap:8px">
         <button onclick="validerBingo('${a.id}','valide')" style="flex:1;padding:8px;background:rgba(16,185,129,.2);color:#34d399;border:0.5px solid rgba(16,185,129,.4);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">✅ Valider</button>
         <button onclick="validerBingo('${a.id}','refuse')" style="flex:1;padding:8px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:13px">❌ Refuser</button>
