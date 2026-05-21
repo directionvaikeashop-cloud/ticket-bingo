@@ -196,10 +196,16 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
           <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
           <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
         </div>
-        <div class="lbl" style="margin-bottom:8px">📎 Document du ticket (optionnel)</div>
+        <div class="lbl" style="margin-bottom:8px">📎 Document du ticket</div>
+        <div id="pdf-org-zone" style="display:none;background:rgba(99,102,241,.1);border:.5px solid var(--ac);border-radius:var(--rs);padding:12px;margin-bottom:10px">
+          <div style="font-size:12px;color:var(--ac2);margin-bottom:8px">📄 Utiliser mon PDF existant</div>
+          <select id="t-pdf-existant" style="margin-bottom:8px" onchange="selectionnerPDFExistant(this.value)">
+            <option value="">-- Choisir un PDF existant --</option>
+          </select>
+        </div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <button class="btn-sm" style="flex:1;padding:10px" onclick="document.getElementById('t-photo').click()">📸 Photo</button>
-          <button class="btn-sm" style="flex:1;padding:10px" onclick="document.getElementById('t-pdf').click()">📄 PDF</button>
+          <button class="btn-sm" style="flex:1;padding:10px" onclick="document.getElementById('t-pdf').click()">📄 Nouveau PDF</button>
         </div>
         <input type="file" id="t-photo" accept="image/*" capture="environment" style="display:none" onchange="previewTicketDoc(this,'photo')"/>
         <input type="file" id="t-pdf" accept=".pdf" style="display:none" onchange="previewTicketDoc(this,'pdf')"/>
@@ -338,7 +344,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
 </div>
 
 <script>
-let TOKEN="", ADMIN=false, USER_NOM="";
+let TOKEN="", ADMIN=false, USER_NOM="", CODE_ORG="";
 let pk=25, qty=1, planSel=30;
 let docFile=null, docType=null;
 let tDocFile=null, tDocType=null;
@@ -355,7 +361,7 @@ async function doLogin(){
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
     const d=await r.json();
-    if(d.ok){TOKEN=d.token;ADMIN=d.admin;USER_NOM=d.nom;
+    if(d.ok){TOKEN=d.token;ADMIN=d.admin;USER_NOM=d.nom;CODE_ORG=d.code_org||'';
       document.getElementById("user-nom").textContent=d.nom;
       if(ADMIN){document.getElementById("nb-admin").style.display="flex";}
       show("s-app");loadJeux();loadVentes();loadStats();loadDocs();loadTournois();}
@@ -370,7 +376,7 @@ function switchTab(n,el){
   document.querySelectorAll(".nb").forEach(b=>b.classList.remove("active"));
   document.getElementById("tab-"+n).classList.add("active");
   el.classList.add("active");
-  if(n==="tickets"){loadDocs();loadTickets();}
+  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();}
   if(n==="admin"){loadCodes();loadTournois();}
   if(n==="verif"){loadAlertesBingo();}
 }
@@ -695,6 +701,52 @@ function resetCoches(cleCoches,overlay){
   }
 }
 
+// === PDF EXISTANT ORGANISATEUR ===
+let tPdfUrlExistant = null;
+
+async function chargerPDFsOrganisateur(){
+  try{
+    const r = await fetch('/api/tickets', {headers:{'X-Token':TOKEN}});
+    const ts = await r.json();
+    const pdfs = ts.filter(t => t.pdf_url);
+    const sel = document.getElementById('t-pdf-existant');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">-- Choisir un PDF existant --</option>';
+    
+    // Dédupliquer par pdf_url
+    const urls = [...new Set(pdfs.map(t => t.pdf_url))];
+    if(urls.length > 0){
+      document.getElementById('pdf-org-zone').style.display = 'block';
+      urls.forEach((url, i) => {
+        const o = document.createElement('option');
+        o.value = url;
+        o.textContent = 'PDF ' + (i+1);
+        sel.appendChild(o);
+      });
+    }
+  }catch(e){}
+}
+
+function selectionnerPDFExistant(url){
+  if(!url) { tPdfUrlExistant = null; return; }
+  tPdfUrlExistant = url;
+  tDocFile = null; tDocType = null;
+  document.getElementById('t-doc-preview').style.display = 'block';
+  document.getElementById('t-doc-nom').textContent = '📄 PDF existant sélectionné';
+  document.getElementById('t-pages-zone').style.display = 'block';
+  // Compter les pages du PDF
+  fetch(url).then(r => r.arrayBuffer()).then(async buf => {
+    try{
+      const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+      const nb = pdf.numPages;
+      document.getElementById('t-page-fin').placeholder = 'Ex: ' + nb;
+      document.getElementById('t-pages-info').textContent = 'Ce PDF contient ' + nb + ' page' + (nb>1?'s':'') + ' — Entrez les pages à envoyer au client';
+      document.getElementById('t-page-debut').max = nb;
+      document.getElementById('t-page-fin').max = nb;
+    }catch(e){}
+  }).catch(()=>{});
+}
+
 // === TICKETS ===
 async function regTicket(){
   const a=document.getElementById("t-acheteur").value.trim();
@@ -706,9 +758,16 @@ async function regTicket(){
   if(!a||!j||!s){toast("toast-t","Remplissez tous les champs",false);return;}
   toast("toast-t","Enregistrement...");
   let photo_url=null,pdf_url=null;
-  if(tDocFile){toast("toast-t","Upload...");const url=await uploadDoc(tDocFile,tDocType);if(tDocType==="photo")photo_url=url;else pdf_url=url;}
+  if(tPdfUrlExistant){
+    pdf_url = tPdfUrlExistant;
+  } else if(tDocFile){
+    toast("toast-t","Upload...");
+    const url=await uploadDoc(tDocFile,tDocType);
+    if(tDocType==="photo")photo_url=url;
+    else pdf_url=url;
+  }
   try{
-    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin})});
+    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin})});
     const d=await r.json();
     if(d.ok){
       document.getElementById("t-code-result").innerHTML=`
@@ -718,12 +777,12 @@ async function regTicket(){
           <div style="font-size:11px;color:var(--mu);margin-top:8px">Envoyez ce code à votre client<br/>Il l'utilise dans l'onglet 🎮 Jouer</div>
         </div>`;
       ["t-acheteur","t-serie","t-prix"].forEach(id=>document.getElementById(id).value="");
-      document.getElementById("t-jeu").value="";supprimerTicketDoc();loadTickets();toast("toast-t","Ticket enregistré !");
+      document.getElementById("t-jeu").value="";supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
     }
   }catch(e){toast("toast-t","Erreur",false);}
 }
 
-async function loadTickets(){try{const r=await fetch("/api/tickets");tickets=await r.json();renderTickets();}catch(e){}}
+async function loadTickets(){try{const r=await fetch("/api/tickets",{headers:{"X-Token":TOKEN}});tickets=await r.json();renderTickets();}catch(e){}}
 function renderTickets(){
   const ca=tickets.reduce((s,t)=>s+t.prix,0);
   document.getElementById("cnb").textContent=tickets.length;
