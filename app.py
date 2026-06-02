@@ -6,6 +6,11 @@ from sendgrid.helpers.mail import Mail
 
 app = Flask(__name__, static_folder=".")
 
+@app.before_request
+def reload_db():
+    global DB
+    DB = load_data()
+
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "directionvaikeashop@gmail.com")
 FROM_NAME = "Ticket Bingo"
@@ -61,11 +66,6 @@ def save_data():
         print(f"[SAVE ERR] {e}")
 
 DB = load_data()
-
-@app.before_request
-def reload_db():
-    global DB
-    DB = load_data()
 
 def gen_code(n=8):
     return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(n))
