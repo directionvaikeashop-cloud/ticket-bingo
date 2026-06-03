@@ -171,41 +171,39 @@ def get_tournois():
 
 @app.route("/api/upload-pdf", methods=["POST"])
 def upload_pdf():
-    """Upload PDF vers Cloudinary avec preset bingo_pdf"""
+    """Stocke le PDF dans /data/pdfs et retourne une URL locale"""
     try:
         d = request.json
         pdf_b64 = d.get("pdf_b64", "")
         if not pdf_b64:
             return jsonify({"ok": False, "msg": "PDF manquant"}), 400
-
-        boundary = secrets.token_hex(8)
-        pdf_bytes = base64.b64decode(pdf_b64)
-        body = (
-            f'--{boundary}\r\n'
-            f'Content-Disposition: form-data; name="file"; filename="ticket.pdf"\r\n'
-            f'Content-Type: application/pdf\r\n\r\n'
-        ).encode() + pdf_bytes + (
-            f'\r\n--{boundary}\r\n'
-            f'Content-Disposition: form-data; name="upload_preset"\r\n\r\n'
-            f'bingo_pdf\r\n'
-            f'--{boundary}--\r\n'
-        ).encode()
-
-        url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD}/raw/upload"
-        req = urllib.request.Request(url, data=body, method="POST")
-        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
-        resp = urllib.request.urlopen(req, timeout=60)
-        result = json.loads(resp.read().decode())
-        pdf_url = result.get("secure_url")
-        if not pdf_url:
-            return jsonify({"ok": False, "msg": "Cloudinary erreur"}), 500
-        print(f"[PDF UPLOAD OK] {pdf_url}")
-        return jsonify({"ok": True, "pdf_url": pdf_url})
-
+        pdf_id = secrets.token_hex(16)
+        pdf_dir = "/data/pdfs"
+        os.makedirs(pdf_dir, exist_ok=True)
+        pdf_path = f"{pdf_dir}/{pdf_id}.pdf"
+        with open(pdf_path, "wb") as f:
+            f.write(base64.b64decode(pdf_b64))
+        print(f"[PDF UPLOAD OK] {pdf_path}")
+        return jsonify({"ok": True, "pdf_url": f"/api/pdf/{pdf_id}"})
     except Exception as e:
         print(f"[PDF UPLOAD ERR] {e}")
         return jsonify({"ok": False, "msg": str(e)}), 500
 
+@app.route("/api/pdf/<pdf_id>")
+def serve_pdf(pdf_id):
+    """Sert un PDF depuis /data/pdfs"""
+    if not all(c in '0123456789abcdef' for c in pdf_id):
+        return jsonify({"ok": False}), 400
+    pdf_path = f"/data/pdfs/{pdf_id}.pdf"
+    if not os.path.exists(pdf_path):
+        return jsonify({"ok": False, "msg": "PDF introuvable"}), 404
+    with open(pdf_path, "rb") as f:
+        data = f.read()
+    return Response(data, content_type="application/pdf", headers={
+        "Access-Control-Allow-Origin": "*",
+        "Content-Disposition": "inline",
+        "Cache-Control": "public, max-age=3600"
+    })
 @app.route("/api/vente", methods=["POST"])
 def nouvelle_vente():
     global DB
