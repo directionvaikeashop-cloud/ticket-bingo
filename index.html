@@ -317,6 +317,30 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       </div>
     </div>
 
+    <!-- TAB REVENDEUR -->
+    <div id="tab-revendeur" class="tab">
+      <div id="toast-rev"></div>
+      <div class="card">
+        <div class="ct">🛒 Ajouter un revendeur</div>
+        <div class="lbl">Nom du revendeur</div>
+        <input id="rev-nom" placeholder="Ex: Jean Martin"/>
+        <div class="lbl">Email du revendeur</div>
+        <input id="rev-email" type="email" placeholder="revendeur@email.com"/>
+        <div class="lbl">Durée</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+          <div class="plan" id="rp30" onclick="selPlanRev(30,'rp30')"><div class="plan-n">1 mois</div><div class="plan-p">4 990 XPF</div></div>
+          <div class="plan sel" id="rp90" onclick="selPlanRev(90,'rp90')"><div class="plan-n">3 mois</div><div class="plan-p">12 000 XPF</div></div>
+          <div class="plan" id="rp180" onclick="selPlanRev(180,'rp180')"><div class="plan-n">6 mois</div><div class="plan-p">22 000 XPF</div></div>
+        </div>
+        <button class="btn btn-p" onclick="genRevendeur()">Générer le code revendeur</button>
+        <div id="rev-code-result"></div>
+      </div>
+      <div class="card">
+        <div class="ct" style="justify-content:space-between"><span>👥 Mes revendeurs</span><button class="btn-sm" onclick="loadRevendeurs()">↻</button></div>
+        <div id="rev-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucun revendeur</div></div>
+      </div>
+    </div>
+
     <!-- TAB ADMIN -->
     <div id="tab-admin" class="tab">
       <div id="toast-adm"></div>
@@ -360,6 +384,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <button class="nb" id="nb-tickets" onclick="switchTab('tickets',this)"><span class="ni">🎫</span>Tickets</button>
     <button class="nb" id="nb-jouer" onclick="switchTab('jouer',this)"><span class="ni">🎮</span>Jouer</button>
     <button class="nb" id="nb-verif" onclick="switchTab('verif',this)"><span class="ni">🏆</span>Vérifier</button>
+    <button class="nb" id="nb-revendeur" onclick="switchTab('revendeur',this)" style="display:none"><span class="ni">🛒</span>Revendeurs</button>
     <button class="nb" id="nb-admin" onclick="switchTab('admin',this)" style="display:none"><span class="ni">⚙️</span>Admin</button>
   </nav>
 </div>
@@ -414,6 +439,8 @@ async function doLogin(){
     if(d.ok){TOKEN=d.token;ADMIN=d.admin;USER_NOM=d.nom;CODE_ORG=d.code_org||'';
       document.getElementById("user-nom").textContent=d.nom;
       if(ADMIN){document.getElementById("nb-admin").style.display="flex";}
+      // Afficher revendeur pour tous sauf joueur
+      document.getElementById("nb-revendeur").style.display="flex";
       show("s-app");loadJeux();loadVentes();loadStats();loadDocs();loadTournois();}
     else toast("toast-login",d.msg||"Code invalide",false);
   }catch(e){toast("toast-login","Erreur",false);}
@@ -434,6 +461,7 @@ function switchTab(n,el){
   el.classList.add("active");
   if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();}
   if(n==="admin"){loadCodes();loadTournois();}
+  if(n==="revendeur"){loadRevendeurs();}
   if(n==="verif"){loadAlertesBingo();}
 }
 
@@ -1091,6 +1119,54 @@ async function validerBingo(alerteId, statut){
   try{
     await fetch('/api/bingo/valider',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({alerte_id:alerteId,statut})});
     loadAlertesBingo();
+  }catch(e){}
+}
+
+// === REVENDEUR ===
+let planSelRev = 90;
+
+function selPlanRev(d, id){
+  planSelRev = d;
+  document.querySelectorAll('[id^=rp]').forEach(p => p.classList.remove('sel'));
+  document.getElementById(id).classList.add('sel');
+}
+
+async function genRevendeur(){
+  const nom = document.getElementById("rev-nom").value.trim();
+  const email = document.getElementById("rev-email").value.trim();
+  if(!nom){toast("toast-rev","Entrez le nom du revendeur",false);return;}
+  try{
+    const r = await fetch("/api/revendeur/generer",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Token":TOKEN},
+      body: JSON.stringify({nom, email, duree: planSelRev})
+    });
+    const d = await r.json();
+    if(d.ok){
+      document.getElementById("rev-code-result").innerHTML=`
+        <div class="code-box" style="margin-top:12px">
+          <div style="font-size:12px;color:var(--mu);margin-bottom:8px">Code pour <strong>${d.nom}</strong></div>
+          <div class="code-val">${d.code}</div>
+          <div style="font-size:11px;color:var(--mu);margin-top:8px">Envoyez ce code à votre revendeur</div>
+        </div>`;
+      document.getElementById("rev-nom").value="";
+      document.getElementById("rev-email").value="";
+      loadRevendeurs();
+      toast("toast-rev","Code revendeur généré !");
+    }
+  }catch(e){toast("toast-rev","Erreur",false);}
+}
+
+async function loadRevendeurs(){
+  try{
+    const r = await fetch("/api/revendeur/liste",{headers:{"X-Token":TOKEN}});
+    const revs = await r.json();
+    const el = document.getElementById("rev-liste");
+    if(!revs.length){el.innerHTML='<div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucun revendeur</div>';return;}
+    el.innerHTML = revs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:.5px solid var(--bd)">
+      <div><div style="font-size:13px;font-family:monospace;font-weight:500">${c.code}</div><div style="font-size:11px;color:var(--mu)">${c.nom} · ${c.duree}j</div></div>
+      <span class="badge ${c.actif?"b-ok":"b-er"}">${c.actif?"Actif":"Désactivé"}</span>
+    </div>`).join("");
   }catch(e){}
 }
 
