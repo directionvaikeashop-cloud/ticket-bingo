@@ -567,6 +567,51 @@ def proxy_pdf():
         print(f"[PROXY ERR] {e}")
         return jsonify({"ok": False}), 500
 
+@app.route("/api/demande-acces", methods=["POST"])
+def demande_acces():
+    d = request.json
+    nom = d.get("nom", "")
+    email = d.get("email", "")
+    tel = d.get("tel", "")
+    formule = d.get("formule", "")
+    
+    formules = {
+        "1mois": "1 mois — 4 990 XPF",
+        "3mois": "3 mois — 12 000 XPF",
+        "6mois": "6 mois — 22 000 XPF",
+        "1an": "1 an — 40 000 XPF"
+    }
+    formule_txt = formules.get(formule, formule)
+    
+    if SENDGRID_API_KEY:
+        try:
+            html = f"""
+            <div style='font-family:sans-serif;max-width:520px;margin:0 auto;background:#08090d;color:#f0f2f8;padding:24px;border-radius:12px'>
+              <div style='text-align:center;margin-bottom:24px'>
+                <div style='font-size:48px'>🎪</div>
+                <h1 style='font-size:20px;color:#818cf8;margin:8px 0'>Nouvelle demande d accès Organisateur</h1>
+              </div>
+              <div style='background:#111218;border-radius:10px;padding:16px;margin:20px 0'>
+                <p>👤 <b>Nom :</b> {nom}</p>
+                <p>📧 <b>Email :</b> {email}</p>
+                <p>📞 <b>Téléphone :</b> {tel}</p>
+                <p>📋 <b>Formule :</b> {formule_txt}</p>
+              </div>
+              <p style='color:#6b7280;font-size:13px'>Générez le code depuis l'onglet Admin après réception du paiement.</p>
+            </div>"""
+            message = Mail(
+                from_email=(FROM_EMAIL, FROM_NAME),
+                to_emails=FROM_EMAIL,
+                subject=f"🎪 Nouvelle demande organisateur — {nom}",
+                html_content=html
+            )
+            SendGridAPIClient(SENDGRID_API_KEY).send(message)
+            print(f"[DEMANDE] {nom} - {email} - {formule_txt}")
+        except Exception as e:
+            print(f"[DEMANDE ERR] {e}")
+    
+    return jsonify({"ok": True})
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
