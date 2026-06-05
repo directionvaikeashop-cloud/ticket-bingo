@@ -1791,7 +1791,7 @@ async function loadTirageJoueur(){
     const derniere = boules[boules.length-1];
     const couleur = getCouleur(derniere);
     const lettre = getLettre(derniere);
-    el.innerHTML = `
+    const htmlTirage = `
       <div style="text-align:center;padding:12px 0">
         <div style="font-size:11px;color:var(--mu);margin-bottom:8px">DERNIÈRE BOULE</div>
         <div style="width:80px;height:80px;border-radius:50%;background:${couleur};margin:0 auto;display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px ${couleur}66">
@@ -1805,6 +1805,7 @@ async function loadTirageJoueur(){
         return `<div style="width:32px;height:32px;border-radius:50%;background:${c};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">${b}</div>`;
       }).join('')}</div>
     `;
+    document.querySelectorAll('[id^="tirage-joueur-display"]').forEach(e => { e.innerHTML = htmlTirage; });
   }catch(e){}
 }
 
