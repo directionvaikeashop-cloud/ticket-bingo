@@ -575,11 +575,12 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <div id="j-ticket-zone"></div>
       <div class="card" style="margin-top:14px">
         <div class="ct" style="justify-content:space-between">
-          <span>🎰 Boules tirées</span>
+          <span>🎰 Boules tirées en direct</span>
           <button class="btn-sm" onclick="loadTirageJoueur()">↻</button>
         </div>
+        <div style="font-size:11px;color:var(--ac2);text-align:center;margin-bottom:8px">🔄 Mise à jour automatique toutes les 5 secondes</div>
         <div id="tirage-joueur-display">
-          <div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">Appuyez sur ↻ pour voir les boules tirées</div>
+          <div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">En attente du tirage...</div>
         </div>
       </div>
     </div>
@@ -1778,9 +1779,12 @@ async function loadTirageJoueur(){
     const r = await fetch('/api/tirage');
     const d = await r.json();
     const boules = d.boules || [];
-    const el = document.getElementById('tirage-joueur-display');
+    // Mettre à jour TOUS les affichages tirage joueur (ancien + nouvel espace)
+    const els = document.querySelectorAll('[id^="tirage-joueur-display"]');
+    if(!els.length) return;
+    const el = els[0];
     if(!boules.length){
-      el.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">Aucune boule tirée pour le moment</div>';
+      els.forEach(e => e.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">Aucune boule tirée pour le moment</div>');
       return;
     }
     // Dernière boule tirée en grand
