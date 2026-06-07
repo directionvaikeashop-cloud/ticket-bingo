@@ -926,6 +926,11 @@ function buildOrgSpace(){
       <div id="docs-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Chargement...</div></div>
     </div>
     <div class="card">
+      <div class="ct" style="justify-content:space-between"><span>💳 Confirmer un paiement</span></div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Confirmez votre paiement pour accéder à vos PDF</div>
+      <div id="ventes-paiement-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div></div>
+    </div>
+    <div class="card">
       <div class="ct">🎫 Vendre un ticket</div>
       <div class="g2">
         <div><div class="lbl">Nom acheteur</div><input id="t-acheteur" placeholder="Jean Martin"/></div>
@@ -1080,7 +1085,7 @@ function switchOrgTab(n, el){
   document.getElementById("tab-org-"+n).classList.add("active");
   el.classList.add("active");
   if(n==="verif") loadAlertesBingo();
-  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();}
+  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();}
   if(n==="revendeurs") loadRevendeurs();
 }
 
@@ -1112,6 +1117,11 @@ function buildRevSpace(){
     <div class="card">
       <div class="ct">📂 Mes tickets reçus</div>
       <div id="docs-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Chargement...</div></div>
+    </div>
+    <div class="card">
+      <div class="ct" style="justify-content:space-between"><span>💳 Confirmer un paiement</span></div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Confirmez votre paiement pour accéder à vos PDF</div>
+      <div id="ventes-paiement-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div></div>
     </div>
     <div class="card">
       <div class="ct">🎫 Vendre un ticket</div>
@@ -1180,7 +1190,7 @@ function switchTab(n,el){
   document.querySelectorAll(".nb").forEach(b=>b.classList.remove("active"));
   document.getElementById("tab-"+n).classList.add("active");
   el.classList.add("active");
-  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();}
+  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();}
   if(n==="admin"){loadCodes();loadTournois();}
   if(n==="revendeur"){loadRevendeurs();}
   if(n==="verif"){loadAlertesBingo();}
@@ -1917,6 +1927,76 @@ async function loadRevendeurs(){
       <div><div style="font-size:13px;font-family:monospace;font-weight:500">${c.code}</div><div style="font-size:11px;color:var(--mu)">${c.nom} · ${c.duree}j</div></div>
       <span class="badge ${c.actif?"b-ok":"b-er"}">${c.actif?"Actif":"Désactivé"}</span>
     </div>`).join("");
+  }catch(e){}
+}
+
+// === CONFIRMATION PAIEMENT ===
+async function loadVentesPaiement(){
+  try{
+    const r = await fetch('/api/ventes', {headers:{"X-Token":TOKEN}});
+    const ventes = await r.json();
+    const el = document.getElementById('ventes-paiement-liste');
+    if(!el) return;
+    
+    const enAttente = ventes.filter(v => v.paiement_statut === 'en_attente');
+    if(!enAttente.length){
+      el.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">✅ Tous vos paiements sont à jour</div>';
+      return;
+    }
+    
+    el.innerHTML = enAttente.map(v => `
+      <div style="background:rgba(245,158,11,.1);border:0.5px solid rgba(245,158,11,.3);border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:600;color:#fbbf24">${v.jeu} — Série ${v.serie}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin:4px 0">Montant : ${v.total ? v.total.toLocaleString('fr-FR') : '?'} XPF</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:8px">⚠️ En attente de confirmation paiement</div>
+        <div style="margin-bottom:8px">
+          <select id="mode-paiement-${v.id}" style="font-size:12px;margin-bottom:6px">
+            <option value="">Mode de paiement...</option>
+            <option value="CCP">CCP Papeete</option>
+            <option value="Deblock">Deblock</option>
+            <option value="Especes Papeete">Espèces — Boutique Papeete</option>
+            <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
+            <option value="Carte">Paiement par carte</option>
+          </select>
+          <input id="ref-paiement-${v.id}" placeholder="Référence ou confirmation de paiement" style="font-size:12px;margin-bottom:0"/>
+        </div>
+        <button onclick="confirmerPaiement('${v.id}')" style="width:100%;padding:8px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Confirmer mon paiement</button>
+      </div>
+    `).join('');
+  }catch(e){}
+}
+
+async function confirmerPaiement(venteId){
+  const mode = document.getElementById('mode-paiement-'+venteId)?.value;
+  const ref = document.getElementById('ref-paiement-'+venteId)?.value.trim();
+  if(!mode){alert('Choisissez un mode de paiement');return;}
+  try{
+    const r = await fetch('/api/vente/confirmer-paiement', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({vente_id: venteId, preuve: mode + (ref ? ' — ' + ref : '')})
+    });
+    const d = await r.json();
+    if(d.ok){
+      toast('toast-t','✅ Confirmation envoyée ! Nous validons votre paiement sous 24h.');
+      loadVentesPaiement();
+    }
+  }catch(e){}
+}
+
+// Admin valider paiement
+async function validerPaiementAdmin(venteId){
+  try{
+    const r = await fetch('/api/vente/valider-paiement', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':TOKEN},
+      body: JSON.stringify({vente_id: venteId})
+    });
+    const d = await r.json();
+    if(d.ok){
+      toast('toast-b','✅ Paiement validé !');
+      loadVentes();
+    }
   }catch(e){}
 }
 
