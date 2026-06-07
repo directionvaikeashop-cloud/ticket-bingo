@@ -893,6 +893,8 @@ function buildOrgSpace(){
         <div><div class="lbl">Nom acheteur</div><input id="t-acheteur" placeholder="Jean Martin"/></div>
         <div><div class="lbl">Jeu</div><select id="t-jeu"><option value="">-- Choisir --</option></select></div>
       </div>
+      <div class="lbl">📧 Email du joueur (optionnel)</div>
+      <input id="t-email" type="email" placeholder="joueur@email.com" style="margin-bottom:10px"/>
       <div class="g2">
         <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
         <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
@@ -1044,6 +1046,8 @@ function buildRevSpace(){
         <div><div class="lbl">Nom acheteur</div><input id="t-acheteur" placeholder="Jean Martin"/></div>
         <div><div class="lbl">Jeu</div><select id="t-jeu"><option value="">-- Choisir --</option></select></div>
       </div>
+      <div class="lbl">📧 Email du joueur (optionnel)</div>
+      <input id="t-email" type="email" placeholder="joueur@email.com" style="margin-bottom:10px"/>
       <div class="g2">
         <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
         <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
@@ -1531,7 +1535,8 @@ async function regTicket(){
     else pdf_url=url;
   }
   try{
-    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin})});
+    const emailJoueur = document.getElementById("t-email") ? document.getElementById("t-email").value.trim() : "";
+    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin,email:emailJoueur})});
     const d=await r.json();
     if(d.ok){
       document.getElementById("t-code-result").innerHTML=`
@@ -1541,7 +1546,7 @@ async function regTicket(){
           <div style="font-size:11px;color:var(--mu);margin-top:8px">Envoyez ce code à votre client<br/>Il l'utilise dans l'onglet 🎮 Jouer</div>
         </div>`;
       ["t-acheteur","t-serie","t-prix"].forEach(id=>document.getElementById(id).value="");
-      document.getElementById("t-jeu").value="";supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
+      document.getElementById("t-jeu").value="";if(document.getElementById("t-email"))document.getElementById("t-email").value="";supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
     }
   }catch(e){toast("toast-t","Erreur",false);}
 }
