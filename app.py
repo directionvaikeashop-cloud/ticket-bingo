@@ -540,6 +540,7 @@ def declarer_bingo():
         "pdf_url": d.get("pdf_url", None),
         "page_debut": d.get("page_debut", None),
         "page_fin": d.get("page_fin", None),
+        "coches": d.get("coches", []),
         "date": datetime.datetime.now().isoformat(),
         "statut": "en_attente"
     }
@@ -588,6 +589,46 @@ def get_tirage():
     global DB
     DB = load_data()
     return jsonify({"boules": DB.get("tirage", []), "vitesse": DB.get("tirage_vitesse", 3)})
+
+@app.route("/api/verifier-bingo", methods=["POST"])
+def verifier_bingo_auto():
+    """Vérifie automatiquement si un ticket est gagnant"""
+    global DB
+    DB = load_data()
+    d = request.json
+    ticket_id = d.get("ticket_id", "")
+    
+    # Récupérer le ticket
+    ticket = next((t for t in DB["tickets"] if t["id"] == ticket_id), None)
+    if not ticket:
+        return jsonify({"ok": False, "msg": "Ticket introuvable"}), 404
+    
+    # Récupérer les boules tirées
+    boules_tirees = DB.get("tirage", [])
+    
+    # Récupérer les numéros cochés par le joueur
+    coches = d.get("coches", [])
+    
+    if not coches:
+        return jsonify({"ok": True, "valide": False, "msg": "Aucun numéro coché", "details": []})
+    
+    # Vérifier chaque numéro coché
+    details = []
+    tous_valides = True
+    for num in coches:
+        est_sorti = int(num) in boules_tirees
+        details.append({"numero": num, "sorti": est_sorti})
+        if not est_sorti:
+            tous_valides = False
+    
+    return jsonify({
+        "ok": True,
+        "valide": tous_valides,
+        "coches": len(coches),
+        "valides": sum(1 for d in details if d["sorti"]),
+        "details": details,
+        "boules_tirees": len(boules_tirees)
+    })
 
 @app.route("/api/proxy-pdf")
 def proxy_pdf():
