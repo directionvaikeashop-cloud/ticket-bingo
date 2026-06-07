@@ -700,7 +700,7 @@ def valider_bingo():
         "code_org": code_org,
         "alerte_id": alerte_id,
         "date_fin": datetime.datetime.now().isoformat(),
-        "effacement_prevu": (datetime.datetime.now() + datetime.timedelta(hours=3)).isoformat()
+        "effacement_prevu": (datetime.datetime.now() + datetime.timedelta(minutes=10)).isoformat()
     })
     save_data()
     
@@ -708,11 +708,11 @@ def valider_bingo():
     if statut == "valide":
         timer = threading.Thread(
             target=effacer_pdfs_apres_tournoi,
-            args=(code_org, 10800),
+            args=(code_org, 600),
             daemon=True
         )
         timer.start()
-        print(f"[TIMER] Effacement PDFs programmé dans 3h pour {code_org}")
+        print(f"[TIMER] Effacement PDFs programmé dans 10 minutes pour {code_org}")
     
     return jsonify({"ok": True, "message": "Gagnant validé ! PDFs effacés automatiquement dans 3 heures."})
 
