@@ -1843,7 +1843,7 @@ async function verifierBingoAuto(ticketId, cochesList, alerteId){
 
 async function loadAlertesBingo(){
   try{
-    const r=await fetch('/api/bingo/alertes');
+    const r=await fetch('/api/bingo/alertes',{headers:{"X-Token":TOKEN}});
     const alertes=await r.json();
     const el=document.getElementById('bingo-alertes');
     if(!alertes.length){el.innerHTML='<div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucune alerte</div>';return;}
