@@ -431,6 +431,12 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
   <div class="wrap">
     <div id="joueur-ticket-zone"></div>
     
+    <!-- Notification micro organisateur -->
+    <div id="micro-notif-joueur" style="display:none;background:linear-gradient(135deg,#6366f1,#7c3aed);padding:12px 16px;margin:10px 16px;border-radius:12px;text-align:center">
+      <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:4px">🎤 Message de l'organisateur</div>
+      <div id="micro-message-joueur" style="font-size:15px;font-weight:700;color:#fff"></div>
+    </div>
+
     <!-- Pointage automatique -->
     <div class="card" style="margin-top:14px;margin-left:16px;margin-right:16px">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -762,6 +768,9 @@ async function accesJoueurDirect(){
       afficherBarreBoules();
       setInterval(updateBarreBoules, 5000);
       updateBarreBoules();
+      // Vérifier les messages micro toutes les 3 secondes
+      setInterval(checkMicroJoueur, 3000);
+      checkMicroJoueur();
       document.getElementById("joueur-ticket-zone").innerHTML = `
         <div class="card">
           <div class="ct">🎱 ${t.jeu} — Série ${t.serie}</div>
@@ -1013,6 +1022,19 @@ function buildOrgSpace(){
       <div style="font-size:11px;color:var(--mu);text-transform:uppercase;margin-bottom:8px">Numéros tirés</div>
       <div id="historique-boules" style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow-y:auto"></div>
     </div>
+    <!-- MICRO ORGANISATEUR -->
+    <div class="card" style="margin-top:14px;background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.3)">
+      <div class="ct" style="margin-bottom:12px">🎤 Micro organisateur</div>
+      <div style="text-align:center;margin-bottom:12px">
+        <button id="btn-micro" onclick="toggleMicro()" style="width:80px;height:80px;border-radius:50%;background:rgba(99,102,241,.3);border:2px solid #6366f1;color:#fff;font-size:32px;cursor:pointer;transition:all .3s">🎤</button>
+        <div id="micro-status" style="font-size:12px;color:var(--mu);margin-top:8px">Micro désactivé</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input id="micro-message" placeholder="Message pour les joueurs..." style="flex:1;font-size:13px"/>
+        <button onclick="envoyerMessageMicro()" class="btn-sm" style="padding:8px 12px;background:var(--ac)">📢</button>
+      </div>
+    </div>
+
     <div class="card" style="margin-top:14px">
       <div class="ct" style="justify-content:space-between">
         <span>🚨 Alertes BINGO</span>
@@ -1895,6 +1917,128 @@ async function loadRevendeurs(){
       <div><div style="font-size:13px;font-family:monospace;font-weight:500">${c.code}</div><div style="font-size:11px;color:var(--mu)">${c.nom} · ${c.duree}j</div></div>
       <span class="badge ${c.actif?"b-ok":"b-er"}">${c.actif?"Actif":"Désactivé"}</span>
     </div>`).join("");
+  }catch(e){}
+}
+
+// === MICRO ORGANISATEUR ===
+let microActif = false;
+let microStream = null;
+let microRecognition = null;
+let dernierMessage = "";
+
+async function toggleMicro(){
+  const btn = document.getElementById('btn-micro');
+  const status = document.getElementById('micro-status');
+  
+  if(!microActif){
+    // Activer le micro
+    try{
+      // Utiliser la reconnaissance vocale si disponible
+      if('webkitSpeechRecognition' in window || 'SpeechRecognition' in window){
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        microRecognition = new SR();
+        microRecognition.continuous = true;
+        microRecognition.interimResults = true;
+        microRecognition.lang = 'fr-FR';
+        
+        microRecognition.onresult = function(event){
+          let transcript = '';
+          for(let i = event.resultIndex; i < event.results.length; i++){
+            if(event.results[i].isFinal){
+              transcript += event.results[i][0].transcript;
+            }
+          }
+          if(transcript.trim()){
+            envoyerMessageAuto(transcript.trim());
+          }
+        };
+        
+        microRecognition.start();
+        microActif = true;
+        btn.style.background = 'rgba(239,68,68,.5)';
+        btn.style.borderColor = '#ef4444';
+        btn.innerHTML = '🔴';
+        status.textContent = '🔴 Micro actif — vous parlez aux joueurs';
+        status.style.color = '#f87171';
+        
+        await fetch('/api/micro/status', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({actif: true, message: "🎤 L'organisateur est en direct !"})
+        });
+      } else {
+        alert("La reconnaissance vocale n'est pas disponible sur ce navigateur. Utilisez Chrome.");
+      }
+    }catch(e){
+      alert("Impossible d'activer le micro: " + e.message);
+    }
+  } else {
+    // Désactiver le micro
+    if(microRecognition) microRecognition.stop();
+    microActif = false;
+    btn.style.background = 'rgba(99,102,241,.3)';
+    btn.style.borderColor = '#6366f1';
+    btn.innerHTML = '🎤';
+    status.textContent = 'Micro désactivé';
+    status.style.color = 'var(--mu)';
+    
+    await fetch('/api/micro/status', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({actif: false, message: ""})
+    });
+  }
+}
+
+async function envoyerMessageAuto(texte){
+  if(!texte || texte === dernierMessage) return;
+  dernierMessage = texte;
+  await fetch('/api/micro/status', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({actif: true, message: texte})
+  });
+}
+
+async function envoyerMessageMicro(){
+  const msg = document.getElementById('micro-message').value.trim();
+  if(!msg) return;
+  await fetch('/api/micro/status', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({actif: true, message: msg})
+  });
+  // Lire le message à voix haute si possible
+  if('speechSynthesis' in window){
+    const utterance = new SpeechSynthesisUtterance(msg);
+    utterance.lang = 'fr-FR';
+    window.speechSynthesis.speak(utterance);
+  }
+  document.getElementById('micro-message').value = '';
+  toast('toast-t', 'Message envoyé aux joueurs !');
+}
+
+// Vérifier les messages micro côté joueur toutes les 3 secondes
+let dernierMessageJoueur = "";
+async function checkMicroJoueur(){
+  try{
+    const r = await fetch('/api/micro/status');
+    const d = await r.json();
+    const notif = document.getElementById('micro-notif-joueur');
+    const msgEl = document.getElementById('micro-message-joueur');
+    if(!notif || !msgEl) return;
+    
+    if(d.actif && d.message && d.message !== dernierMessageJoueur){
+      dernierMessageJoueur = d.message;
+      notif.style.display = 'block';
+      msgEl.textContent = d.message;
+      // Lire le message à voix haute
+      if('speechSynthesis' in window){
+        const utterance = new SpeechSynthesisUtterance(d.message);
+        utterance.lang = 'fr-FR';
+        window.speechSynthesis.speak(utterance);
+      }
+      // Cacher après 10 secondes
+      setTimeout(() => { notif.style.display = 'none'; }, 10000);
+    } else if(!d.actif){
+      notif.style.display = 'none';
+    }
   }catch(e){}
 }
 
