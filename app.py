@@ -694,6 +694,56 @@ def demande_acces():
     
     return jsonify({"ok": True})
 
+# === SIGNALING WEBRTC POUR MICRO ===
+@app.route("/api/micro/signal", methods=["POST"])
+def micro_signal():
+    global DB
+    DB = load_data()
+    d = request.json
+    if "signals" not in DB:
+        DB["signals"] = []
+    signal = {
+        "id": gen_code(8),
+        "type": d.get("type"),
+        "data": d.get("data"),
+        "from": d.get("from", "org"),
+        "date": datetime.datetime.now().isoformat()
+    }
+    DB["signals"].append(signal)
+    # Garder seulement les 50 derniers signals
+    DB["signals"] = DB["signals"][-50:]
+    save_data()
+    return jsonify({"ok": True, "signal": signal})
+
+@app.route("/api/micro/signals")
+def get_signals():
+    global DB
+    DB = load_data()
+    after = request.args.get("after", "")
+    signals = DB.get("signals", [])
+    if after:
+        signals = [s for s in signals if s["id"] > after]
+    return jsonify(signals)
+
+@app.route("/api/micro/status", methods=["POST"])
+def micro_status():
+    global DB
+    DB = load_data()
+    d = request.json
+    DB["micro_actif"] = d.get("actif", False)
+    DB["micro_message"] = d.get("message", "")
+    save_data()
+    return jsonify({"ok": True})
+
+@app.route("/api/micro/status")
+def get_micro_status():
+    global DB
+    DB = load_data()
+    return jsonify({
+        "actif": DB.get("micro_actif", False),
+        "message": DB.get("micro_message", "")
+    })
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
