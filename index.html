@@ -271,12 +271,14 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <div id="tab-org-jouer" class="tab"></div>
     <div id="tab-org-verif" class="tab"></div>
     <div id="tab-org-revendeurs" class="tab"></div>
+    <div id="tab-org-pions" class="tab"></div>
   </div>
   <nav class="nav">
     <button class="nb active" onclick="switchOrgTab('tickets',this)"><span class="ni">🎫</span>Tickets</button>
     <button class="nb" onclick="switchOrgTab('jouer',this)"><span class="ni">🎮</span>Jouer</button>
     <button class="nb" onclick="switchOrgTab('verif',this)"><span class="ni">🏆</span>Vérifier</button>
     <button class="nb" onclick="switchOrgTab('revendeurs',this)"><span class="ni">🛒</span>Revendeurs</button>
+    <button class="nb" onclick="switchOrgTab('pions',this)"><span class="ni">🪙</span>Pions</button>
   </nav>
 </div>
 
@@ -1071,6 +1073,42 @@ function buildOrgSpace(){
       <div id="rev-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucun revendeur</div></div>
     </div>`;
 
+  // Tab pions
+  document.getElementById("tab-org-pions").innerHTML = `
+    <div id="toast-pions"></div>
+    <div class="card">
+      <div class="ct">🪙 Vendre des pions à un joueur</div>
+      <div class="lbl">Code du joueur</div>
+      <input id="pions-code-joueur" placeholder="Ex: AB12CD" style="text-transform:uppercase;letter-spacing:2px"/>
+      <div class="lbl" style="margin-top:10px">Choisir le pack</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+        <div onclick="selPionsPack(1,20,this)" class="pions-pack" style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="font-size:15px;font-weight:600">🪙 1 pion</div><div style="font-size:12px;color:var(--mu)">Idéal pour 1 grille</div></div>
+          <div style="font-size:18px;font-weight:700;color:var(--ac)">20 XPF</div>
+        </div>
+        <div onclick="selPionsPack(2,50,this)" class="pions-pack" style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="font-size:15px;font-weight:600">🪙🪙 2 pions</div><div style="font-size:12px;color:var(--mu)">2 grilles</div></div>
+          <div style="font-size:18px;font-weight:700;color:var(--ac)">50 XPF</div>
+        </div>
+        <div onclick="selPionsPack(4,100,this)" class="pions-pack" style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="font-size:15px;font-weight:600">🪙×4 pions</div><div style="font-size:12px;color:var(--mu)">4 grilles</div></div>
+          <div style="font-size:18px;font-weight:700;color:var(--ac)">100 XPF</div>
+        </div>
+        <div onclick="selPionsPack(8,200,this)" class="pions-pack" style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="font-size:15px;font-weight:600">🪙×8 pions ⭐</div><div style="font-size:12px;color:var(--mu)">Meilleure valeur !</div></div>
+          <div style="font-size:18px;font-weight:700;color:#fbbf24">200 XPF</div>
+        </div>
+      </div>
+      <button class="btn btn-p" onclick="vendrePoins()">💳 Vendre les pions</button>
+      <div id="pions-result"></div>
+    </div>
+    <div class="card">
+      <div class="ct">🔍 Vérifier le solde d'un joueur</div>
+      <input id="pions-check-code" placeholder="Code du joueur" style="text-transform:uppercase;letter-spacing:2px;margin-bottom:8px"/>
+      <button class="btn-sm" style="width:100%;padding:10px" onclick="checkSoldePions()">Vérifier le solde</button>
+      <div id="pions-solde-result"></div>
+    </div>`;
+
   // Charger les données
   loadJeux();
   loadDocs();
@@ -1087,6 +1125,7 @@ function switchOrgTab(n, el){
   if(n==="verif") loadAlertesBingo();
   if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();}
   if(n==="revendeurs") loadRevendeurs();
+  if(n==="pions") {} // déjà chargé dans buildOrgSpace
 }
 
 // === ACCES REVENDEUR ===
@@ -1927,6 +1966,70 @@ async function loadRevendeurs(){
       <div><div style="font-size:13px;font-family:monospace;font-weight:500">${c.code}</div><div style="font-size:11px;color:var(--mu)">${c.nom} · ${c.duree}j</div></div>
       <span class="badge ${c.actif?"b-ok":"b-er"}">${c.actif?"Actif":"Désactivé"}</span>
     </div>`).join("");
+  }catch(e){}
+}
+
+// === SYSTEME DE PIONS ===
+let pionsPack = {pions: 0, prix: 0};
+
+function selPionsPack(pions, prix, el){
+  pionsPack = {pions, prix};
+  document.querySelectorAll('.pions-pack').forEach(p => {
+    p.style.borderColor = 'var(--bd)';
+    p.style.background = 'var(--s2)';
+  });
+  el.style.borderColor = 'var(--ac)';
+  el.style.background = 'rgba(99,102,241,.15)';
+}
+
+async function vendrePoins(){
+  const code = document.getElementById('pions-code-joueur')?.value.trim().toUpperCase();
+  if(!code){toast('toast-pions','Entrez le code du joueur',false);return;}
+  if(!pionsPack.pions){toast('toast-pions','Choisissez un pack',false);return;}
+  try{
+    const r = await fetch('/api/pions/crediter',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':TOKEN},
+      body: JSON.stringify({code_joueur:code, pions:pionsPack.pions, prix:pionsPack.prix})
+    });
+    const d = await r.json();
+    if(d.ok){
+      document.getElementById('pions-result').innerHTML = 
+        '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:12px;margin-top:8px;text-align:center">' +
+        '<div style="font-size:15px;font-weight:700;color:#34d399">✅ '+pionsPack.pions+' pions crédités !</div>' +
+        '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:4px">Nouveau solde : '+d.solde+' pions</div>' +
+        '</div>';
+      document.getElementById('pions-code-joueur').value = '';
+      pionsPack = {pions:0, prix:0};
+      document.querySelectorAll('.pions-pack').forEach(p => {
+        p.style.borderColor = 'var(--bd)';
+        p.style.background = 'var(--s2)';
+      });
+    }
+  }catch(e){toast('toast-pions','Erreur',false);}
+}
+
+async function checkSoldePions(){
+  const code = document.getElementById('pions-check-code')?.value.trim().toUpperCase();
+  if(!code) return;
+  try{
+    const r = await fetch('/api/pions/solde/'+code);
+    const d = await r.json();
+    document.getElementById('pions-solde-result').innerHTML = 
+      '<div style="text-align:center;padding:12px;background:var(--s2);border-radius:8px;margin-top:8px">' +
+      '<div style="font-size:24px;font-weight:800;color:var(--ac)">🪙 '+d.solde+' pions</div>' +
+      '<div style="font-size:12px;color:var(--mu);margin-top:4px">Solde du joueur '+code+'</div>' +
+      '</div>';
+  }catch(e){}
+}
+
+// Afficher solde pions du joueur
+async function loadSoldeJoueur(codeJoueur){
+  try{
+    const r = await fetch('/api/pions/solde/'+codeJoueur);
+    const d = await r.json();
+    const el = document.getElementById('joueur-pions-solde');
+    if(el) el.textContent = '🪙 '+d.solde+' pions';
   }catch(e){}
 }
 
