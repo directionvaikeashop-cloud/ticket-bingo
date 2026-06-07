@@ -2,16 +2,10 @@ import random, os
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
-FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-ExtraLight.ttf'
-_font_registered = False
+FONT = 'Helvetica'
 def _register_font():
-    global _font_registered
-    if not _font_registered:
-        pdfmetrics.registerFont(TTFont('DJL', FONT_PATH))
-        _font_registered = True
+    pass  # Police intégrée ReportLab
 
 GREY = colors.Color(0.42, 0.42, 0.42)
 RAINBOW = ['#E53935','#FF7043','#FB8C00','#F9A825','#43A047','#00ACC1','#1E88E5','#3949AB','#8E24AA','#D81B60','#6D4C41','#546E7A']
@@ -44,7 +38,7 @@ def _draw_grid(c, nums, start_y, height, light):
             c.line(CARD_X, start_y + height - row*row_h, CARD_X + CARD_W, start_y + height - row*row_h)
         fs = 42
         c.setFillColor(GREY)
-        c.setFont('DJL', fs)
+        c.setFont('Helvetica', fs)
         c.drawCentredString(cx, cy - fs*0.37, str(num))
 
 def _draw_ticket(c, serie, color_hex):
@@ -64,9 +58,9 @@ def _draw_ticket(c, serie, color_hex):
     c.setFillColor(col)
     c.rect(CARD_X, mid_y, CARD_W, MID_H, stroke=0, fill=1)
     c.setFillColor(colors.white)
-    c.setFont('DJL', 6.5)
+    c.setFont('Helvetica', 6.5)
     c.drawCentredString(CARD_X + CARD_W/2, mid_y + MID_H*0.65, "Le jeux 4 COINS by TUKEA 89 22 23 05")
-    c.setFont('DJL', 7)
+    c.setFont('Helvetica', 7)
     c.drawCentredString(CARD_X + CARD_W/2, mid_y + MID_H*0.2, f"N° {serie:06d}")
 
     bloc_h = (CARD_H - MID_H) / 2
