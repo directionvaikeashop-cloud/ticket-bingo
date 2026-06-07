@@ -994,6 +994,7 @@ def generer_ta75():
             serie_start=serie_start,
             output_path=output_path
         )
+        save_commande("TRIPLE ACTION 75", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(
             output_path,
             as_attachment=True,
@@ -1013,6 +1014,52 @@ def generer_ta75_status():
         return jsonify({"ok": False}), 403
     return jsonify({"ok": True, "disponible": True})
 
+# === HISTORIQUE COMMANDES ===
+def save_commande(jeu, nb_tickets, serie_start, output_path, client=""):
+    global DB
+    if "commandes" not in DB:
+        DB["commandes"] = []
+    DB["commandes"].insert(0, {
+        "id": gen_code(8),
+        "jeu": jeu,
+        "nb_tickets": nb_tickets,
+        "serie_start": serie_start,
+        "serie_end": serie_start + nb_tickets - 1,
+        "pdf_path": output_path,
+        "client": client,
+        "date": datetime.datetime.now().isoformat()
+    })
+    # Garder max 200 commandes
+    DB["commandes"] = DB["commandes"][:200]
+    save_data()
+
+@app.route("/api/admin/commandes")
+def get_commandes():
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    return jsonify(DB.get("commandes", []))
+
+@app.route("/api/admin/commande/telecharger/<commande_id>")
+def telecharger_commande(commande_id):
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    commande = next((c for c in DB.get("commandes", []) if c["id"] == commande_id), None)
+    if not commande:
+        return jsonify({"ok": False, "msg": "Commande introuvable"}), 404
+    pdf_path = commande["pdf_path"]
+    if not os.path.exists(pdf_path):
+        return jsonify({"ok": False, "msg": "Fichier introuvable sur le serveur"}), 404
+    nom_fichier = f"{commande['jeu'].replace(' ','_')}_{commande['serie_start']:05d}.pdf"
+    return send_file(pdf_path, as_attachment=True, download_name=nom_fichier, mimetype="application/pdf")
+
 # === GENERATION 60 BOULES ===
 @app.route("/api/admin/generer-60-boules", methods=["POST"])
 def generer_60_boules():
@@ -1029,6 +1076,7 @@ def generer_60_boules():
     os.makedirs("/data", exist_ok=True)
     try:
         generate_60b_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande("60 BOULES", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(output_path, as_attachment=True, download_name=f"60_BOULES_{serie_start:05d}.pdf", mimetype="application/pdf")
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
@@ -1049,6 +1097,7 @@ def generer_40_boules():
     os.makedirs("/data", exist_ok=True)
     try:
         generate_40b_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande("40 BOULES", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(output_path, as_attachment=True, download_name=f"40_BOULES_{serie_start:05d}.pdf", mimetype="application/pdf")
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
@@ -1069,6 +1118,7 @@ def generer_4_coins():
     os.makedirs("/data", exist_ok=True)
     try:
         generate_4coins_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande("4 COINS", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(output_path, as_attachment=True, download_name=f"4_COINS_{serie_start:05d}.pdf", mimetype="application/pdf")
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
@@ -1089,6 +1139,7 @@ def generer_500_francs():
     os.makedirs("/data", exist_ok=True)
     try:
         generate_500f_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande("500 FRANCS", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(output_path, as_attachment=True, download_name=f"500_FRANCS_{serie_start:05d}.pdf", mimetype="application/pdf")
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
@@ -1109,6 +1160,7 @@ def generer_1_dollar():
     os.makedirs("/data", exist_ok=True)
     try:
         generate_1dollar_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande("1 DOLLAR", nb_tickets, serie_start, output_path, d.get("client",""))
         return send_file(output_path, as_attachment=True, download_name=f"1_DOLLAR_{serie_start:05d}.pdf", mimetype="application/pdf")
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
