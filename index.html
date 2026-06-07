@@ -1171,8 +1171,8 @@ function buildOrgSpace(){
     <div id="effacement-timer-card" style="display:none;background:linear-gradient(135deg,rgba(239,68,68,.15),rgba(220,38,38,.1));border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:14px;margin-bottom:14px">
       <div class="ct" style="margin-bottom:6px">⏱️ Effacement automatique des PDFs</div>
       <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:8px">Après validation du gagnant, tous les PDFs seront effacés dans :</div>
-      <div id="effacement-countdown" style="text-align:center;font-size:28px;font-weight:800;color:#f87171">3:00:00</div>
-      <div style="font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:4px">Les codes restent actifs — Seuls les PDFs sont effacés</div>
+      <div id="effacement-countdown" style="text-align:center;font-size:28px;font-weight:800;color:#f87171">0:10:00</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:4px">Les codes restent actifs — Seuls les PDFs sont effacés dans 10 minutes</div>
     </div>
 
     <!-- CAGNOTTE 13% -->
@@ -2081,8 +2081,8 @@ async function validerBingo(alerteId, statut){
     loadAlertesBingo();
     // Si gagnant validé, démarrer compte à rebours effacement 3h
     if(statut === 'valide' && d.ok){
-      demarrerCompteARebours(3);
-      toast('toast-t', '🏆 Gagnant validé ! PDFs effacés automatiquement dans 3 heures.');
+      demarrerCompteARebours(0.167);
+      toast('toast-t', '🏆 Gagnant validé ! PDFs effacés automatiquement dans 10 minutes.');
     }
   }catch(e){}
 }
