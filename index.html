@@ -617,7 +617,19 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
           </div>
           <div id="boule-label" style="font-size:14px;color:var(--mu);margin-top:10px">Prêt à tirer</div>
         </div>
-        <button class="btn btn-p" id="btn-tirer" onclick="tirerBoule()" style="font-size:16px;padding:14px;margin-bottom:12px">🎱 Tirer une boule</button>
+        <!-- Vitesse du tirage automatique -->
+      <div style="background:var(--s2);border-radius:var(--rs);padding:12px;margin-bottom:12px">
+        <div style="font-size:12px;color:var(--mu);margin-bottom:8px;text-align:center">⏱️ Vitesse du tirage automatique</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button onclick="setVitesse(2,this)" class="btn-vitesse" style="flex:1;padding:8px;background:rgba(99,102,241,.2);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">2 sec</button>
+          <button onclick="setVitesse(3,this)" class="btn-vitesse sel-vitesse" style="flex:1;padding:8px;background:var(--ac);color:#fff;border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">3 sec</button>
+          <button onclick="setVitesse(5,this)" class="btn-vitesse" style="flex:1;padding:8px;background:rgba(99,102,241,.2);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">5 sec</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="btn-auto-tirer" onclick="toggleTirageAuto()" style="flex:1;padding:12px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">▶️ Lancer tirage auto</button>
+          <button onclick="tirerBoule()" style="flex:1;padding:12px;background:rgba(99,102,241,.3);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎱 Tirer manuellement</button>
+        </div>
+      </div>
         <div class="g2" style="margin-bottom:12px">
           <div class="stat"><div class="stat-v" id="nb-tires">0</div><div class="stat-l">Tirés</div></div>
           <div class="stat"><div class="stat-v" id="nb-restants">75</div><div class="stat-l">Restants</div></div>
@@ -801,15 +813,18 @@ async function updateBarreBoules(){
       barre.innerHTML = '<span style="font-size:12px;color:var(--mu)">🎰 En attente du tirage...</span>';
       return;
     }
+    // Afficher la vitesse du tirage
+    const vitesse = d.vitesse || 3;
     const derniere = boules[boules.length-1];
     const couleur = getCouleur(derniere);
     const lettre = getLettre(derniere);
+    const vitesseHtml = '<div style="font-size:10px;color:rgba(255,255,255,.4);margin-right:4px">⏱️'+vitesse+'s</div>';
     const derniereHtml = '<div style="width:36px;height:36px;border-radius:50%;background:'+couleur+';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff">'+derniere+'</div>';
     const boutonsHtml = boules.slice(-8).map(b => {
       const c = getCouleur(b);
       return '<div style="min-width:24px;height:24px;border-radius:50%;background:'+c+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff">'+b+'</div>';
     }).join('');
-    barre.innerHTML = '<div style="display:flex;align-items:center;gap:10px;flex:1"><div style="font-size:11px;color:rgba(255,255,255,.5)">DERNIÈRE BOULE</div>'+derniereHtml+'<div style="font-size:13px;font-weight:600;color:#fff">'+lettre+' — '+derniere+'</div></div><div style="display:flex;gap:4px;overflow-x:auto;max-width:50%">'+boutonsHtml+'</div>';
+    barre.innerHTML = '<div style="display:flex;align-items:center;gap:10px;flex:1">'+vitesseHtml+'<div style="font-size:11px;color:rgba(255,255,255,.5)">DERNIÈRE</div>'+derniereHtml+'<div style="font-size:13px;font-weight:600;color:#fff">'+lettre+' — '+derniere+'</div></div><div style="display:flex;gap:4px;overflow-x:auto;max-width:50%">'+boutonsHtml+'</div>';
   }catch(e){}
 }
 
@@ -954,7 +969,19 @@ function buildOrgSpace(){
         </div>
         <div id="boule-label" style="font-size:14px;color:var(--mu);margin-top:10px">Prêt à tirer</div>
       </div>
-      <button class="btn btn-p" id="btn-tirer" onclick="tirerBoule()" style="font-size:16px;padding:14px;margin-bottom:12px">🎱 Tirer une boule</button>
+      <!-- Vitesse du tirage automatique -->
+      <div style="background:var(--s2);border-radius:var(--rs);padding:12px;margin-bottom:12px">
+        <div style="font-size:12px;color:var(--mu);margin-bottom:8px;text-align:center">⏱️ Vitesse du tirage automatique</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button onclick="setVitesse(2,this)" class="btn-vitesse" style="flex:1;padding:8px;background:rgba(99,102,241,.2);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">2 sec</button>
+          <button onclick="setVitesse(3,this)" class="btn-vitesse sel-vitesse" style="flex:1;padding:8px;background:var(--ac);color:#fff;border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">3 sec</button>
+          <button onclick="setVitesse(5,this)" class="btn-vitesse" style="flex:1;padding:8px;background:rgba(99,102,241,.2);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">5 sec</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="btn-auto-tirer" onclick="toggleTirageAuto()" style="flex:1;padding:12px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">▶️ Lancer tirage auto</button>
+          <button onclick="tirerBoule()" style="flex:1;padding:12px;background:rgba(99,102,241,.3);color:var(--ac2);border:0.5px solid var(--ac);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎱 Tirer manuellement</button>
+        </div>
+      </div>
       <div class="g2" style="margin-bottom:12px">
         <div class="stat"><div class="stat-v" id="nb-tires">0</div><div class="stat-l">Tirés</div></div>
         <div class="stat"><div class="stat-v" id="nb-restants">75</div><div class="stat-l">Restants</div></div>
@@ -1656,7 +1683,7 @@ function tirerBoule(){
       document.getElementById('nb-restants').textContent = bouleRestantes.length;
       
       // Sauvegarder pour les joueurs
-      fetch('/api/tirage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({boules: boulesTirees})}).catch(()=>{});
+      fetch('/api/tirage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({boules: boulesTirees, vitesse: vitesseTirage||3})}).catch(()=>{});
       
       // Ajouter à l'historique
       const hist = document.getElementById('historique-boules');
@@ -1820,6 +1847,45 @@ async function loadRevendeurs(){
       <span class="badge ${c.actif?"b-ok":"b-er"}">${c.actif?"Actif":"Désactivé"}</span>
     </div>`).join("");
   }catch(e){}
+}
+
+// === TIRAGE AUTOMATIQUE ===
+let vitesseTirage = 3; // secondes par défaut
+let tirageAutoInterval = null;
+let tirageAutoActif = false;
+
+function setVitesse(secondes, el){
+  vitesseTirage = secondes;
+  document.querySelectorAll('.btn-vitesse').forEach(b => {
+    b.style.background = 'rgba(99,102,241,.2)';
+    b.style.color = 'var(--ac2)';
+  });
+  el.style.background = 'var(--ac)';
+  el.style.color = '#fff';
+  // Si tirage auto actif, redémarrer avec nouvelle vitesse
+  if(tirageAutoActif){
+    clearInterval(tirageAutoInterval);
+    tirageAutoInterval = setInterval(tirerBoule, vitesseTirage * 1000);
+  }
+}
+
+function toggleTirageAuto(){
+  const btn = document.getElementById('btn-auto-tirer');
+  if(!tirageAutoActif){
+    // Démarrer
+    tirageAutoActif = true;
+    tirageAutoInterval = setInterval(tirerBoule, vitesseTirage * 1000);
+    btn.style.background = 'linear-gradient(135deg,#ef4444,#dc2626)';
+    btn.innerHTML = '⏹️ Arrêter tirage auto';
+    tirerBoule(); // Tirer immédiatement la première
+  } else {
+    // Arrêter
+    tirageAutoActif = false;
+    clearInterval(tirageAutoInterval);
+    tirageAutoInterval = null;
+    btn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
+    btn.innerHTML = '▶️ Lancer tirage auto';
+  }
 }
 
 // === TIRAGE JOUEUR ===
