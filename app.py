@@ -238,7 +238,11 @@ def nouvelle_vente():
         date_expiration = tournoi["date_tournoi"]
     token = request.headers.get("X-Token", "")
     s = verif_session(token)
-    code_org_vente = s["code"] if s else "ADMIN"
+    code_destinataire = d.get("code_org_destinataire", "")
+    if s and s.get("admin") and code_destinataire:
+        code_org_vente = code_destinataire
+    else:
+        code_org_vente = s["code"] if s else "ADMIN"
     vente = {
         "id": hashlib.md5(f"{d['client']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
         "client": d["client"], "email": d.get("email", ""), "jeu": d["jeu"],
