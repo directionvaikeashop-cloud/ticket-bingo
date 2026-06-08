@@ -496,7 +496,11 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <div class="card" style="background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(251,191,36,.05));border:1px solid rgba(245,158,11,.2);margin-bottom:14px">
         <div class="ct" style="justify-content:space-between">
           <span>🔔 Commandes à traiter</span>
-          <button class="btn-sm" onclick="loadCommandesAdmin()">↻</button>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:8px;height:8px;background:#10b981;border-radius:50%;animation:pulse 2s infinite"></div>
+            <span style="font-size:10px;color:rgba(255,255,255,.4)">Auto</span>
+            <button class="btn-sm" onclick="loadCommandesAdmin()">↻</button>
+          </div>
         </div>
         <div id="commandes-admin-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Aucune commande en attente</div></div>
       </div>
@@ -1034,7 +1038,11 @@ function buildOrgSpace(){
     <div class="card" style="margin-bottom:14px">
       <div class="ct" style="justify-content:space-between">
         <span>📋 Mes commandes</span>
-        <button class="btn-sm" onclick="loadMesCommandes()">↻</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:8px;height:8px;background:#10b981;border-radius:50%;animation:pulse 2s infinite"></div>
+          <span style="font-size:10px;color:rgba(255,255,255,.4)">Auto</span>
+          <button class="btn-sm" onclick="loadMesCommandes()">↻</button>
+        </div>
       </div>
       <div id="mes-commandes-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Aucune commande</div></div>
     </div>
@@ -1297,7 +1305,7 @@ function switchOrgTab(n, el){
   document.getElementById("tab-org-"+n).classList.add("active");
   el.classList.add("active");
   if(n==="verif") loadAlertesBingo();
-  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();loadMesCommandes();}
+  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();loadMesCommandes();startAutoRefreshOrg();}
   if(n==="revendeurs") loadRevendeurs();
   if(n==="pions") {} // déjà chargé dans buildOrgSpace
 }
@@ -1386,7 +1394,11 @@ function buildRevSpace(){
     <div class="card" style="margin-bottom:14px">
       <div class="ct" style="justify-content:space-between">
         <span>📋 Mes commandes</span>
-        <button class="btn-sm" onclick="loadMesCommandes()">↻</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:8px;height:8px;background:#10b981;border-radius:50%;animation:pulse 2s infinite"></div>
+          <span style="font-size:10px;color:rgba(255,255,255,.4)">Auto</span>
+          <button class="btn-sm" onclick="loadMesCommandes()">↻</button>
+        </div>
       </div>
       <div id="mes-commandes-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Aucune commande</div></div>
     </div>
@@ -1463,7 +1475,7 @@ function switchTab(n,el){
   document.querySelectorAll(".nb").forEach(b=>b.classList.remove("active"));
   document.getElementById("tab-"+n).classList.add("active");
   el.classList.add("active");
-  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();loadMesCommandes();}
+  if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();loadVentesPaiement();loadMesCommandes();startAutoRefreshOrg();}
   if(n==="admin"){loadCodes();loadTournois();}
   if(n==="revendeur"){loadRevendeurs();}
   if(n==="verif"){loadAlertesBingo();}
@@ -2495,6 +2507,36 @@ async function marquerCommandeTraitee(commandeId){
       toast('toast-b', '✅ Commande marquée comme traitée !');
     }
   }catch(e){}
+}
+
+// === AUTO REFRESH ADMIN ===
+var adminRefreshTimer = null;
+
+function startAutoRefreshAdmin(){
+  if(adminRefreshTimer) clearInterval(adminRefreshTimer);
+  adminRefreshTimer = setInterval(function(){
+    loadCommandesAdmin();
+    loadVentes();
+  }, 15000);
+}
+
+// === AUTO REFRESH ORGANISATEUR ===
+var orgRefreshTimer = null;
+
+function startAutoRefreshOrg(){
+  if(orgRefreshTimer) clearInterval(orgRefreshTimer);
+  orgRefreshTimer = setInterval(function(){
+    loadVentesPaiement();
+    chargerPDFsOrganisateur();
+    loadMesCommandes();
+  }, 15000); // Rafraîchit toutes les 15 secondes
+}
+
+function stopAutoRefreshOrg(){
+  if(orgRefreshTimer){
+    clearInterval(orgRefreshTimer);
+    orgRefreshTimer = null;
+  }
 }
 
 // === HISTORIQUE COMMANDES ===
