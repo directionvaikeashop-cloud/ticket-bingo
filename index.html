@@ -2833,7 +2833,7 @@ async function loadVentesPaiement(){
       div.innerHTML = '<div style="font-size:13px;font-weight:600;color:#fbbf24">' + (v.jeu||'') + (v.serie?' — Série '+v.serie:'') + '</div>' +
         '<div style="font-size:12px;color:rgba(255,255,255,.6);margin:4px 0">Montant : ' + ((v.total||v.prix||0).toLocaleString('fr-FR')) + ' XPF</div>' +
         '<div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:8px">⚠️ En attente de confirmation paiement</div>' +
-        '<select id="mode-' + v.id + '" style="font-size:12px;margin-bottom:6px;width:100%">' +
+        '<select id="mode-paiement-' + v.id + '" style="font-size:12px;margin-bottom:6px;width:100%">' +
         '<option value="">Mode de paiement...</option>' +
         '<option value="CCP">CCP Papeete</option>' +
         '<option value="Deblock">Deblock</option>' +
@@ -2841,7 +2841,7 @@ async function loadVentesPaiement(){
         '<option value="Especes Raiatea">Espèces — Boutique Raiatea</option>' +
         '<option value="Carte">Paiement par carte</option>' +
         '</select>' +
-        '<input id="ref-' + v.id + '" placeholder="Référence ou confirmation" style="font-size:12px;margin-bottom:6px;width:100%"/>';
+        '<input id="ref-paiement-' + v.id + '" placeholder="Référence ou confirmation" style="font-size:12px;margin-bottom:6px;width:100%"/>';
       var btn = document.createElement('button');
       btn.style.cssText = 'width:100%;padding:8px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
       btn.textContent = '💳 Confirmer mon paiement';
@@ -2849,7 +2849,11 @@ async function loadVentesPaiement(){
       div.appendChild(btn);
       el.appendChild(div);
     });
-  }catch(e){ console.error('loadVentesPaiement error:', e); }
+  }catch(e){ 
+    console.error('loadVentesPaiement error:', e);
+    var el = document.getElementById('ventes-paiement-liste');
+    if(el) el.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:#f87171">Erreur: ' + e.message + '</div>';
+  }
 }
 
 
