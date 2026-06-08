@@ -459,9 +459,10 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <select id="b-tournoi"><option value="">-- Aucun tournoi --</option></select>
         <div class="lbl" style="margin-bottom:8px">Format du paquet</div>
         <div class="pk-g">
-          <div class="pk sel" id="pk25" onclick="selPk(25,this)"><div class="pk-n">25</div><div class="pk-l">feuilles</div></div>
+          <div class="pk sel" id="pk100" onclick="selPk(100,this)"><div class="pk-n">100</div><div class="pk-l">feuilles</div></div>
           <div class="pk" id="pk250" onclick="selPk(250,this)"><div class="pk-n">250</div><div class="pk-l">feuilles</div></div>
           <div class="pk" id="pk500" onclick="selPk(500,this)"><div class="pk-n">500</div><div class="pk-l">feuilles</div></div>
+          <div class="pk" id="pk1000" onclick="selPk(1000,this)"><div class="pk-n">1000</div><div class="pk-l">feuilles</div></div>
         </div>
         <div class="lbl" style="margin-bottom:8px">Quantité</div>
         <div class="qty-r">
@@ -815,7 +816,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
 
 <script>
 let TOKEN="", ADMIN=false, USER_NOM="", CODE_ORG="";
-let pk=25, qty=1, planSel=30;
+let pk=100, qty=1, planSel=30;
 let docFile=null, docType=null;
 let tDocFile=null, tDocType=null;
 let tickets=[], jeux=[], ventes=[], tournois=[];
