@@ -868,7 +868,7 @@ async function doLogin(){
       if(ADMIN){document.getElementById("nb-admin").style.display="flex";}
       // Afficher revendeur pour tous sauf joueur
       document.getElementById("nb-revendeur").style.display="flex";
-      show("s-app");loadJeux();loadVentes();loadStats();loadDocs();loadTournois();}
+      show("s-app");loadJeux();loadVentes();loadStats();loadDocs();loadTournois();setTimeout(function(){loadCommandesAdmin();checkPaiementsEnAttente();startAutoRefreshAdmin();},1000);}
     else toast("toast-login",d.msg||"Code invalide",false);
   }catch(e){toast("toast-login","Erreur",false);}
 }
