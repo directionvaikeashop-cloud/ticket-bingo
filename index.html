@@ -1100,6 +1100,14 @@ function buildOrgSpace(){
       <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">🔒 Stripe sécurisé ou virement CCP/Deblock</div>
     </div>
 
+    <!-- RESET TOURNOI -->
+    <div id="reset-tournoi-zone" style="display:none;margin-bottom:14px">
+      <button onclick="resetTournoi()" style="width:100%;padding:14px;background:linear-gradient(135deg,rgba(239,68,68,.3),rgba(220,38,38,.2));color:#f87171;border:1px solid rgba(239,68,68,.4);border-radius:12px;cursor:pointer;font-size:15px;font-weight:700">
+        🔄 Remettre le tournoi à zéro
+      </button>
+      <div style="font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:6px">Efface les boules et les PDFs — Les codes restent actifs</div>
+    </div>
+
     <!-- COMPTE A REBOURS EFFACEMENT -->
     <div id="effacement-card" style="display:none;background:linear-gradient(135deg,rgba(239,68,68,.15),rgba(220,38,38,.1));border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:14px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:6px">⏱️ Effacement automatique des PDFs</div>
@@ -2051,7 +2059,26 @@ async function validerBingo(alerteId, statut){
     loadAlertesBingo();
     if(statut === 'valide'){
       demarrerEffacement(10);
+      var resetDiv = document.getElementById('reset-tournoi-zone');
+      if(resetDiv) resetDiv.style.display = 'block';
       toast('toast-t','🏆 Gagnant validé ! PDFs effacés dans 10 minutes.');
+    }
+  }catch(e){}
+}
+
+async function resetTournoi(){
+  if(!confirm('Remettre le tournoi à zéro ?')) return;
+  try{
+    const r = await fetch('/api/tournoi/reset',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN}});
+    const d = await r.json();
+    if(d.ok){
+      boulesTirees = [];
+      if(typeof updateBarreBoules === 'function') updateBarreBoules();
+      var resetDiv = document.getElementById('reset-tournoi-zone');
+      if(resetDiv) resetDiv.style.display = 'none';
+      var effCard = document.getElementById('effacement-card');
+      if(effCard) effCard.style.display = 'none';
+      toast('toast-t','✅ Tournoi remis à zéro ! Prêt pour le prochain tournoi.');
     }
   }catch(e){}
 }
