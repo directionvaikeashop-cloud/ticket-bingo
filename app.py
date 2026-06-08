@@ -1145,9 +1145,9 @@ def calculer_cagnotte():
         "ok": True,
         "total_mises": total_mises,
         "cagnotte_annoncee": cagnotte_annoncee,
-        "cagnotte_13": cagnotte_totale,
-        "ma_commission": ma_commission,
-        "frais_fixes": frais_fixes
+        "cagnotte_13": cagnotte_annoncee,
+        "frais_org": frais_org,
+        "total_preleve": total_preleve
     })
 
 @app.route("/api/demande-acces", methods=["POST"])
