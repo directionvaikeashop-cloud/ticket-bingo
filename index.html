@@ -1081,15 +1081,21 @@ function buildOrgSpace(){
         <div style="font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:4px">🎯 Offre de lancement — 1er mois</div>
         <div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:4px">4 990 XPF</div>
         <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:10px">Engagement 1 an — À partir du 2ème mois : 9 990 XPF/mois</div>
-        <button onclick="payerAbonnement(4990)" style="width:100%;padding:10px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Payer 4 990 XPF par carte</button>
+        <div style="display:flex;gap:6px">
+          <button onclick="payerAbonnement(4990)" style="flex:1;padding:10px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">💳 Carte</button>
+          <button onclick="afficherVirement(4990)" style="flex:1;padding:10px;background:rgba(245,158,11,.2);color:#fbbf24;border:1px solid rgba(245,158,11,.4);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🏦 Virement</button>
+        </div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:10px">
         <div style="font-size:13px;font-weight:700;color:#818cf8;margin-bottom:4px">📅 Abonnement mensuel</div>
         <div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:4px">9 990 XPF<span style="font-size:13px;color:rgba(255,255,255,.4)">/mois</span></div>
         <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:10px">Toutes les fonctionnalités incluses</div>
-        <button onclick="payerAbonnement(9990)" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Payer 9 990 XPF par carte</button>
+        <div style="display:flex;gap:6px">
+          <button onclick="payerAbonnement(9990)" style="flex:1;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">💳 Carte</button>
+          <button onclick="afficherVirement(9990)" style="flex:1;padding:10px;background:rgba(99,102,241,.2);color:#818cf8;border:1px solid #6366f1;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🏦 Virement</button>
+        </div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">🔒 Paiement sécurisé par Stripe</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">🔒 Stripe sécurisé ou virement CCP/Deblock</div>
     </div>
 
     <!-- CAGNOTTE 13% -->
@@ -2047,6 +2053,40 @@ async function loadRevendeurs(){
 }
 
 // === STRIPE PAIEMENT ===
+function afficherVirement(montant){
+  var ref = 'TUKEA-' + Date.now().toString().slice(-6);
+  var m = Number(montant).toLocaleString('fr-FR');
+  var overlay = document.createElement('div');
+  overlay.id = 'virement-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = [
+    "<div style='background:#111218;border:1px solid #6366f1;border-radius:16px;padding:24px;max-width:400px;width:100%'>",
+    "<div style='font-size:18px;font-weight:700;color:#fff;margin-bottom:8px;text-align:center'>🏦 Paiement par virement</div>",
+    "<div style='font-size:20px;font-weight:800;color:#fbbf24;text-align:center;margin-bottom:16px'>" + m + " XPF</div>",
+    "<div style='background:rgba(99,102,241,.1);border-radius:10px;padding:14px;margin-bottom:10px'>",
+    "<div style='font-size:12px;font-weight:600;color:#818cf8;margin-bottom:8px'>Option 1 — CCP Papeete</div>",
+    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>IBAN : FR76 14168 00001 10002580501 50<br>BIC : OFTPPFT1XXX<br>Bénéficiaire : EI TUKEA IMPORT<br>Référence : " + ref + "</div>",
+    "</div>",
+    "<div style='background:rgba(99,102,241,.1);border-radius:10px;padding:14px;margin-bottom:16px'>",
+    "<div style='font-size:12px;font-weight:600;color:#818cf8;margin-bottom:8px'>Option 2 — Deblock</div>",
+    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>Compte : EI TUKEA IMPORT<br>Référence : " + ref + "</div>",
+    "</div>",
+    "<div style='font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-bottom:16px'>Envoyez votre preuve — Activation sous 24h</div>",
+    "<div style='display:flex;gap:8px'>",
+    "<button id='btn-vir-ok' style='flex:1;padding:10px;background:#10b981;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600'>J ai vire</button>",
+    "<button id='btn-vir-close' style='flex:1;padding:10px;background:rgba(239,68,68,.3);color:#f87171;border:0.5px solid #ef4444;border-radius:8px;cursor:pointer;font-size:13px'>Fermer</button>",
+    "</div></div>"
+  ].join('');
+  document.body.appendChild(overlay);
+  document.getElementById('btn-vir-ok').onclick = function(){
+    overlay.remove();
+    alert('Virement signale ! Votre acces sera active sous 24h apres reception.');
+  };
+  document.getElementById('btn-vir-close').onclick = function(){
+    overlay.remove();
+  };
+}
+
 async function payerAbonnement(montant){
   var prix = montant || 9990;
   try{
