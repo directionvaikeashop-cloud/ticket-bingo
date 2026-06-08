@@ -1116,10 +1116,20 @@ function buildOrgSpace(){
     </div>
     <!-- PAIEMENT ABONNEMENT STRIPE -->
     <div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.3);margin-bottom:14px">
-      <div class="ct" style="margin-bottom:8px">💳 Payer mon abonnement en ligne</div>
-      <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:12px">Abonnement mensuel — 9 990 XPF/mois — Paiement sécurisé par carte</div>
-      <button onclick="payerAbonnement()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">💳 Payer 9 990 XPF par carte</button>
-      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:8px">🔒 Paiement sécurisé par Stripe</div>
+      <div class="ct" style="margin-bottom:8px">💳 Mon abonnement</div>
+      <div style="background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(251,191,36,.1));border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:4px">🎯 Offre de lancement — 1er mois</div>
+        <div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:4px">4 990 XPF</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:10px">Engagement 1 an — À partir du 2ème mois : 9 990 XPF/mois</div>
+        <button onclick="payerAbonnement(4990)" style="width:100%;padding:10px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Payer 4 990 XPF par carte</button>
+      </div>
+      <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:#818cf8;margin-bottom:4px">📅 Abonnement mensuel</div>
+        <div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:4px">9 990 XPF<span style="font-size:13px;color:rgba(255,255,255,.4)">/mois</span></div>
+        <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:10px">Toutes les fonctionnalités incluses</div>
+        <button onclick="payerAbonnement(9990)" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Payer 9 990 XPF par carte</button>
+      </div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">🔒 Paiement sécurisé par Stripe</div>
     </div>
 
     <!-- CAGNOTTE 13% -->
@@ -2077,12 +2087,13 @@ async function loadRevendeurs(){
 }
 
 // === STRIPE PAIEMENT ===
-async function payerAbonnement(){
+async function payerAbonnement(montant){
+  var prix = montant || 9990;
   try{
     const r = await fetch('/api/paiement/abonnement', {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Token':TOKEN},
-      body: JSON.stringify({code_org: CODE_ORG || ''})
+      body: JSON.stringify({code_org: CODE_ORG || '', montant: prix})
     });
     const d = await r.json();
     if(d.ok && d.url){
