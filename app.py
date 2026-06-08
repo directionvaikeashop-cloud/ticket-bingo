@@ -679,6 +679,48 @@ def effacer_pdfs_apres_tournoi(code_org, delai_secondes=10800):
     except Exception as e:
         print(f"[AUTO-EFFACEMENT ERR] {e}")
 
+@app.route("/api/tournoi/reset", methods=["POST"])
+def reset_tournoi():
+    """Remet tout à zéro après un tournoi"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    
+    code_org = s["code"]
+    
+    # 1. Remettre le tirage à zéro
+    DB["tirage"] = []
+    DB["tirage_vitesse"] = 3
+    
+    # 2. Effacer les alertes bingo de cet organisateur
+    DB["alertes_bingo"] = [a for a in DB.get("alertes_bingo", []) if a.get("code_org") != code_org]
+    
+    # 3. Effacer les PDFs de cet organisateur
+    import os
+    ventes_org = [v for v in DB.get("ventes", []) if v.get("code_org") == code_org]
+    for v in ventes_org:
+        pdf_url = v.get("pdf_url", "")
+        if pdf_url and "/api/pdf/" in pdf_url:
+            pdf_id = pdf_url.split("/api/pdf/")[-1]
+            pdf_path = f"/data/pdfs/{pdf_id}.pdf"
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except:
+                    pass
+    
+    # 4. Remettre le statut des ventes
+    for v in DB.get("ventes", []):
+        if v.get("code_org") == code_org:
+            v["pdf_efface"] = True
+    
+    save_data()
+    print(f"[RESET] Tournoi remis à zéro pour {code_org}")
+    return jsonify({"ok": True, "message": "Tournoi remis à zéro !"})
+
 @app.route("/api/bingo/valider", methods=["POST"])
 def valider_bingo():
     global DB
