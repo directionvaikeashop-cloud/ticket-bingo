@@ -1522,7 +1522,7 @@ async function creerTournoi(){
   }catch(e){toast("toast-adm","Erreur",false);}
 }
 
-async function loadVentes(){
+function loadVentes(){
   fetch("/api/ventes",{headers:{"X-Token":TOKEN}})
   .then(function(r){return r.json();})
   .then(function(data){
@@ -1748,7 +1748,7 @@ function resetCoches(cleCoches,overlay){
 // === PDF EXISTANT ORGANISATEUR ===
 let tPdfUrlExistant = null;
 
-async async function chargerPDFsOrganisateur(){
+function chargerPDFsOrganisateur(){
   try{
     // Charger les ventes ET tickets de l'organisateur pour trouver ses PDFs
     const [rV, rT] = await Promise.all([
