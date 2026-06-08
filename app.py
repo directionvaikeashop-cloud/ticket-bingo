@@ -280,7 +280,7 @@ def nouvelle_vente():
                 <p>💰 Total : {vente["total"]:,} XPF</p>
               </div>
               <div style='text-align:center;margin:24px 0'>
-                <a href='https://ticketbingo.space' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à mes tickets</a>
+                <a href='https://ticket-bingo-production.up.railway.app' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à mes tickets</a>
               </div>
             </div>"""
             message = Mail(from_email=(FROM_EMAIL, FROM_NAME), to_emails=vente["email"],
@@ -471,7 +471,7 @@ def admin_generer():
                 <div style='font-family:monospace;font-size:32px;font-weight:800;letter-spacing:8px;color:#818cf8'>{code}</div>
               </div>
               <div style='text-align:center;margin:24px 0'>
-                <a href='https://ticketbingo.space' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à Ticket Bingo</a>
+                <a href='https://ticket-bingo-production.up.railway.app' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à Ticket Bingo</a>
               </div>
               <p style='font-size:12px;color:#6b7280;text-align:center'>Accès valable {duree} jours</p>
             </div>"""
@@ -534,7 +534,7 @@ def generer_revendeur():
                 <div style='font-family:monospace;font-size:32px;font-weight:800;letter-spacing:8px;color:#818cf8'>{code}</div>
               </div>
               <div style='text-align:center;margin:24px 0'>
-                <a href='https://ticketbingo.space' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à Ticket Bingo</a>
+                <a href='https://ticket-bingo-production.up.railway.app' style='padding:14px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600'>🎯 Accéder à Ticket Bingo</a>
               </div>
               <p style='font-size:12px;color:#6b7280;text-align:center'>Accès valable {duree} jours</p>
             </div>"""
