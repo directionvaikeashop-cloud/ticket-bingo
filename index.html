@@ -1355,14 +1355,18 @@ function buildOrgSpace(){
           <span>Pions reçus</span><span id="pion-nb-recus">0 pions</span>
         </div>
       </div>
-      <button onclick="commanderPions()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Passer la commande</button>
-    </div>
-
-    <!-- CONFIRMER PAIEMENT PIONS -->
-    <div class="card" style="background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(251,191,36,.05));border:1px solid rgba(245,158,11,.3);margin-bottom:14px">
-      <div class="ct" style="margin-bottom:8px">💳 Confirmer paiement pions</div>
-      <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:10px">Confirmez votre paiement pour recevoir vos pions</div>
-      <div id="pions-paiement-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div></div>
+      <div class="lbl">Mode de paiement</div>
+      <select id="pion-mode-paiement" style="margin-bottom:8px">
+        <option value="">Choisir le mode de paiement...</option>
+        <option value="CCP">CCP Papeete</option>
+        <option value="Deblock">Deblock</option>
+        <option value="Especes Papeete">Espèces — Boutique Papeete</option>
+        <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
+        <option value="Carte">Paiement par carte</option>
+      </select>
+      <input id="pion-ref-paiement" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
+      <button onclick="commanderPions()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander et confirmer le paiement</button>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Votre commande sera traitée après vérification du paiement</div>
     </div>
 
     <!-- MES COMMANDES PIONS -->
@@ -3112,6 +3116,9 @@ async function commanderPions(){
   if(!valeurPionSelectionne){ alert('Choisissez la valeur du pion'); return; }
   var montant = parseFloat(document.getElementById('pion-montant').value || 0);
   if(montant < 500){ alert('Montant minimum : 500 XPF'); return; }
+  var mode = document.getElementById('pion-mode-paiement') ? document.getElementById('pion-mode-paiement').value : '';
+  var ref = document.getElementById('pion-ref-paiement') ? document.getElementById('pion-ref-paiement').value.trim() : '';
+  if(!mode){ alert('Choisissez votre mode de paiement'); return; }
   var commission = Math.round(montant * 0.20);
   var valeurRecue = montant - commission;
   var nbPions = Math.floor(valeurRecue / valeurPionSelectionne);
@@ -3123,13 +3130,17 @@ async function commanderPions(){
         valeur_pion: valeurPionSelectionne,
         montant_paye: montant,
         commission: commission,
-        nb_pions: nbPions
+        nb_pions: nbPions,
+        mode_paiement: mode,
+        ref_paiement: ref
       })
     });
     const d = await r.json();
     if(d.ok){
       toast('toast-pions', '✅ Commande envoyée ! Réf: ' + d.commande_id);
       document.getElementById('pion-montant').value = '';
+      if(document.getElementById('pion-mode-paiement')) document.getElementById('pion-mode-paiement').value = '';
+      if(document.getElementById('pion-ref-paiement')) document.getElementById('pion-ref-paiement').value = '';
       document.getElementById('pion-calcul').style.display = 'none';
       valeurPionSelectionne = 0;
       document.querySelectorAll('.pion-val').forEach(function(p){
