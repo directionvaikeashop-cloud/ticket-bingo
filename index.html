@@ -1889,8 +1889,11 @@ async function analyserPageNumeroPDF(page, pageNum){
         // Calculer position en pourcentage
         const tx = item.transform[4];
         const ty = item.transform[5];
-        const xPct = (tx / viewport.width) * 100;
-        const yPct = ((viewport.height - ty) / viewport.height) * 100;
+        // Centrer sur le numéro en ajoutant la moitié de la largeur/hauteur du texte
+        const largeurTexte = item.width || 20;
+        const hauteurTexte = item.height || 20;
+        const xPct = ((tx + largeurTexte / 2) / viewport.width) * 100;
+        const yPct = ((viewport.height - ty + hauteurTexte / 2) / viewport.height) * 100;
         
         if(!carteNumeros[num]) carteNumeros[num] = [];
         carteNumeros[num].push({page: pageNum, x: xPct, y: yPct});
@@ -3658,6 +3661,67 @@ async function pointageAutomatique(boules){
       }
     });
   });
+  
+  // Vérifier BINGO automatique après cochage
+  verifierBingoAutomatique();
+}
+
+function verifierBingoAutomatique(){
+  if(!cochesParPage || !carteNumeros) return;
+  
+  // Compter les numéros cochés
+  var numerosCoches = [];
+  Object.keys(carteNumeros).forEach(function(num){
+    var positions = carteNumeros[num];
+    if(!positions) return;
+    var estCoche = positions.some(function(pos){
+      var pageKey = 'page_' + pos.page;
+      var cochesPage = cochesParPage[pageKey] || [];
+      return cochesPage.some(function(c){
+        return Math.abs(c.x - pos.x) < 5 && Math.abs(c.y - pos.y) < 5;
+      });
+    });
+    if(estCoche) numerosCoches.push(parseInt(num));
+  });
+  
+  // Vérifier si BINGO — tous les numéros d'une grille cochés
+  // On vérifie page par page : si tous les numéros d'une page sont cochés = BINGO
+  var bingoDetecte = false;
+  
+  // Grouper les numéros par page
+  var numerosParPage = {};
+  Object.keys(carteNumeros).forEach(function(num){
+    var positions = carteNumeros[num];
+    positions.forEach(function(pos){
+      if(!numerosParPage[pos.page]) numerosParPage[pos.page] = [];
+      if(!numerosParPage[pos.page].includes(parseInt(num))){
+        numerosParPage[pos.page].push(parseInt(num));
+      }
+    });
+  });
+  
+  // Vérifier si tous les numéros d'une page sont cochés
+  Object.keys(numerosParPage).forEach(function(page){
+    var numerosPage = numerosParPage[page];
+    if(numerosPage.length < 5) return; // Ignorer les pages sans grille
+    var tousCochesSurCettePage = numerosPage.every(function(num){
+      return numerosCoches.includes(num);
+    });
+    if(tousCochesSurCettePage) bingoDetecte = true;
+  });
+  
+  if(bingoDetecte && bingoTicketActuel){
+    // Afficher notification BINGO
+    var notifBingo = document.getElementById('notif-bingo-auto');
+    if(!notifBingo){
+      notifBingo = document.createElement('div');
+      notifBingo.id = 'notif-bingo-auto';
+      notifBingo.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;padding:14px 24px;border-radius:12px;font-size:16px;font-weight:700;z-index:9998;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,.4);animation:pulse 1s infinite;text-align:center';
+      notifBingo.innerHTML = '🎉 BINGO possible !<br><span style="font-size:12px;font-weight:400">Appuyez pour déclarer</span>';
+      notifBingo.onclick = function(){ declarerBingo(); notifBingo.remove(); };
+      document.body.appendChild(notifBingo);
+    }
+  }
 }
 
 // === TIRAGE AUTOMATIQUE ===
