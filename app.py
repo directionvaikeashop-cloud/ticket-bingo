@@ -73,8 +73,13 @@ def verif_session(token):
     s = fresh["sessions"].get(token)
     if not s:
         return None
-    if datetime.datetime.now() > datetime.datetime.fromisoformat(s["expire"]):
-        return None
+    # Si pas de date d'expiration (admin) ou session non expirée
+    if s.get("expire"):
+        try:
+            if datetime.datetime.now() > datetime.datetime.fromisoformat(s["expire"]):
+                return None
+        except:
+            pass
     return s
 
 def upload_cloudinary_image(image_b64):
@@ -128,7 +133,11 @@ def login():
                 return jsonify({"ok": False, "msg": "Code invalide ou expiré"}), 401
         except:
             pass
-    expire = datetime.datetime.now() + datetime.timedelta(days=30)
+    # Admin = session sans expiration, autres = 30 jours
+    if info.get("admin"):
+        expire = datetime.datetime.now() + datetime.timedelta(days=3650)
+    else:
+        expire = datetime.datetime.now() + datetime.timedelta(days=30)
     token = secrets.token_hex(16)
     DB["sessions"][token] = {
         "code": code, "nom": info["nom"],
