@@ -1262,12 +1262,9 @@ def calculer_cagnotte():
     d = request.json
     total_mises = float(d.get("total_mises", 0))
     
-    # Calcul cagnotte
-    cagnotte_totale = round(total_mises * 0.13)
-    ma_commission = round(total_mises * 0.02)  # 2% pour Ticket Bingo
-    frais_fixes = 500  # 500 XPF frais fixes
-    cagnotte_nette = cagnotte_totale - ma_commission - frais_fixes
-    cagnotte_annoncee = round(total_mises * 0.11)  # 11% annoncé aux joueurs
+    # Calcul cagnotte — 80% joueur, 20% organisateur
+    cagnotte_annoncee = round(total_mises * 0.80)  # 80% pour le gagnant
+    part_org = round(total_mises * 0.20)            # 20% pour l'organisateur
     
     # Sauvegarder la cagnotte du tournoi
     if "cagnottes" not in DB:
@@ -1277,10 +1274,8 @@ def calculer_cagnotte():
         "id": gen_code(6),
         "code_org": s["code"],
         "total_mises": total_mises,
-        "cagnotte_totale": cagnotte_totale,
         "cagnotte_annoncee": cagnotte_annoncee,
-        "ma_commission": ma_commission,
-        "frais_fixes": frais_fixes,
+        "part_org": part_org,
         "date": datetime.datetime.now().isoformat()
     }
     DB["cagnottes"].append(cagnotte)
@@ -1290,9 +1285,7 @@ def calculer_cagnotte():
         "ok": True,
         "total_mises": total_mises,
         "cagnotte_annoncee": cagnotte_annoncee,
-        "cagnotte_13": cagnotte_annoncee,
-        "frais_org": frais_org,
-        "total_preleve": total_preleve
+        "part_org": part_org
     })
 
 @app.route("/api/demande-acces", methods=["POST"])
