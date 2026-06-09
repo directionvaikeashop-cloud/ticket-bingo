@@ -1364,6 +1364,30 @@ def get_signals():
         signals = [s for s in signals if s["id"] > after]
     return jsonify(signals)
 
+@app.route("/api/micro/audio", methods=["POST"])
+def recevoir_audio():
+    global DB
+    try:
+        d = request.json
+        audio_b64 = d.get("audio", "")
+        code_org = d.get("code_org", "")
+        if audio_b64:
+            DB["micro_audio"] = {
+                "audio": audio_b64,
+                "code_org": code_org,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            save_data()
+        return jsonify({"ok": True})
+    except:
+        return jsonify({"ok": False})
+
+@app.route("/api/micro/audio/get")
+def get_audio():
+    global DB
+    DB = load_data()
+    return jsonify(DB.get("micro_audio", {}))
+
 @app.route("/api/micro/status", methods=["POST"])
 def micro_status():
     global DB
