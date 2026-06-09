@@ -81,6 +81,10 @@ select option{background:var(--s2)}
 .bingo-alert{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(135deg,#6366f1,#f59e0b);border-radius:var(--r);padding:30px;text-align:center;z-index:1000;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:popIn .3s ease}
 @keyframes popIn{from{transform:translate(-50%,-50%) scale(0.5);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes wave1{0%,100%{height:8px}50%{height:24px}}
+@keyframes wave2{0%,100%{height:14px}50%{height:32px}}
+@keyframes wave3{0%,100%{height:20px}50%{height:40px}}
+#w1,#w2,#w3,#w4,#w5{height:16px}
 </style>
 </head>
 <body>
@@ -1256,16 +1260,38 @@ function buildOrgSpace(){
       <div id="cagnotte-result"></div>
     </div>
 
-    <!-- MICRO ORGANISATEUR -->
+    <!-- MICRO ORGANISATEUR UNIVERSEL -->
     <div class="card" style="margin-top:14px;background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.3)">
       <div class="ct" style="margin-bottom:12px">🎤 Micro organisateur</div>
-      <div style="text-align:center;margin-bottom:12px">
-        <button id="btn-micro" onclick="toggleMicro()" style="width:80px;height:80px;border-radius:50%;background:rgba(99,102,241,.3);border:2px solid #6366f1;color:#fff;font-size:32px;cursor:pointer;transition:all .3s">🎤</button>
-        <div id="micro-status" style="font-size:12px;color:var(--mu);margin-top:8px">Micro désactivé</div>
+      
+      <!-- Bouton micro principal -->
+      <div style="text-align:center;margin-bottom:16px">
+        <button id="btn-micro" onclick="toggleMicro()" style="width:90px;height:90px;border-radius:50%;background:rgba(99,102,241,.3);border:3px solid #6366f1;color:#fff;font-size:36px;cursor:pointer;transition:all .3s;display:flex;align-items:center;justify-content:center;margin:0 auto">🎤</button>
+        <div id="micro-status" style="font-size:13px;color:var(--mu);margin-top:10px">Appuyez pour parler</div>
+        <div id="micro-waves" style="display:none;margin-top:8px">
+          <div style="display:flex;align-items:center;justify-content:center;gap:3px">
+            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave1 0.8s infinite" id="w1"></div>
+            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave2 0.8s infinite" id="w2"></div>
+            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave3 0.8s infinite" id="w3"></div>
+            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave2 0.8s infinite" id="w4"></div>
+            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave1 0.8s infinite" id="w5"></div>
+          </div>
+        </div>
       </div>
+
+      <!-- Messages rapides -->
+      <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Messages rapides</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <button onclick="envoyerMessageRapide('🎱 Le tournoi commence ! Bonne chance à tous !')" style="width:100%;padding:10px;background:rgba(16,185,129,.15);color:#34d399;border:0.5px solid #10b981;border-radius:8px;cursor:pointer;font-size:13px;text-align:left">🎱 Le tournoi commence !</button>
+        <button onclick="envoyerMessageRapide('⏸️ Pause — Le tirage est suspendu')" style="width:100%;padding:10px;background:rgba(245,158,11,.15);color:#fbbf24;border:0.5px solid #f59e0b;border-radius:8px;cursor:pointer;font-size:13px;text-align:left">⏸️ Pause</button>
+        <button onclick="envoyerMessageRapide('▶️ Le tirage reprend !')" style="width:100%;padding:10px;background:rgba(99,102,241,.15);color:#818cf8;border:0.5px solid #6366f1;border-radius:8px;cursor:pointer;font-size:13px;text-align:left">▶️ Reprise</button>
+        <button onclick="envoyerMessageRapide('🏆 Félicitations au gagnant !')" style="width:100%;padding:10px;background:rgba(245,158,11,.15);color:#fbbf24;border:0.5px solid #f59e0b;border-radius:8px;cursor:pointer;font-size:13px;text-align:left">🏆 Félicitations !</button>
+      </div>
+
+      <!-- Message texte -->
       <div style="display:flex;gap:8px">
-        <input id="micro-message" placeholder="Message pour les joueurs..." style="flex:1;font-size:13px"/>
-        <button onclick="envoyerMessageMicro()" class="btn-sm" style="padding:8px 12px;background:var(--ac)">📢</button>
+        <input id="micro-message" placeholder="Message personnalisé..." style="flex:1;font-size:13px"/>
+        <button onclick="envoyerMessageMicro()" style="padding:10px 16px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">📢</button>
       </div>
     </div>
 
@@ -3358,66 +3384,88 @@ async function validerPaiementAdmin(venteId){
   }catch(e){}
 }
 
-// === MICRO ORGANISATEUR ===
+// === MICRO ORGANISATEUR UNIVERSEL ===
 let microActif = false;
 let microStream = null;
-let microRecognition = null;
-let dernierMessage = "";
+let mediaRecorder = null;
+let audioChunks = [];
+let microInterval = null;
 
 async function toggleMicro(){
   const btn = document.getElementById('btn-micro');
   const status = document.getElementById('micro-status');
-  
+  const waves = document.getElementById('micro-waves');
+
   if(!microActif){
-    // Activer le micro
     try{
-      // Utiliser la reconnaissance vocale si disponible
-      if('webkitSpeechRecognition' in window || 'SpeechRecognition' in window){
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        microRecognition = new SR();
-        microRecognition.continuous = true;
-        microRecognition.interimResults = true;
-        microRecognition.lang = 'fr-FR';
-        
-        microRecognition.onresult = function(event){
-          let transcript = '';
-          for(let i = event.resultIndex; i < event.results.length; i++){
-            if(event.results[i].isFinal){
-              transcript += event.results[i][0].transcript;
-            }
-          }
-          if(transcript.trim()){
-            envoyerMessageAuto(transcript.trim());
-          }
-        };
-        
-        microRecognition.start();
-        microActif = true;
-        btn.style.background = 'rgba(239,68,68,.5)';
-        btn.style.borderColor = '#ef4444';
-        btn.innerHTML = '🔴';
-        status.textContent = '🔴 Micro actif — vous parlez aux joueurs';
-        status.style.color = '#f87171';
-        
-        await fetch('/api/micro/status', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({actif: true, message: "🎤 L'organisateur est en direct !"})
-        });
-      } else {
-        alert("La reconnaissance vocale n'est pas disponible sur ce navigateur. Utilisez Chrome.");
-      }
+      // Demander accès micro — fonctionne sur TOUS les navigateurs modernes
+      microStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      
+      // Démarrer MediaRecorder
+      mediaRecorder = new MediaRecorder(microStream);
+      audioChunks = [];
+      
+      mediaRecorder.ondataavailable = function(e){
+        if(e.data.size > 0) audioChunks.push(e.data);
+      };
+      
+      mediaRecorder.onstop = async function(){
+        if(audioChunks.length > 0){
+          const blob = new Blob(audioChunks, {type: 'audio/webm'});
+          audioChunks = [];
+          // Envoyer l'audio au serveur
+          const reader = new FileReader();
+          reader.onload = async function(){
+            const b64 = reader.result.split(',')[1];
+            await fetch('/api/micro/audio', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({audio: b64, code_org: CODE_ORG})
+            });
+          };
+          reader.readAsDataURL(blob);
+        }
+        // Redémarrer si toujours actif
+        if(microActif && microStream && microStream.active){
+          audioChunks = [];
+          mediaRecorder.start();
+          setTimeout(function(){ if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }, 2000);
+        }
+      };
+      
+      // Enregistrer par tranches de 2 secondes
+      mediaRecorder.start();
+      setTimeout(function(){ if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }, 2000);
+      
+      microActif = true;
+      btn.style.background = 'rgba(239,68,68,.5)';
+      btn.style.borderColor = '#ef4444';
+      btn.style.boxShadow = '0 0 20px rgba(239,68,68,.5)';
+      btn.innerHTML = '🔴';
+      if(status){ status.textContent = '🔴 En direct — Les joueurs vous entendent !'; status.style.color = '#f87171'; }
+      if(waves) waves.style.display = 'block';
+      
+      await fetch('/api/micro/status', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({actif: true, message: "🎤 L'organisateur est en direct !"})
+      });
+
     }catch(e){
-      alert("Impossible d'activer le micro: " + e.message);
+      alert("Impossible d'accéder au micro. Vérifiez les permissions dans votre navigateur.");
     }
   } else {
-    // Désactiver le micro
-    if(microRecognition) microRecognition.stop();
+    // Arrêter
     microActif = false;
+    if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    if(microStream) microStream.getTracks().forEach(function(t){ t.stop(); });
+    microStream = null;
+    
     btn.style.background = 'rgba(99,102,241,.3)';
     btn.style.borderColor = '#6366f1';
+    btn.style.boxShadow = 'none';
     btn.innerHTML = '🎤';
-    status.textContent = 'Micro désactivé';
-    status.style.color = 'var(--mu)';
+    if(status){ status.textContent = 'Appuyez pour parler'; status.style.color = 'var(--mu)'; }
+    if(waves) waves.style.display = 'none';
     
     await fetch('/api/micro/status', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -3426,13 +3474,23 @@ async function toggleMicro(){
   }
 }
 
-async function envoyerMessageAuto(texte){
-  if(!texte || texte === dernierMessage) return;
-  dernierMessage = texte;
-  await fetch('/api/micro/status', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({actif: true, message: texte})
-  });
+async function envoyerMessageRapide(texte){
+  try{
+    await fetch('/api/micro/status', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({actif: true, message: texte})
+    });
+    var status = document.getElementById('micro-status');
+    if(status){
+      status.textContent = '✅ Envoyé : ' + texte;
+      status.style.color = '#34d399';
+      setTimeout(function(){ 
+        status.textContent = 'Les joueurs voient vos messages en temps réel sur leur téléphone';
+        status.style.color = 'rgba(255,255,255,.4)';
+      }, 3000);
+    }
+  }catch(e){}
 }
 
 async function envoyerMessageMicro(){
@@ -3454,30 +3512,53 @@ async function envoyerMessageMicro(){
 
 // Vérifier les messages micro côté joueur toutes les 3 secondes
 let dernierMessageJoueur = "";
+let dernierAudioTimestamp = "";
+let audioContext = null;
+
 async function checkMicroJoueur(){
   try{
+    // Vérifier messages texte
     const r = await fetch('/api/micro/status');
     const d = await r.json();
     const notif = document.getElementById('micro-notif-joueur');
     const msgEl = document.getElementById('micro-message-joueur');
-    if(!notif || !msgEl) return;
-    
-    if(d.actif && d.message && d.message !== dernierMessageJoueur){
-      dernierMessageJoueur = d.message;
-      notif.style.display = 'block';
-      msgEl.textContent = d.message;
-      // Lire le message à voix haute
-      if('speechSynthesis' in window){
-        const utterance = new SpeechSynthesisUtterance(d.message);
-        utterance.lang = 'fr-FR';
-        window.speechSynthesis.speak(utterance);
+    if(notif && msgEl){
+      if(d.actif && d.message && d.message !== dernierMessageJoueur){
+        dernierMessageJoueur = d.message;
+        notif.style.display = 'block';
+        msgEl.textContent = d.message;
+        setTimeout(function(){ notif.style.display = 'none'; }, 10000);
+      } else if(!d.actif){
+        notif.style.display = 'none';
       }
-      // Cacher après 10 secondes
-      setTimeout(() => { notif.style.display = 'none'; }, 10000);
-    } else if(!d.actif){
-      notif.style.display = 'none';
+    }
+    
+    // Vérifier audio en direct
+    const r2 = await fetch('/api/micro/audio/get');
+    const audioData = await r2.json();
+    if(audioData.audio && audioData.timestamp && audioData.timestamp !== dernierAudioTimestamp){
+      dernierAudioTimestamp = audioData.timestamp;
+      // Jouer l'audio reçu
+      jouerAudioMicro(audioData.audio);
     }
   }catch(e){}
+}
+
+async function jouerAudioMicro(b64){
+  try{
+    const blob = b64ToBlob(b64, 'audio/webm');
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.play().catch(function(){});
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+  }catch(e){}
+}
+
+function b64ToBlob(b64, type){
+  const bytes = atob(b64);
+  const arr = new Uint8Array(bytes.length);
+  for(var i=0; i<bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], {type: type});
 }
 
 // === POINTAGE AUTOMATIQUE JOUEUR ===
