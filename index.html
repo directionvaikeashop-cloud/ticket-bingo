@@ -2159,14 +2159,13 @@ function getCouleur(n){
 
 function tirerBoule(){
   if(bouleRestantes.length === 0){
-    document.getElementById('boule-label').textContent = '🎉 Toutes les boules ont été tirées !';
-    document.getElementById('btn-tirer').disabled = true;
+    document.querySelectorAll('[id="boule-label"]').forEach(function(el){ el.textContent = '🎉 Toutes les boules ont été tirées !'; });
     return;
   }
   
   // Animation
-  const btn = document.getElementById('btn-tirer');
-  btn.disabled = true;
+  const btn = document.querySelector('[id="btn-auto-tirer"]');
+  if(btn) btn.disabled = true;
   
   let compteur = 0;
   const interval = setInterval(() => {
@@ -2185,24 +2184,24 @@ function tirerBoule(){
       const lettre = getLettre(boule);
       const couleur = getCouleur(boule);
       
-      document.getElementById('boule-numero').textContent = boule;
-      document.getElementById('boule-display').querySelector('div').style.background = 
-        'linear-gradient(135deg,' + couleur + ',' + couleur + 'aa)';
-      document.getElementById('boule-label').textContent = lettre + ' — ' + boule;
-      document.getElementById('nb-tires').textContent = boulesTirees.length;
-      document.getElementById('nb-restants').textContent = bouleRestantes.length;
+      document.querySelectorAll('[id="boule-numero"]').forEach(function(el){ el.textContent = boule; });
+      document.querySelectorAll('[id="boule-display"]').forEach(function(el){ if(el.querySelector('div')) el.querySelector('div').style.background = 'linear-gradient(135deg,' + couleur + ',' + couleur + 'aa)'; });
+      document.querySelectorAll('[id="boule-label"]').forEach(function(el){ el.textContent = lettre + ' — ' + boule; });
+      document.querySelectorAll('[id="nb-tires"]').forEach(function(el){ el.textContent = boulesTirees.length; });
+      document.querySelectorAll('[id="nb-restants"]').forEach(function(el){ el.textContent = bouleRestantes.length; });
       
       // Sauvegarder pour les joueurs
       fetch('/api/tirage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({boules: boulesTirees, vitesse: vitesseTirage||3})}).catch(()=>{});
       
       // Ajouter à l'historique
-      const hist = document.getElementById('historique-boules');
-      const el = document.createElement('div');
-      el.style.cssText = 'width:36px;height:36px;border-radius:50%;background:' + couleur + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:Syne,sans-serif';
-      el.textContent = boule;
-      hist.insertBefore(el, hist.firstChild);
+      document.querySelectorAll('[id="historique-boules"]').forEach(function(hist){
+        const el = document.createElement('div');
+        el.style.cssText = 'width:36px;height:36px;border-radius:50%;background:' + couleur + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:Syne,sans-serif';
+        el.textContent = boule;
+        hist.insertBefore(el, hist.firstChild);
+      });
       
-      btn.disabled = false;
+      if(btn) btn.disabled = false;
       
       // Son ding + voix
       try {
@@ -2237,13 +2236,12 @@ function resetTirage(){
   if(!confirm('Réinitialiser le tirage ? Toutes les boules seront remises.')) return;
   boulesTirees = [];
   bouleRestantes = [...toutesLesBoules];
-  document.getElementById('boule-numero').textContent = '?';
-  document.getElementById('boule-label').textContent = 'Prêt à tirer';
-  document.getElementById('boule-display').querySelector('div').style.background = 'linear-gradient(135deg,#6366f1,#818cf8)';
-  document.getElementById('nb-tires').textContent = '0';
-  document.getElementById('nb-restants').textContent = '75';
-  document.getElementById('historique-boules').innerHTML = '';
-  document.getElementById('btn-tirer').disabled = false;
+  document.querySelectorAll('[id="boule-numero"]').forEach(function(el){ el.textContent = '?'; });
+  document.querySelectorAll('[id="boule-label"]').forEach(function(el){ el.textContent = 'Prêt à tirer'; });
+  document.querySelectorAll('[id="boule-display"]').forEach(function(el){ if(el.querySelector('div')) el.querySelector('div').style.background = 'linear-gradient(135deg,#6366f1,#818cf8)'; });
+  document.querySelectorAll('[id="nb-tires"]').forEach(function(el){ el.textContent = '0'; });
+  document.querySelectorAll('[id="nb-restants"]').forEach(function(el){ el.textContent = '75'; });
+  document.querySelectorAll('[id="historique-boules"]').forEach(function(el){ el.innerHTML = ''; });
 }
 
 // === BINGO ===
@@ -3678,7 +3676,7 @@ async function calculerCagnotteAuto(){
 }
 
 async function toggleTirageAuto(){
-  const btn = document.getElementById('btn-auto-tirer');
+  const btn = document.querySelector('[id="btn-auto-tirer"]');
   if(!tirageAutoActif){
     // Calculer et annoncer la cagnotte automatiquement
     await calculerCagnotteAuto();
