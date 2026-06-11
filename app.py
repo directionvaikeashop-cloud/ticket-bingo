@@ -1879,6 +1879,29 @@ def generer_500_francs():
         return jsonify({"ok": False, "msg": str(e)}), 500
 
 # === GENERATION 1 DOLLAR ===
+@app.route("/api/admin/generer-ohana75", methods=["POST"])
+def generer_ohana75():
+    """Génère un PDF OHANA 75"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    d = request.json or {}
+    nb_tickets = min(int(d.get("nb_tickets", 500)), 1000)
+    serie_start = int(d.get("serie_start", 1))
+    output_path = f"/data/OHANA75_{serie_start:05d}_to_{serie_start + nb_tickets - 1:05d}.pdf"
+    os.makedirs("/data", exist_ok=True)
+    try:
+        generate_ohana75_pdf(nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        return send_file(output_path, as_attachment=True,
+                        download_name=f"OHANA75_{serie_start:05d}.pdf",
+                        mimetype="application/pdf")
+    except Exception as e:
+        print(f"[OHANA75 ERR] {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
 @app.route("/api/admin/generer-1-dollar", methods=["POST"])
 def generer_1_dollar():
     global DB
