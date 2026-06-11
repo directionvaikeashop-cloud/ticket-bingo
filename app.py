@@ -1993,6 +1993,33 @@ def stripe_webhook():
                 })
                 print(f"[STRIPE] {nb_pions} pions crédités à {code_org}")
         
+        # Si c'est un achat de tickets (nouveau circuit automatique)
+        if type_p == "tickets" and code_org:
+            jeu = metadata.get("jeu", "")
+            pack = int(metadata.get("pack", 0))
+            prix_xpf = int(metadata.get("prix_xpf", 0))
+            serie = metadata.get("serie", "1")
+            
+            if jeu and pack > 0:
+                # Créer une commande ticket automatiquement traitée
+                if "commandes_tickets" not in DB:
+                    DB["commandes_tickets"] = []
+                
+                commande_id = gen_code(8)
+                DB["commandes_tickets"].insert(0, {
+                    "id": commande_id,
+                    "code_org": code_org,
+                    "nom_org": DB["codes"].get(code_org, {}).get("nom", code_org),
+                    "jeu": jeu,
+                    "pack": pack,
+                    "prix": prix_xpf,
+                    "serie": serie,
+                    "statut": "payee_stripe",
+                    "mode_paiement": "Carte Stripe",
+                    "date": datetime.datetime.now().isoformat()
+                })
+                print(f"[STRIPE TICKETS] Commande {pack} tickets {jeu} pour {code_org}")
+
         # Si c'est un achat PDF, enregistrer la commande
         if type_p == "pdf" and code_org:
             nb_tickets = int(metadata.get("nb_tickets", 0))
@@ -2099,6 +2126,63 @@ def payer_abonnement():
         return jsonify({"ok": False, "msg": str(e)}), 500
 
 # === PAIEMENT PIONS VIA STRIPE ===
+@app.route("/api/paiement/tickets", methods=["POST"])
+def payer_tickets_stripe():
+    """Crée une session Stripe pour achat de tickets PDF"""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return jsonify({"ok": False, "msg": "Paiement en ligne non configuré"}), 503
+    
+    d = request.json
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+    
+    jeu = d.get("jeu", "")
+    pack = int(d.get("pack", 0))
+    prix = int(d.get("prix", 0))
+    serie = d.get("serie", "1")
+    code_org = s["code"]
+    
+    if not jeu or pack <= 0 or prix <= 0:
+        return jsonify({"ok": False, "msg": "Données invalides"}), 400
+    
+    # Convertir XPF en EUR (1 EUR ≈ 119.33 XPF)
+    prix_eur = max(1, round(prix / 119.33, 2))
+    prix_centimes = int(prix_eur * 100)
+    
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {
+                        "name": f"{pack} tickets {jeu}",
+                        "description": f"Pack de {pack} tickets — Série {serie} — Génération automatique du PDF"
+                    },
+                    "unit_amount": prix_centimes,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"https://ticket-bingo-production.up.railway.app?paiement=success&type=tickets",
+            cancel_url=f"https://ticket-bingo-production.up.railway.app?paiement=cancel",
+            metadata={
+                "type": "tickets",
+                "code_org": code_org,
+                "jeu": jeu,
+                "pack": str(pack),
+                "prix_xpf": str(prix),
+                "serie": serie
+            },
+            customer_email=s.get("email", "")
+        )
+        return jsonify({"ok": True, "url": session.url})
+    except Exception as e:
+        print(f"[STRIPE TICKETS ERR] {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
 @app.route("/api/paiement/pions", methods=["POST"])
 def payer_pions():
     """Crée une session Stripe pour achat de pions par l'organisateur ou le joueur"""
