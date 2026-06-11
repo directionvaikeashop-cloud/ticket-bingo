@@ -938,6 +938,23 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <button onclick="genererJeu('ta75','generer-ta75')" id="btn-ta75" style="width:100%;padding:10px;background:linear-gradient(135deg,#64b5f6,#3949ab);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:6px">⚡ Générer TRIPLE ACTION 75</button>
         <div id="ta75-result" style="margin-top:6px"></div>
       </div>
+
+      <!-- OHANA 75 -->
+      <div style="margin-top:14px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);border-radius:10px;padding:12px">
+        <div style="font-size:13px;font-weight:700;color:#818cf8;margin-bottom:8px">🎱 OHANA 75</div>
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <div style="flex:1">
+            <div class="lbl">Nb tickets</div>
+            <input id="ohana75-nb" type="number" value="500" min="1" max="1000" style="font-size:13px"/>
+          </div>
+          <div style="flex:1">
+            <div class="lbl">Série départ</div>
+            <input id="ohana75-serie" type="number" value="1" min="1" style="font-size:13px"/>
+          </div>
+        </div>
+        <button onclick="genererOhana75()" id="btn-ohana75" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:6px">⚡ Générer OHANA 75</button>
+        <div id="ohana75-result" style="margin-top:6px"></div>
+      </div>
       <div style="background:linear-gradient(135deg,rgba(229,57,53,rgba(229,57,53,.1));border:1px solid rgba(229,57,53,.3);border-radius:10px;padding:14px;margin-bottom:10px">
         <div style="font-size:13px;font-weight:600;color:#ef5350;margin-bottom:10px">🎱 60 BOULES</div>
         <div class="g2">
@@ -3329,6 +3346,39 @@ async function genererJeu(uid, route){
 function genererTA75(){ genererJeu('ta75','generer-ta75'); }
 
 // === GENERATION TICKETS TA75 ===
+async function genererOhana75(){
+  const nb = document.getElementById('ohana75-nb').value || 500;
+  const serie = document.getElementById('ohana75-serie').value || 1;
+  const btn = document.getElementById('btn-ohana75');
+  const result = document.getElementById('ohana75-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Génération en cours...';
+  result.innerHTML = '<div style="font-size:12px;color:var(--ac2)">Génération de ' + nb + ' tickets OHANA 75...</div>';
+  try{
+    const r = await fetch('/api/admin/generer-ohana75', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({nb_tickets: parseInt(nb), serie_start: parseInt(serie)})
+    });
+    if(r.ok){
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'OHANA75_' + String(serie).padStart(5,'0') + '.pdf';
+      a.click();
+      result.innerHTML = '<div style="color:#34d399;font-size:12px">✅ PDF téléchargé !</div>';
+    } else {
+      const d = await r.json();
+      result.innerHTML = '<div style="color:#f87171;font-size:12px">❌ ' + (d.msg||'Erreur') + '</div>';
+    }
+  }catch(e){
+    result.innerHTML = '<div style="color:#f87171;font-size:12px">❌ Erreur connexion</div>';
+  }
+  btn.disabled = false;
+  btn.textContent = '⚡ Générer OHANA 75';
+}
+
 async function genererTA75(){
   const nb = parseInt(document.getElementById('ta75-nb')?.value || 500);
   const serie = parseInt(document.getElementById('ta75-serie')?.value || 1);
