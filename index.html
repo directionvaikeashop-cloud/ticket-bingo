@@ -1085,6 +1085,8 @@ async function accesJoueurDirect(){
       document.getElementById("s-joueur").classList.add("active");
       // Charger les soldes pions du joueur
       setTimeout(function(){ chargerSoldesPionsJoueur(code); }, 500);
+      // Connecter WebSocket micro pour entendre l'organisateur
+      if(t.code_org) connecterMicroJoueur(t.code_org);
       // Démarrer le refresh automatique des boules toutes les 5 secondes
       startTirageAutoRefresh();
       loadTirageJoueur();
@@ -2144,26 +2146,29 @@ var carteNumeros = {}; // {numero: [{page, x, y}]}
 async function analyserPageNumeroPDF(page, pageNum){
   try{
     const textContent = await page.getTextContent();
-    const viewport = page.getViewport({scale: 1.0});
+    // Utiliser le MEME scale que le rendu (2.0) pour des coordonnées exactes
+    const SCALE_RENDU = 2.0;
+    const viewport = page.getViewport({scale: SCALE_RENDU});
     
     textContent.items.forEach(function(item){
       const texte = item.str.trim();
       const num = parseInt(texte);
       if(!isNaN(num) && num >= 1 && num <= 90 && texte === String(num)){
-        // Calculer position en pourcentage
-        const tx = item.transform[4];
-        const ty = item.transform[5];
-        // Centrer sur le numéro en ajoutant la moitié de la largeur/hauteur du texte
-        const largeurTexte = item.width || 20;
-        const hauteurTexte = item.height || 20;
+        // Transformer les coordonnées PDF en coordonnées viewport exact
+        const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const tx = transform[4];
+        const ty = transform[5];
+        // Centrer exactement sur le numéro
+        const largeurTexte = (item.width || 10) * SCALE_RENDU;
+        const hauteurTexte = (item.height || 10) * SCALE_RENDU;
         const xPct = ((tx + largeurTexte / 2) / viewport.width) * 100;
-        const yPct = ((viewport.height - ty + hauteurTexte / 2) / viewport.height) * 100;
+        const yPct = ((ty - hauteurTexte / 2) / viewport.height) * 100;
         
         if(!carteNumeros[num]) carteNumeros[num] = [];
         carteNumeros[num].push({page: pageNum, x: xPct, y: yPct});
       }
     });
-  }catch(e){}
+  }catch(e){ console.error('analyserPage error:', e); }
 }
 
 async function chargerPDFJoueur(url,cleCoches,overlay,cochesExistantes,pageDebut,pageFin){
@@ -2654,13 +2659,40 @@ async function resetTournoi(){
     const r = await fetch('/api/tournoi/reset',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN}});
     const d = await r.json();
     if(d.ok){
+      // Remettre les boules à zéro
       boulesTirees = [];
-      if(typeof updateBarreBoules === 'function') updateBarreBoules();
-      var resetDiv = document.getElementById('reset-tournoi-zone');
-      if(resetDiv) resetDiv.style.display = 'none';
+      bouleRestantes = Array.from({length:75}, function(_,i){ return i+1; });
+      
+      // Vider l'affichage boules
+      document.querySelectorAll('[id="boule-numero"]').forEach(function(el){ el.textContent = '?'; });
+      document.querySelectorAll('[id="boule-label"]').forEach(function(el){ el.textContent = 'Prêt à tirer'; });
+      document.querySelectorAll('[id="boule-display"]').forEach(function(el){ if(el.querySelector('div')) el.querySelector('div').style.background = 'linear-gradient(135deg,#6366f1,#818cf8)'; });
+      document.querySelectorAll('[id="nb-tires"]').forEach(function(el){ el.textContent = '0'; });
+      document.querySelectorAll('[id="nb-restants"]').forEach(function(el){ el.textContent = '75'; });
+      document.querySelectorAll('[id="historique-boules"]').forEach(function(el){ el.innerHTML = ''; });
+      
+      // Vider le tirage joueur
+      var tirageJoueur = document.getElementById('tirage-joueur-display-direct');
+      if(tirageJoueur) tirageJoueur.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">En attente du tirage...</div>';
+      var tirageJ = document.getElementById('tirage-joueur-display');
+      if(tirageJ) tirageJ.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">En attente du tirage...</div>';
+      
+      // Vider les alertes bingo
+      var alertes = document.getElementById('bingo-alertes');
+      if(alertes) alertes.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucune alerte</div>';
+      var alertesVerif = document.getElementById('bingo-alertes-verif');
+      if(alertesVerif) alertesVerif.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">En attente alertes BINGO...</div>';
+      
+      // Arrêter tirage auto si actif
+      if(tirageAutoActif) toggleTirageAuto();
+      
+      // Cacher les cards
       var effCard = document.getElementById('effacement-card');
       if(effCard) effCard.style.display = 'none';
-      toast('toast-t','✅ Tournoi remis à zéro ! Prêt pour le prochain tournoi.');
+      
+      if(typeof updateBarreBoules === 'function') updateBarreBoules();
+      
+      toast('toast-t','✅ Tournoi remis à zéro ! Prêt pour le prochain jeu.');
     }
   }catch(e){}
 }
@@ -3988,12 +4020,11 @@ async function validerPaiementAdmin(venteId){
   }catch(e){}
 }
 
-// === MICRO ORGANISATEUR UNIVERSEL ===
+// === MICRO ORGANISATEUR WEBSOCKET ===
 let microActif = false;
 let microStream = null;
 let mediaRecorder = null;
-let audioChunks = [];
-let microInterval = null;
+let microWs = null;
 
 async function toggleMicro(){
   const btn = document.getElementById('btn-micro');
@@ -4002,67 +4033,53 @@ async function toggleMicro(){
 
   if(!microActif){
     try{
-      // Demander accès micro — fonctionne sur TOUS les navigateurs modernes
-      microStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      // Demander accès micro
+      microStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
       
-      // Démarrer MediaRecorder
-      mediaRecorder = new MediaRecorder(microStream);
-      audioChunks = [];
+      // Connexion WebSocket
+      const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/micro/org/' + CODE_ORG;
+      microWs = new WebSocket(wsUrl);
       
-      mediaRecorder.ondataavailable = function(e){
-        if(e.data.size > 0) audioChunks.push(e.data);
+      microWs.onopen = function(){
+        // Démarrer MediaRecorder en streaming continu
+        var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+        mediaRecorder = new MediaRecorder(microStream, {mimeType: mimeType, audioBitsPerSecond: 32000});
+        
+        mediaRecorder.ondataavailable = function(e){
+          if(e.data.size > 0 && microWs && microWs.readyState === WebSocket.OPEN){
+            microWs.send(e.data);
+          }
+        };
+        
+        // Envoyer des chunks toutes les 250ms — streaming fluide sans coupure
+        mediaRecorder.start(250);
+        
+        microActif = true;
+        btn.style.background = 'rgba(239,68,68,.5)';
+        btn.style.borderColor = '#ef4444';
+        btn.style.boxShadow = '0 0 20px rgba(239,68,68,.5)';
+        btn.innerHTML = '🔴';
+        if(status){ status.textContent = '🔴 En direct — Les joueurs vous entendent !'; status.style.color = '#f87171'; }
+        if(waves) waves.style.display = 'block';
+        
+        fetch('/api/micro/status', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({actif: true, message: "🎤 Organisateur en direct"})});
       };
       
-      mediaRecorder.onstop = async function(){
-        if(audioChunks.length > 0){
-          const blob = new Blob(audioChunks, {type: 'audio/webm'});
-          audioChunks = [];
-          // Envoyer l'audio au serveur
-          const reader = new FileReader();
-          reader.onload = async function(){
-            const b64 = reader.result.split(',')[1];
-            await fetch('/api/micro/audio', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({audio: b64, code_org: CODE_ORG})
-            });
-          };
-          reader.readAsDataURL(blob);
-        }
-        // Redémarrer si toujours actif
-        if(microActif && microStream && microStream.active){
-          audioChunks = [];
-          mediaRecorder.start();
-          setTimeout(function(){ if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }, 2000);
-        }
+      microWs.onerror = function(){
+        // Fallback si WebSocket non disponible
+        alert("Micro WebSocket non disponible — utilisez les messages texte");
       };
-      
-      // Enregistrer par tranches de 2 secondes
-      mediaRecorder.start();
-      setTimeout(function(){ if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }, 2000);
-      
-      microActif = true;
-      btn.style.background = 'rgba(239,68,68,.5)';
-      btn.style.borderColor = '#ef4444';
-      btn.style.boxShadow = '0 0 20px rgba(239,68,68,.5)';
-      btn.innerHTML = '🔴';
-      if(status){ status.textContent = '🔴 En direct — Les joueurs vous entendent !'; status.style.color = '#f87171'; }
-      if(waves) waves.style.display = 'block';
-      
-      await fetch('/api/micro/status', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({actif: true, message: "🎤 L'organisateur est en direct !"})
-      });
 
     }catch(e){
-      alert("Impossible d'accéder au micro. Vérifiez les permissions dans votre navigateur.");
+      alert("Impossible d'acceder au micro. Verifiez les permissions.");
     }
   } else {
     // Arrêter
     microActif = false;
     if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     if(microStream) microStream.getTracks().forEach(function(t){ t.stop(); });
-    microStream = null;
+    if(microWs) microWs.close();
+    microStream = null; mediaRecorder = null; microWs = null;
     
     btn.style.background = 'rgba(99,102,241,.3)';
     btn.style.borderColor = '#6366f1';
@@ -4071,10 +4088,7 @@ async function toggleMicro(){
     if(status){ status.textContent = 'Appuyez pour parler'; status.style.color = 'var(--mu)'; }
     if(waves) waves.style.display = 'none';
     
-    await fetch('/api/micro/status', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({actif: false, message: ""})
-    });
+    fetch('/api/micro/status', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({actif: false, message: ""})});
   }
 }
 
@@ -4146,6 +4160,49 @@ async function checkMicroJoueur(){
       // Jouer l'audio reçu
       jouerAudioMicro(audioData.audio);
     }
+  }catch(e){}
+}
+
+// WebSocket audio joueur
+var joueurMicroWs = null;
+var mediaSourceAudio = null;
+var sourceBuffer = null;
+var audioQueue = [];
+var audioProcessing = false;
+
+function connecterMicroJoueur(codeOrg){
+  if(!codeOrg) return;
+  try{
+    const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/micro/joueur/' + codeOrg;
+    joueurMicroWs = new WebSocket(wsUrl);
+    
+    joueurMicroWs.binaryType = 'arraybuffer';
+    
+    joueurMicroWs.onmessage = function(e){
+      if(e.data instanceof ArrayBuffer){
+        jouerAudioBuffer(e.data);
+      }
+    };
+    
+    joueurMicroWs.onclose = function(){
+      // Reconnecter après 3 secondes
+      setTimeout(function(){ connecterMicroJoueur(codeOrg); }, 3000);
+    };
+    
+    joueurMicroWs.onerror = function(){};
+  }catch(e){}
+}
+
+function jouerAudioBuffer(arrayBuffer){
+  try{
+    var blob = new Blob([arrayBuffer], {type: 'audio/webm'});
+    var url = URL.createObjectURL(blob);
+    var audio = new Audio(url);
+    audio.play().then(function(){ 
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+    }).catch(function(){
+      URL.revokeObjectURL(url);
+    });
   }catch(e){}
 }
 
