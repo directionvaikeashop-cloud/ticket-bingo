@@ -3,3 +3,4 @@ gunicorn
 sendgrid
 reportlab
 stripe
+flask-sock
