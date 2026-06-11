@@ -1533,6 +1533,42 @@ def valider_ticket_pions():
     save_data()
     return jsonify({"ok": True})
 
+# === SYSTEME BONUS ===
+def calculer_bonus(code_joueur, montant, nb_pions, valeur_pion):
+    """Calcule les bonus selon les règles"""
+    global DB
+    bonus = 0
+    raisons = []
+    
+    historique = DB.get("historique_commandes", {}).get(code_joueur, [])
+    nb_commandes = len(historique)
+    
+    # BONUS BIENVENUE - 1ere commande = +5 pions
+    if nb_commandes == 0:
+        bonus += 5
+        raisons.append("🎁 Bonus bienvenue : +5 pions !")
+    
+    # BONUS VOLUME
+    if montant >= 10000:
+        extra = int(nb_pions * 0.15)
+        bonus += extra
+        raisons.append(f"💰 Bonus volume 15% : +{extra} pions !")
+    elif montant >= 5000:
+        extra = int(nb_pions * 0.10)
+        bonus += extra
+        raisons.append(f"💰 Bonus volume 10% : +{extra} pions !")
+    elif montant >= 2000:
+        extra = int(nb_pions * 0.05)
+        bonus += extra
+        raisons.append(f"💰 Bonus volume 5% : +{extra} pions !")
+    
+    # BONUS FIDELITE - toutes les 5 commandes = +10 pions
+    if nb_commandes > 0 and (nb_commandes + 1) % 5 == 0:
+        bonus += 10
+        raisons.append("🔄 Bonus fidélité 5ème commande : +10 pions !")
+    
+    return bonus, raisons
+
 @app.route("/api/pions/commande-joueur", methods=["POST"])
 def commande_pions_joueur():
     global DB
@@ -1552,6 +1588,9 @@ def commande_pions_joueur():
     if "commandes_pions_joueurs" not in DB:
         DB["commandes_pions_joueurs"] = []
     
+    # Calculer bonus
+    bonus_pions, bonus_raisons = calculer_bonus(code_joueur, montant_paye, nb_pions, valeur_pion)
+    
     commande = {
         "id": secrets.token_hex(4).upper(),
         "code_joueur": code_joueur,
@@ -1559,14 +1598,29 @@ def commande_pions_joueur():
         "montant_paye": montant_paye,
         "commission": commission,
         "nb_pions": nb_pions,
+        "bonus_pions": bonus_pions,
+        "bonus_raisons": bonus_raisons,
+        "nb_pions_total": nb_pions + bonus_pions,
         "mode_paiement": mode_paiement,
         "ref_paiement": ref_paiement,
         "statut": "en_attente_validation",
         "date": datetime.datetime.now().isoformat()
     }
     DB["commandes_pions_joueurs"].insert(0, commande)
+    
+    # Enregistrer dans historique commandes
+    if "historique_commandes" not in DB:
+        DB["historique_commandes"] = {}
+    if code_joueur not in DB["historique_commandes"]:
+        DB["historique_commandes"][code_joueur] = []
+    DB["historique_commandes"][code_joueur].append({
+        "date": datetime.datetime.now().isoformat(),
+        "montant": montant_paye,
+        "nb_pions": nb_pions + bonus_pions
+    })
+    
     save_data()
-    return jsonify({"ok": True, "commande_id": commande["id"]})
+    return jsonify({"ok": True, "commande_id": commande["id"], "bonus_pions": bonus_pions, "bonus_raisons": bonus_raisons})
 
 @app.route("/api/notification/joueur/<code_joueur>")
 def get_notification_joueur(code_joueur):
@@ -1586,6 +1640,73 @@ def marquer_notification_lue(code_joueur):
         DB["notifications_joueurs"][code_joueur.upper()]["lu"] = True
         save_data()
     return jsonify({"ok": True})
+
+@app.route("/api/parrainage/code/<code_joueur>")
+def get_code_parrainage(code_joueur):
+    """Retourne le code de parrainage du joueur"""
+    global DB
+    DB = load_data()
+    parrainages = DB.get("parrainages", {})
+    code_parrain = parrainages.get(code_joueur, {}).get("code_parrain")
+    if not code_parrain:
+        # Générer un code parrainage unique
+        code_parrain = "PAR" + secrets.token_hex(3).upper()
+        if "parrainages" not in DB:
+            DB["parrainages"] = {}
+        DB["parrainages"][code_joueur] = {"code_parrain": code_parrain, "filleuls": [], "bonus_recu": 0}
+        save_data()
+    filleuls = parrainages.get(code_joueur, {}).get("filleuls", [])
+    bonus_total = parrainages.get(code_joueur, {}).get("bonus_recu", 0)
+    return jsonify({"ok": True, "code_parrain": code_parrain, "nb_filleuls": len(filleuls), "bonus_total": bonus_total})
+
+@app.route("/api/parrainage/utiliser", methods=["POST"])
+def utiliser_parrainage():
+    """Un nouveau joueur utilise un code parrainage"""
+    global DB
+    DB = load_data()
+    d = request.json
+    code_joueur = d.get("code_joueur", "").upper()
+    code_parrain = d.get("code_parrain", "").upper()
+    
+    if not code_joueur or not code_parrain:
+        return jsonify({"ok": False, "msg": "Données invalides"})
+    
+    # Trouver le parrain
+    parrainages = DB.get("parrainages", {})
+    parrain_code = None
+    for joueur, info in parrainages.items():
+        if info.get("code_parrain") == code_parrain:
+            parrain_code = joueur
+            break
+    
+    if not parrain_code:
+        return jsonify({"ok": False, "msg": "Code parrainage invalide"})
+    
+    if code_joueur == parrain_code:
+        return jsonify({"ok": False, "msg": "Vous ne pouvez pas vous parrainer vous-même"})
+    
+    # Vérifier que ce joueur n'a pas déjà été parrainé
+    if code_joueur in parrainages.get(parrain_code, {}).get("filleuls", []):
+        return jsonify({"ok": False, "msg": "Parrainage déjà utilisé"})
+    
+    # Bonus parrain : +10 pions à 20 XPF
+    if "pions_joueurs" not in DB:
+        DB["pions_joueurs"] = {}
+    if parrain_code not in DB["pions_joueurs"]:
+        DB["pions_joueurs"][parrain_code] = {}
+    DB["pions_joueurs"][parrain_code]["20"] = DB["pions_joueurs"][parrain_code].get("20", 0) + 10
+    
+    # Bonus filleul : +5 pions à 20 XPF
+    if code_joueur not in DB["pions_joueurs"]:
+        DB["pions_joueurs"][code_joueur] = {}
+    DB["pions_joueurs"][code_joueur]["20"] = DB["pions_joueurs"][code_joueur].get("20", 0) + 5
+    
+    # Enregistrer le parrainage
+    DB["parrainages"][parrain_code]["filleuls"].append(code_joueur)
+    DB["parrainages"][parrain_code]["bonus_recu"] = DB["parrainages"][parrain_code].get("bonus_recu", 0) + 10
+    
+    save_data()
+    return jsonify({"ok": True, "msg": "Parrainage activé ! +10 pions pour le parrain, +5 pions pour vous !"})
 
 @app.route("/api/pions/solde-joueur/<code_joueur>")
 def solde_pions_joueur(code_joueur):
@@ -1618,7 +1739,8 @@ def valider_pions_joueur():
                 DB["pions_joueurs"] = {}
             if code_joueur not in DB["pions_joueurs"]:
                 DB["pions_joueurs"][code_joueur] = {}
-            DB["pions_joueurs"][code_joueur][valeur] = DB["pions_joueurs"][code_joueur].get(valeur, 0) + nb
+            nb_total = c.get("nb_pions_total", nb)
+            DB["pions_joueurs"][code_joueur][valeur] = DB["pions_joueurs"][code_joueur].get(valeur, 0) + nb_total
             break
     save_data()
     return jsonify({"ok": True})
