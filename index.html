@@ -1560,6 +1560,13 @@ function buildOrgSpace(){
       <button onclick="supprimerAnnonce()" style="width:100%;padding:8px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.4);border-radius:8px;cursor:pointer;font-size:12px;margin-top:6px">🗑️ Supprimer l'annonce</button>
     </div>
 
+    <!-- MES JOUEURS & DISTRIBUTION DES TICKETS -->
+    <div class="card">
+      <div class="ct" style="justify-content:space-between"><span>👥 Mes joueurs</span><button class="btn-sm" onclick="loadMesJoueurs()">↻ Charger</button></div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Vos joueuses : codes, pions, et distribution des tickets (jeu + PDF + pages)</div>
+      <div id="mes-joueurs-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Cliquez ↻ Charger</div></div>
+    </div>
+
     <!-- RESET TOURNOI -->
     <div style="margin-bottom:14px">
       <button onclick="resetTournoi()" style="width:100%;padding:14px;background:linear-gradient(135deg,rgba(239,68,68,.3),rgba(220,38,38,.2));color:#f87171;border:1px solid rgba(239,68,68,.4);border-radius:12px;cursor:pointer;font-size:15px;font-weight:700">
@@ -4793,6 +4800,100 @@ document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'joueur-pion-mode') calcPionsJoueur();
   if(e.target && e.target.id === 'pion-mode-paiement') calcPions();
 });
+
+// === MES JOUEURS & DISTRIBUTION ===
+var pdfsOrgDisponibles = [];
+
+async function loadMesJoueurs(){
+  var liste = document.getElementById('mes-joueurs-liste');
+  liste.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div>';
+  try{
+    // Recuperer en parallele les joueurs et les PDF disponibles (ventes de l'organisateur)
+    const [rj, rv] = await Promise.all([
+      fetch('/api/organisateur/mes-joueurs', {headers: {'X-Token': TOKEN}}),
+      fetch('/api/ventes', {headers: {'X-Token': TOKEN}})
+    ]);
+    const joueurs = await rj.json();
+    const ventes = await rv.json();
+    pdfsOrgDisponibles = (Array.isArray(ventes) ? ventes : []).filter(function(v){ return v.pdf_url; })
+      .map(function(v){ return {url: v.pdf_url, label: (v.jeu || 'Jeu') + ' — série ' + (v.serie || '?')}; });
+    if(!Array.isArray(joueurs) || !joueurs.length){
+      liste.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Aucun joueur pour le moment</div>';
+      return;
+    }
+    var html = '<div style="font-size:12px;color:var(--mu);margin-bottom:8px">' + joueurs.length + ' joueur(s)</div>';
+    joueurs.forEach(function(j){
+      var sp = j.solde_pions || {};
+      var soldeTxt = [];
+      if(sp['20']) soldeTxt.push(sp['20'] + '×20');
+      if(sp['50']) soldeTxt.push(sp['50'] + '×50');
+      if(sp['100']) soldeTxt.push(sp['100'] + '×100');
+      var pdfOk = j.pdf_url ? '✅ PDF' : '❌ pas de PDF';
+      var jeuTxt = j.jeu ? j.jeu + (j.serie && j.serie !== '-' ? ' — série ' + j.serie : '') : '<span style="color:#f87171">jeu non assigné</span>';
+      var pagesTxt = (j.page_debut && j.page_fin) ? 'pages ' + j.page_debut + '-' + j.page_fin : '';
+      html += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">'
+        + '<div><span style="font-family:monospace;font-size:15px;font-weight:800;color:var(--ac2)">' + j.code + '</span>'
+        + ' <span style="font-size:12px;color:#fff">' + (j.acheteur || '') + '</span></div>'
+        + '<div style="font-size:11px;color:#fbbf24">🪙 ' + (soldeTxt.join(' / ') || '0') + '</div></div>'
+        + '<div style="font-size:12px;color:var(--mu);margin-top:4px">' + jeuTxt + ' ' + pagesTxt + ' — ' + pdfOk + '</div>'
+        + '<button class="btn-sm" style="margin-top:6px" onclick="ouvrirAssignation(\'' + j.id + '\')">🎫 Assigner / Modifier</button>'
+        + '<div id="assign-' + j.id + '" style="display:none;margin-top:8px;border-top:1px solid var(--bd);padding-top:8px">'
+        + '<input id="as-nom-' + j.id + '" placeholder="Nom de la joueuse" value="' + (j.acheteur || '').replace(/"/g,'') + '" style="width:100%;margin-bottom:6px;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '<div style="display:flex;gap:6px;margin-bottom:6px">'
+        + '<input id="as-jeu-' + j.id + '" placeholder="Jeu" value="' + (j.jeu || '').replace(/"/g,'') + '" style="flex:2;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '<input id="as-serie-' + j.id + '" placeholder="Série" value="' + ((j.serie && j.serie !== '-') ? j.serie : '') + '" style="flex:1;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;margin-bottom:6px">'
+        + '<input id="as-pd-' + j.id + '" type="number" placeholder="Page début" value="' + (j.page_debut || '') + '" style="flex:1;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '<input id="as-pf-' + j.id + '" type="number" placeholder="Page fin" value="' + (j.page_fin || '') + '" style="flex:1;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '</div>'
+        + '<select id="as-pdf-' + j.id + '" style="width:100%;margin-bottom:6px;padding:8px;background:var(--s);border:1px solid var(--bd);border-radius:6px;color:#fff;font-size:12px">'
+        + '<option value="">' + (j.pdf_url ? '— Garder le PDF actuel —' : '— Choisir un PDF —') + '</option>'
+        + pdfsOrgDisponibles.map(function(p){ return '<option value="' + p.url + '">' + p.label + '</option>'; }).join('')
+        + '</select>'
+        + '<button onclick="assignerTicket(\'' + j.id + '\')" style="width:100%;padding:9px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">💾 Enregistrer</button>'
+        + '<div id="as-res-' + j.id + '" style="margin-top:6px"></div>'
+        + '</div></div>';
+    });
+    liste.innerHTML = html;
+  }catch(e){
+    liste.innerHTML = '<div style="color:#f87171;font-size:12px;text-align:center;padding:12px">Erreur de chargement</div>';
+  }
+}
+
+function ouvrirAssignation(id){
+  var bloc = document.getElementById('assign-' + id);
+  if(bloc) bloc.style.display = (bloc.style.display === 'none') ? 'block' : 'none';
+}
+
+async function assignerTicket(id){
+  var res = document.getElementById('as-res-' + id);
+  var corps = {
+    ticket_id: id,
+    acheteur: document.getElementById('as-nom-' + id).value.trim(),
+    jeu: document.getElementById('as-jeu-' + id).value.trim(),
+    serie: document.getElementById('as-serie-' + id).value.trim(),
+    page_debut: document.getElementById('as-pd-' + id).value,
+    page_fin: document.getElementById('as-pf-' + id).value,
+    pdf_url: document.getElementById('as-pdf-' + id).value
+  };
+  try{
+    const r = await fetch('/api/ticket/modifier', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify(corps)
+    });
+    const d = await r.json();
+    if(d.ok){
+      res.innerHTML = '<div style="color:#34d399;font-size:12px">✅ Ticket mis à jour !</div>';
+      setTimeout(loadMesJoueurs, 1200);
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
 
 // === RECREATION TICKETS EN MASSE ===
 async function recreerTickets(){
