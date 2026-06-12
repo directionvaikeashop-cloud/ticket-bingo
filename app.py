@@ -1627,6 +1627,83 @@ def valider_pions_joueur():
     save_data()
     return jsonify({"ok": True})
 
+@app.route("/api/maintenance")
+def get_maintenance():
+    """PUBLIC — Etat du mode maintenance"""
+    global DB
+    DB = load_data()
+    m = DB.get("maintenance", {})
+    return jsonify({"actif": bool(m.get("actif")), "message": m.get("message", "")})
+
+@app.route("/api/admin/maintenance", methods=["POST"])
+def set_maintenance():
+    """ADMIN — Activer/desactiver le mode maintenance"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    d = request.json
+    DB["maintenance"] = {"actif": bool(d.get("actif")), "message": d.get("message", "")}
+    save_data()
+    return jsonify({"ok": True, "actif": DB["maintenance"]["actif"]})
+
+@app.route("/api/admin/etat-donnees")
+def etat_donnees():
+    """ADMIN — Etat des lieux complet de la base de donnees"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    pions_j = DB.get("pions_joueurs", {})
+    return jsonify({"ok": True, "etat": {
+        "ventes": len(DB.get("ventes", [])),
+        "tickets": len(DB.get("tickets", [])),
+        "codes_joueurs": len(DB.get("tickets_acheteurs", {})),
+        "codes_acces": len(DB.get("codes", {})),
+        "tournois": len(DB.get("tournois", [])),
+        "commandes_pions_joueurs": len(DB.get("commandes_pions_joueurs", [])),
+        "commandes_pions_org": len(DB.get("commandes_pions", [])),
+        "boules_tirage": len(DB.get("tirage", [])),
+        "joueurs_avec_pions": {c: v for c, v in pions_j.items() if isinstance(v, dict) and any(v.values())}
+    }})
+
+@app.route("/api/admin/telecharger-donnees")
+def telecharger_donnees():
+    """ADMIN — Telecharge une sauvegarde complete de la base (fichier JSON)"""
+    global DB
+    DB = load_data()
+    token = request.args.get("token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    contenu = json.dumps(DB, ensure_ascii=False, default=str, indent=2)
+    horod = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    return Response(contenu, mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename=sauvegarde_ticketbingo_{horod}.json"})
+
+@app.route("/api/admin/restaurer-donnees", methods=["POST"])
+def restaurer_donnees():
+    """ADMIN — Restaure la base depuis un fichier de sauvegarde telecharge"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    try:
+        donnees = request.json
+        if not isinstance(donnees, dict) or "codes" not in donnees:
+            return jsonify({"ok": False, "msg": "Fichier de sauvegarde invalide"}), 400
+        DB = donnees
+        save_data()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
 @app.route("/api/pions/recrediter-joueur", methods=["POST"])
 def recrediter_pions_joueur():
     """ADMIN — Recredite directement des pions a un joueur (recuperation apres incident)"""
