@@ -1731,38 +1731,64 @@ def stripe_paiements_pions():
         for c in DB.get("commandes_pions_joueurs", []):
             if c.get("ref_paiement"):
                 refs_webhook.add(str(c["ref_paiement"]))
+
+        # Recuperer les sessions (compatible toutes versions de la librairie stripe)
+        reponse = stripe.checkout.Session.list(limit=100)
+        try:
+            liste_sessions = list(reponse.auto_paging_iter())
+        except Exception:
+            liste_sessions = list(getattr(reponse, "data", []) or [])
+
         resultats = []
-        sessions = stripe.checkout.Session.list(limit=100)
-        for sess in sessions.auto_paging_iter():
-            if sess.get("payment_status") != "paid":
+        for sess in liste_sessions:
+            try:
+                # Convertir en dictionnaire simple, quelle que soit la version
+                if hasattr(sess, "to_dict_recursive"):
+                    d_sess = sess.to_dict_recursive()
+                elif hasattr(sess, "to_dict"):
+                    d_sess = sess.to_dict()
+                else:
+                    d_sess = dict(sess)
+                if d_sess.get("payment_status") != "paid":
+                    continue
+                meta = d_sess.get("metadata") or {}
+                if not isinstance(meta, dict):
+                    meta = dict(meta)
+                type_p = meta.get("type", "")
+                if type_p not in ["pions", "pions_joueur", "pions_org"]:
+                    continue
+                code = str(meta.get("code") or meta.get("code_org") or "").upper().strip()
+                montant = int(d_sess.get("amount_total") or 0)
+                nb_pions = int(meta.get("nb_pions") or 0)
+                valeur = _deduire_valeur_pion(montant, nb_pions, meta.get("valeur_pion"))
+                sid = str(d_sess.get("id", ""))
+                traite = (sid in deja_traites) or (sid[:24] in refs_webhook)
+                solde = DB.get("pions_joueurs", {}).get(code, {})
+                try:
+                    date_txt = datetime.datetime.fromtimestamp(int(d_sess.get("created", 0))).strftime("%d/%m %H:%M")
+                except Exception:
+                    date_txt = ""
+                resultats.append({
+                    "session_id": sid,
+                    "date": date_txt,
+                    "code": code,
+                    "montant": montant,
+                    "nb_pions": nb_pions,
+                    "valeur_pion": valeur,
+                    "type": type_p,
+                    "deja_traite": traite,
+                    "solde_actuel": solde if isinstance(solde, dict) else {}
+                })
+            except Exception as e_item:
+                print(f"[STRIPE SYNC ITEM ERR] {type(e_item).__name__}: {e_item}")
                 continue
-            meta = sess.get("metadata", {}) or {}
-            type_p = meta.get("type", "")
-            if type_p not in ["pions", "pions_joueur", "pions_org"]:
-                continue
-            code = (meta.get("code") or meta.get("code_org") or "").upper().strip()
-            montant = sess.get("amount_total", 0)
-            nb_pions = int(meta.get("nb_pions", 0) or 0)
-            valeur = _deduire_valeur_pion(montant, nb_pions, meta.get("valeur_pion"))
-            traite = (sess["id"] in deja_traites) or (sess["id"][:24] in refs_webhook)
-            solde = DB.get("pions_joueurs", {}).get(code, {})
-            resultats.append({
-                "session_id": sess["id"],
-                "date": datetime.datetime.fromtimestamp(sess["created"]).strftime("%d/%m %H:%M"),
-                "code": code,
-                "montant": montant,
-                "nb_pions": nb_pions,
-                "valeur_pion": valeur,
-                "type": type_p,
-                "deja_traite": traite,
-                "solde_actuel": solde
-            })
             if len(resultats) >= 100:
                 break
         return jsonify({"ok": True, "paiements": resultats})
     except Exception as e:
-        print(f"[STRIPE SYNC ERR] {e}")
-        return jsonify({"ok": False, "msg": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"}), 500
 
 @app.route("/api/admin/stripe-crediter", methods=["POST"])
 def stripe_crediter():
@@ -1782,6 +1808,12 @@ def stripe_crediter():
         return jsonify({"ok": False, "msg": "Ce paiement a déjà été crédité"}), 400
     try:
         sess = stripe.checkout.Session.retrieve(session_id)
+        if hasattr(sess, "to_dict_recursive"):
+            sess = sess.to_dict_recursive()
+        elif hasattr(sess, "to_dict"):
+            sess = sess.to_dict()
+        else:
+            sess = dict(sess)
         if sess.get("payment_status") != "paid":
             return jsonify({"ok": False, "msg": "Paiement non confirmé chez Stripe"}), 400
         meta = sess.get("metadata", {}) or {}
