@@ -1955,6 +1955,69 @@ b{color:#fff}
 <div class="pied">Ticket Bingo — L'application des tournois de bingo en Polynésie 🌺<br>Support : 89 22 23 05</div>
 </div></body></html>"""
 
+@app.route("/guide-joueur")
+def guide_joueur():
+    """Page publique : guide de la joueuse (partageable sur Facebook)"""
+    return """<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guide du Joueur — Ticket Bingo</title>
+<meta property="og:title" content="Ticket Bingo — Guide du Joueur">
+<meta property="og:description" content="Ton code, tes pions, tes tickets : comment jouer au bingo en direct sur Ticket Bingo.">
+<style>
+:root{--bg:#0b0c12;--s:#111218;--s2:#1a1c26;--bd:rgba(255,255,255,.1);--ac:#10b981;--ac2:#34d399;--mu:rgba(255,255,255,.55)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:#fff;font-family:-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.7;padding:20px 16px 60px}
+.wrap{max-width:680px;margin:0 auto}
+h1{font-size:30px;text-align:center;margin:18px 0 2px}
+.sub{font-size:17px;font-weight:700;color:var(--ac2);text-align:center;margin-bottom:4px}
+.tag{font-size:13px;color:var(--mu);text-align:center;margin-bottom:18px}
+.regle{background:rgba(220,38,38,.15);border:2px solid #dc2626;border-radius:14px;padding:14px;text-align:center;font-weight:800;color:#fca5a5;font-size:15px;margin-bottom:18px;line-height:1.5}
+.card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:17px;color:var(--ac2);margin-bottom:8px}
+p{font-size:14px;color:rgba(255,255,255,.85);margin-bottom:8px}
+li{font-size:14px;color:rgba(255,255,255,.85);margin:6px 0 6px 18px}
+b{color:#fff}
+.astuce{background:rgba(251,191,36,.12);border-left:3px solid #fbbf24;border-radius:8px;padding:10px;font-size:13px;color:#fcd34d;font-style:italic;margin:8px 0}
+.pied{text-align:center;color:var(--mu);font-size:13px;margin-top:24px;font-style:italic}
+.cta{display:block;text-align:center;background:linear-gradient(135deg,#059669,#10b981);color:#fff;text-decoration:none;font-weight:800;padding:13px;border-radius:12px;margin-top:18px;font-size:15px}
+.code-demo{background:var(--s2);border:1.5px dashed var(--ac);border-radius:10px;padding:10px;text-align:center;font-family:monospace;font-size:22px;font-weight:800;letter-spacing:4px;color:var(--ac2);margin:8px 0}
+</style></head><body><div class="wrap">
+<h1>🎱 TICKET BINGO</h1>
+<div class="sub">Guide du Joueur</div>
+<div class="tag">Ton code, tes pions, tes tickets — tout pour jouer au bingo en direct</div>
+
+<div class="regle">⚠️ À RETENIR : pour acheter des PIONS, tu traites avec l'ADMINISTRATEUR.<br>Pour TOUT LE RESTE — tickets, jeux, gains, questions — tu vois avec TON ORGANISATEUR.</div>
+
+<div class="card"><h2>1. 🔑 Ton code personnel</h2>
+<p>Ton organisateur te remet un <b>code unique</b> :</p>
+<div class="code-demo">WQ7HEA</div>
+<p>C'est ta clé d'entrée. Sur la page d'accueil, tape-le dans <b>« 🎮 Espace Joueur »</b> et clique <b>« 🎯 Jouer maintenant ! »</b></p>
+<div class="astuce">⭐ Ton code est PERMANENT : garde-le précieusement (note-le dans ton téléphone !). Tes pions y restent attachés pour toujours, de tournoi en tournoi. Ne le prête à personne.</div></div>
+
+<div class="card"><h2>2. 🪙 Tes pions — ta monnaie de jeu</h2>
+<p>Les pions servent à acheter tes tickets. Pour recharger, bouton <b>« 🪙 Commander des pions »</b> :</p>
+<li><b>💳 Carte bancaire</b> : paiement sécurisé dans l'application, tes pions arrivent <b>instantanément</b></li>
+<li><b>🏦 Virement (CCP ou Deblock)</b> : les coordonnées s'affichent à l'écran. <b>IMPORTANT : indique TON CODE dans le libellé du virement</b> — c'est lui qui permet de te créditer rapidement</li>
+<li><b>🤝 Auprès de ton organisateur</b> : il peut te donner des pions directement</li>
+<p>Ton solde de pions s'affiche dans ton espace, mis à jour en temps réel.</p></div>
+
+<div class="card"><h2>3. 🎫 Commander tes tickets</h2>
+<p>Quand ton organisateur annonce un jeu (« Samedi : 1 DOLLAR, jackpot ! »), l'annonce apparaît dans ton espace. Clique dessus, choisis ton <b>nombre de tickets</b>, et <b>paie avec tes pions</b>. Dès que l'organisateur valide, c'est réglé — il t'attribue ensuite tes feuilles de jeu.</p></div>
+
+<div class="card"><h2>4. 🎮 Jouer le tournoi en direct</h2>
+<li><b>Ton ticket s'affiche</b> avec tes feuilles à toi</li>
+<li><b>Chaque boule tirée est annoncée à voix haute</b> sur ton téléphone (lettre + numéro)</li>
+<li><b>Tes numéros se cochent automatiquement</b> — mais garde l'oeil, c'est toi la chef !</li>
+<li><b>Tu entends ton organisateur en direct</b> au micro 🎙️</li>
+<div class="astuce">💡 En arrivant : touche ton écran une fois (ça active le son) et garde l'application affichée pendant tout le tournoi. Mets ton téléphone en charge pour les longues soirées !</div></div>
+
+<div class="card"><h2>5. 🏆 BINGO !</h2>
+<p>Ta ligne est complète ? Appuie sur le bouton <b>BINGO</b> ! Ton organisateur reçoit l'alerte avec ton ticket, vérifie tes numéros, et valide ta victoire. C'est lui qui te remet tes gains. 🎉</p></div>
+
+<a class="cta" href="https://ticket-bingo-production.up.railway.app">🎱 Jouer maintenant sur Ticket Bingo</a>
+<div class="pied">Ticket Bingo — L'application des tournois de bingo en Polynésie 🌺<br>Bonne chance, et que les boules soient avec toi !</div>
+</div></body></html>"""
+
 @app.route("/api/organisateur/mes-joueurs")
 def mes_joueurs():
     """ORGANISATEUR — Ses joueurs avec codes, tickets et soldes de pions"""
