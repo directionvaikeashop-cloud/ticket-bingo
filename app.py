@@ -2830,6 +2830,34 @@ def stripe_checkout_pions():
         return jsonify({"ok": False, "msg": "Erreur de paiement — choisissez un autre mode"}), 500
 
 @app.route("/api/paiement/webhook", methods=["POST"])
+def _notifier_admin_stripe(titre, details, montant_xpf):
+    """Email a l'administratrice a chaque paiement Stripe recu (restaure 12/06/2026)"""
+    if not SENDGRID_API_KEY:
+        return
+    try:
+        m = int(montant_xpf)
+    except Exception:
+        m = 0
+    try:
+        html = f"""
+        <div style='font-family:sans-serif;max-width:480px;margin:0 auto;background:#0b0c12;color:#fff;padding:20px;border-radius:12px'>
+          <h2 style='color:#34d399;margin:0 0 4px 0'>💳 Paiement carte reçu !</h2>
+          <p style='color:#9ca3af;font-size:13px;margin:0 0 16px 0'>{datetime.datetime.now().strftime("%d/%m/%Y à %H:%M")}</p>
+          <div style='background:#111218;border:1px solid #10b981;border-radius:10px;padding:16px'>
+            <div style='font-size:26px;font-weight:800;color:#fbbf24;text-align:center;margin-bottom:10px'>{m:,} XPF</div>
+            <p style='margin:4px 0;font-size:14px'><strong>{titre}</strong></p>
+            <p style='margin:4px 0;font-size:13px;color:#d1d5db'>{details}</p>
+            <p style='margin:8px 0 0 0;font-size:12px;color:#34d399'>✅ Crédité automatiquement — aucune action nécessaire</p>
+          </div>
+          <p style='font-size:11px;color:#6b7280;text-align:center;margin-top:14px'>Ticket Bingo — notification automatique Stripe</p>
+        </div>"""
+        message = Mail(from_email=(FROM_EMAIL, FROM_NAME), to_emails=FROM_EMAIL,
+                       subject=f"💳 {m:,} XPF reçus — {titre}", html_content=html)
+        SendGridAPIClient(SENDGRID_API_KEY).send(message)
+    except Exception as e:
+        print(f"[NOTIF STRIPE ERR] {e}")
+
+
 def stripe_webhook():
     """Reçoit les notifications Stripe après paiement"""
     payload = request.get_data()
@@ -2883,6 +2911,8 @@ def stripe_webhook():
             if code_org in DB["codes"]:
                 DB["codes"][code_org]["paiement_stripe"] = True
                 DB["codes"][code_org]["date_paiement"] = datetime.datetime.now().isoformat()
+                _notifier_admin_stripe(f"ABONNEMENT — code {code_org}",
+                    "Abonnement organisateur payé et activé", montant)
         
         # Si c'est un achat de pions, créditer automatiquement
         if type_p == "pions" and code_org:
@@ -2902,6 +2932,8 @@ def stripe_webhook():
                     "date": datetime.datetime.now().isoformat()
                 })
                 print(f"[STRIPE] {nb_pions} pions crédités à {code_org}")
+                _notifier_admin_stripe(f"Pions ORGANISATEUR — code {code_org}",
+                    f"{nb_pions} pions crédités automatiquement", montant)
         
         # Pions JOUEUR payes par carte : crediter automatiquement
         if type_p == "pions_joueur":
@@ -2929,6 +2961,8 @@ def stripe_webhook():
                     "date": datetime.datetime.now().isoformat()
                 })
                 print(f"[STRIPE] {nb_pions} pions credites au joueur {code_joueur}")
+                _notifier_admin_stripe(f"Pions JOUEUR — code {code_joueur}",
+                    f"{nb_pions} pions de {valeur} XPF crédités automatiquement", montant)
 
         # Pions ORGANISATEUR payes par carte : crediter automatiquement
         if type_p == "pions_org":
@@ -2957,6 +2991,8 @@ def stripe_webhook():
                     "date": datetime.datetime.now().isoformat()
                 })
                 print(f"[STRIPE] {nb_pions} pions credites a l'organisateur {code_o}")
+                _notifier_admin_stripe(f"Pions ORGANISATEUR — code {code_o}",
+                    f"{nb_pions} pions de {valeur} XPF crédités automatiquement", montant)
 
         # Si c'est un achat PDF, enregistrer la commande
         if type_p == "pdf" and code_org:
@@ -2974,6 +3010,8 @@ def stripe_webhook():
                 "date": datetime.datetime.now().isoformat()
             })
             print(f"[STRIPE] Commande PDF {jeu} {nb_tickets} tickets pour {code_org}")
+            _notifier_admin_stripe(f"Commande PDF — {jeu}",
+                f"{nb_tickets} tickets commandés par {code_org}", montant)
         
         save_data()
         print(f"[STRIPE] Paiement reçu: {type_p} — {montant} XPF — {code_org}")
