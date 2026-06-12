@@ -589,6 +589,11 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
   <div class="wrap">
 
     <!-- TAB BOUTIQUE -->
+    <!-- BANDEAU MESSAGE ADMINISTRATION (visible sur tous les onglets) -->
+    <div id="bandeau-msg-admin" style="display:none;background:linear-gradient(135deg,rgba(14,165,233,.18),rgba(2,132,199,.1));border:1.5px solid #0ea5e9;border-radius:12px;padding:12px;margin:0 12px 12px 12px">
+      <div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:4px">📢 Message de l'administration <span id="msg-admin-date" style="font-weight:400;color:rgba(255,255,255,.4)"></span></div>
+      <div id="msg-admin-contenu" style="font-size:13px;color:#fff;line-height:1.6"></div>
+    </div>
     <div id="tab-boutique" class="tab active">
       <div id="toast-b"></div>
       <div class="g2" style="margin-bottom:14px">
@@ -1569,12 +1574,6 @@ function buildOrgSpace(){
       <input id="annonce-desc" placeholder="Ex: Jackpot 50 000 XPF !" style="margin-bottom:12px"/>
       <button onclick="annoncerJeu()" style="width:100%;padding:12px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📢 Annoncer ce jeu !</button>
       <button onclick="supprimerAnnonce()" style="width:100%;padding:8px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.4);border-radius:8px;cursor:pointer;font-size:12px;margin-top:6px">🗑️ Supprimer l'annonce</button>
-    </div>
-
-    <!-- BANDEAU MESSAGE ADMINISTRATION -->
-    <div id="bandeau-msg-admin" style="display:none;background:linear-gradient(135deg,rgba(14,165,233,.18),rgba(2,132,199,.1));border:1.5px solid #0ea5e9;border-radius:12px;padding:12px;margin-bottom:14px">
-      <div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:4px">📢 Message de l'administration <span id="msg-admin-date" style="font-weight:400;color:rgba(255,255,255,.4)"></span></div>
-      <div id="msg-admin-contenu" style="font-size:13px;color:#fff;line-height:1.6"></div>
     </div>
 
     <!-- GUIDE DE L'ORGANISATEUR -->
