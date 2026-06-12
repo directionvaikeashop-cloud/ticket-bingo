@@ -405,6 +405,11 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <button class="btn-sm" onclick="show('s-login')">← Retour</button>
   </div>
   <div class="wrap">
+    <!-- BANDEAU MESSAGE AUX JOUEURS -->
+    <div id="bandeau-msg-joueurs" style="display:none;background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(5,150,105,.1));border:1.5px solid #10b981;border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:4px">📢 Message de Ticket Bingo <span id="msg-joueurs-date" style="font-weight:400;color:rgba(255,255,255,.4)"></span></div>
+      <div id="msg-joueurs-contenu" style="font-size:13px;color:#fff;line-height:1.6"></div>
+    </div>
     <!-- SOLDES -->
     <div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.3);margin-bottom:14px">
       <div class="ct" style="margin-bottom:12px">🪙 Mes pions disponibles</div>
@@ -479,7 +484,12 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <button class="btn-sm" onclick="retourAccueil()">← Retour</button>
   </div>
   <div class="wrap" style="padding-bottom:70px">
-    
+    <!-- BANDEAU MESSAGE AUX JOUEURS -->
+    <div id="bandeau-msg-joueurs" style="display:none;background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(5,150,105,.1));border:1.5px solid #10b981;border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:4px">📢 Message de Ticket Bingo <span id="msg-joueurs-date" style="font-weight:400;color:rgba(255,255,255,.4)"></span></div>
+      <div id="msg-joueurs-contenu" style="font-size:13px;color:#fff;line-height:1.6"></div>
+    </div>
+
     <!-- ONGLET JOUER -->
     <div id="tab-j-jouer" class="tab active">
       <div id="joueur-ticket-zone"></div>
@@ -697,6 +707,28 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <input id="maintenance-message" placeholder="Message affiché" value="🚧 Nous sommes en maintenance — l'application revient très vite. Merci de votre patience ! 🌺" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
         <button id="btn-maintenance" onclick="basculerMaintenance()" style="width:100%;padding:10px;background:#f97316;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">Chargement...</button>
         <div id="maintenance-result" style="margin-top:8px"></div>
+      </div>
+
+      <!-- ENVOYER UN CODE JOUEUR -->
+      <div style="background:linear-gradient(135deg,rgba(16,185,129,.12),rgba(5,150,105,.08));border:1px solid rgba(16,185,129,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#34d399;margin-bottom:8px">✉️ Envoyer un code joueur par email</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Email de bienvenue avec le code, le cadeau de 2 000 XPF et les liens</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <input id="envoi-code" placeholder="Code (ex: QWK1RM)" style="flex:1;min-width:110px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;text-transform:uppercase">
+          <input id="envoi-nom" placeholder="Prénom (ex: Tevna)" style="flex:1;min-width:110px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+        </div>
+        <input id="envoi-email" type="email" placeholder="Email de la joueuse" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
+        <button onclick="envoyerCodeJoueur()" style="width:100%;padding:10px;background:#059669;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">✉️ Envoyer l'email</button>
+        <div id="envoi-result" style="margin-top:8px"></div>
+      </div>
+
+      <!-- MESSAGE AUX JOUEURS -->
+      <div style="background:linear-gradient(135deg,rgba(16,185,129,.12),rgba(5,150,105,.08));border:1px solid rgba(16,185,129,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#34d399;margin-bottom:8px">📢 Message aux joueurs</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">S'affiche en bandeau chez TOUTES les joueuses connectées. Vider et publier pour le retirer.</div>
+        <textarea id="msg-joueurs-texte" rows="3" maxlength="600" placeholder="Ex: Vos pions sont vérifiés + 2 000 XPF offerts à chacune ! Prochain tournoi bientôt 🌺" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px"></textarea>
+        <button onclick="publierMessageJoueurs()" style="width:100%;padding:10px;background:#059669;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">📢 Publier aux joueuses</button>
+        <div id="msg-joueurs-result" style="margin-top:8px"></div>
       </div>
 
       <!-- MESSAGE AUX ORGANISATEURS -->
@@ -4828,6 +4860,75 @@ document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'joueur-pion-mode') calcPionsJoueur();
   if(e.target && e.target.id === 'pion-mode-paiement') calcPions();
 });
+
+// === ENVOI DE CODE PAR EMAIL ===
+async function envoyerCodeJoueur(){
+  var codeJ = document.getElementById('envoi-code').value.trim().toUpperCase();
+  var nom = document.getElementById('envoi-nom').value.trim();
+  var email = document.getElementById('envoi-email').value.trim();
+  var res = document.getElementById('envoi-result');
+  if(!codeJ || !email){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Code et email obligatoires</div>';
+    return;
+  }
+  res.innerHTML = '<div style="color:#34d399;font-size:12px">Envoi en cours...</div>';
+  try{
+    const r = await fetch('/api/admin/envoyer-code', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({code: codeJ, nom: nom, email: email})
+    });
+    const d = await r.json();
+    if(d.ok){
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + d.msg + '</div>';
+      document.getElementById('envoi-code').value = '';
+      document.getElementById('envoi-nom').value = '';
+      document.getElementById('envoi-email').value = '';
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
+
+// === MESSAGE AUX JOUEURS ===
+async function publierMessageJoueurs(){
+  var texte = document.getElementById('msg-joueurs-texte').value.trim();
+  var res = document.getElementById('msg-joueurs-result');
+  try{
+    const r = await fetch('/api/admin/message-joueurs', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({texte: texte})
+    });
+    const d = await r.json();
+    if(d.ok){
+      res.innerHTML = d.actif
+        ? '<div style="color:#34d399;font-size:12px">✅ Message publié — visible chez toutes les joueuses</div>'
+        : '<div style="color:rgba(255,255,255,.6);font-size:12px">🗑️ Message retiré</div>';
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
+
+function chargerMessageJoueurs(){
+  fetch('/api/message-joueurs')
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    var bandeaux = document.querySelectorAll('[id="bandeau-msg-joueurs"]');
+    if(!bandeaux.length) return;
+    bandeaux.forEach(function(b){ b.style.display = (d.actif && d.texte) ? 'block' : 'none'; });
+    if(d.actif && d.texte){
+      document.querySelectorAll('[id="msg-joueurs-contenu"]').forEach(function(el){ el.textContent = d.texte; });
+      document.querySelectorAll('[id="msg-joueurs-date"]').forEach(function(el){ el.textContent = d.date ? '— ' + d.date : ''; });
+    }
+  })
+  .catch(function(){});
+}
+setInterval(chargerMessageJoueurs, 60000);
+chargerMessageJoueurs();
 
 // === MESSAGE DE L'ADMINISTRATION ===
 async function publierMessageAdmin(){
