@@ -253,44 +253,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <div id="tab-org-verif" class="tab"></div>
     <div id="tab-org-revendeurs" class="tab"></div>
     <div id="tab-org-pions" class="tab"></div>
-    <div id="tab-org-joueurs" class="tab">
-      <!-- JOUEURS -->
-      <div class="card" style="margin-bottom:14px">
-        <div class="ct" style="margin-bottom:12px">👥 Mes joueurs</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:10px">Liste des joueurs avec leurs codes ticket</div>
-        <div id="org-joueurs-liste"><div style="text-align:center;padding:12px;color:var(--mu);font-size:13px">Chargement...</div></div>
-      </div>
-
-      <!-- DISTRIBUER TICKETS -->
-      <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(139,92,246,.05));border:1px solid rgba(99,102,241,.3)">
-        <div class="ct" style="margin-bottom:12px">🎫 Distribuer un ticket</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:10px">Assigner un jeu et un PDF à un joueur</div>
-        
-        <div class="lbl">Code du joueur</div>
-        <input id="dist-code-joueur" type="text" placeholder="Ex: ZYW6PN" style="text-transform:uppercase;margin-bottom:8px"/>
-        
-        <div class="lbl">Jeu</div>
-        <select id="dist-jeu" style="margin-bottom:8px">
-          <option value="">Choisir un jeu...</option>
-          <option value="TRIPLE ACTION 75">🎯 TRIPLE ACTION 75</option>
-          <option value="60 BOULES">🎱 60 BOULES</option>
-          <option value="40 BOULES">🎳 40 BOULES</option>
-          <option value="4 COINS">🪙 4 COINS</option>
-          <option value="500 FRANCS">💵 500 FRANCS</option>
-          <option value="1 DOLLAR">💰 1 DOLLAR</option>
-          <option value="OHANA 75">🌺 OHANA 75</option>
-        </select>
-
-        <div class="lbl">Série (page de début)</div>
-        <input id="dist-serie" type="number" placeholder="Ex: 1" min="1" style="margin-bottom:8px"/>
-        
-        <div class="lbl">Nombre de pages</div>
-        <input id="dist-pages" type="number" placeholder="Ex: 1" min="1" value="1" style="margin-bottom:12px"/>
-        
-        <button onclick="distribuerTicket()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">🎫 Distribuer le ticket</button>
-        <div id="dist-result" style="margin-top:8px"></div>
-      </div>
-    </div>
   </div>
   <nav class="nav">
     <button class="nb active" onclick="switchOrgTab('tickets',this)"><span class="ni">🎫</span>Tickets</button>
@@ -298,7 +260,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <button class="nb" onclick="switchOrgTab('verif',this)"><span class="ni">🏆</span>Vérifier</button>
     <button class="nb" onclick="switchOrgTab('revendeurs',this)"><span class="ni">🛒</span>Revendeurs</button>
     <button class="nb" onclick="switchOrgTab('pions',this)"><span class="ni">🪙</span>Pions</button>
-    <button class="nb" onclick="switchOrgTab('joueurs',this)"><span class="ni">👥</span>Joueurs</button>
   </nav>
 </div>
 
@@ -393,20 +354,16 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div style="margin-bottom:12px">
           <div style="font-size:12px;color:#818cf8;font-weight:600;margin-bottom:6px">🏦 Virement bancaire</div>
           <div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.8">
-            <div><strong style="color:#fbbf24">💰 CCP Papeete</strong></div>
-            <div>Titulaire : Mlle. MIALHE MAEVA-CARINE</div>
-            <div>Banque : 14168 — Guichet : 00001</div>
-            <div>N° compte : 10002580501 — Clé : 50</div>
-            <div>IBAN : FR76 14168 00001 10002580501 50</div>
-            <div>BIC : OFTPPFT1XXX</div>
+            <div><strong style="color:rgba(255,255,255,.8)">Banque de Tahiti</strong></div>
+            <div>Titulaire : MIALHE MAEVA-CARINE</div>
+            <div>IBAN : FR76 1223 9000 0141 2566 0100 071</div>
+            <div>BIC : CEPAPFTPXXX</div>
           </div>
           <div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.8;margin-top:8px">
-            <div><strong style="color:#818cf8">🏦 Deblock</strong></div>
-            <div>Titulaire : Maeva MIALHE</div>
-            <div>Banque : 17748 — Guichet : 01984</div>
-            <div>N° compte : YV2AJQKDHA5 — Clé : 61</div>
-            <div>IBAN : FR85 1774 8019 84YV 2AJQ KDHA 561</div>
-            <div>BIC : DBLKFR22XXX</div>
+            <div><strong style="color:rgba(255,255,255,.8)">CCP Papeete</strong></div>
+            <div>Titulaire : MIALHE MAEVA-CARINE</div>
+            <div>IBAN : FR76 14168 00001 10002580501 50</div>
+            <div>BIC : OFTPPFT1XXX</div>
           </div>
         </div>
 
@@ -489,7 +446,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <input id="joueur-pion-montant" type="number" placeholder="Ex: 1000" min="500" step="500" oninput="calcPionsJoueur()" style="margin-bottom:8px"/>
       <div id="joueur-pion-calcul" style="display:none;background:rgba(99,102,241,.1);border-radius:8px;padding:10px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,.5);margin-bottom:4px"><span>Montant payé</span><span id="joueur-pion-prix">0 XPF</span></div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (2%)</span><span id="joueur-pion-commission">0 XPF</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (20%)</span><span id="joueur-pion-commission">0 XPF</span></div>
         <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#818cf8"><span>Pions reçus</span><span id="joueur-pion-nb">0 pions</span></div>
       </div>
       <div class="lbl">Mode de paiement</div>
@@ -505,38 +462,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
       <div id="joueur-pion-result" style="margin-top:8px"></div>
     </div>
-
-    <!-- BONUS INFO -->
-    <div class="card" style="background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(251,191,36,.1));border:1px solid rgba(245,158,11,.4);margin-bottom:14px">
-      <div class="ct" style="margin-bottom:10px">🎁 Vos bonus disponibles</div>
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;color:rgba(255,255,255,.7)">
-        <div style="display:flex;align-items:center;gap:8px"><span>🎁</span><span><b style="color:#fbbf24">Bienvenue</b> — 1ere commande : +5 pions offerts !</span></div>
-        <div style="display:flex;align-items:center;gap:8px"><span>💰</span><span><b style="color:#fbbf24">Volume</b> — 2000 XPF +5% · 5000 XPF +10% · 10000 XPF +15%</span></div>
-        <div style="display:flex;align-items:center;gap:8px"><span>🔄</span><span><b style="color:#fbbf24">Fidelite</b> — Toutes les 5 commandes : +10 pions !</span></div>
-        <div style="display:flex;align-items:center;gap:8px"><span>👥</span><span><b style="color:#fbbf24">Parrainage</b> — +10 pions pour vous, +5 pour votre ami !</span></div>
-      </div>
-    </div>
-
-    <!-- PARRAINAGE -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="ct" style="margin-bottom:10px">👥 Mon code parrainage</div>
-      <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Partagez votre code et gagnez 10 pions par ami parreine !</div>
-      <div style="background:var(--s2);border-radius:8px;padding:12px;text-align:center;margin-bottom:10px">
-        <div style="font-size:11px;color:var(--mu);margin-bottom:6px">Votre code parrainage</div>
-        <div id="code-parrain-display" style="font-family:monospace;font-size:24px;font-weight:800;color:#fbbf24;letter-spacing:4px">---</div>
-        <div id="parrainage-stats" style="font-size:11px;color:var(--mu);margin-top:6px"></div>
-      </div>
-      <button onclick="copierCodeParrain()" style="width:100%;padding:10px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:10px">📋 Copier mon code</button>
-      <div style="border-top:0.5px solid var(--bd);padding-top:10px">
-        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:8px">Vous avez un code parrainage ?</div>
-        <div style="display:flex;gap:8px">
-          <input id="input-code-parrain" placeholder="Ex: PAR4A2B3C" style="flex:1;text-transform:uppercase;font-size:13px;margin-bottom:0"/>
-          <button onclick="utiliserParrainage()" style="padding:10px 14px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">OK</button>
-        </div>
-        <div id="parrainage-result" style="margin-top:6px"></div>
-      </div>
-    </div>
-
   </div>
 </div>
 
@@ -601,7 +526,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
             <div id="joueur-solde-100" style="font-size:22px;font-weight:800;color:#818cf8">0</div>
           </div>
         </div>
-        <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">Commission 2% incluse dans chaque commande</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">Commission 20% incluse dans chaque commande</div>
       </div>
 
       <div class="card" style="margin-bottom:14px">
@@ -625,11 +550,11 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <input id="joueur-pion-montant" type="number" placeholder="Ex: 1000" min="500" step="500" oninput="calcPionsJoueur()" style="margin-bottom:8px"/>
         <div id="joueur-pion-calcul" style="display:none;background:rgba(99,102,241,.1);border-radius:8px;padding:10px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,.5);margin-bottom:4px"><span>Montant payé</span><span id="joueur-pion-prix">0 XPF</span></div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (2%)</span><span id="joueur-pion-commission">0 XPF</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (20%)</span><span id="joueur-pion-commission">0 XPF</span></div>
           <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#818cf8"><span>Pions reçus</span><span id="joueur-pion-nb">0 pions</span></div>
         </div>
         <div class="lbl">Mode de paiement</div>
-        <select id="joueur-pion-mode" onchange="afficherInfoBancaire('joueur-pion-mode','joueur-pion-info-bancaire')" style="margin-bottom:8px">
+        <select id="joueur-pion-mode" style="margin-bottom:8px">
           <option value="">Choisir le mode de paiement...</option>
           <option value="CCP">CCP Papeete</option>
           <option value="Deblock">Deblock</option>
@@ -637,7 +562,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
           <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
           <option value="Carte">Paiement par carte</option>
         </select>
-        <div id="joueur-pion-info-bancaire" style="display:none"></div>
         <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
         <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
         <div id="joueur-pion-result" style="margin-top:8px"></div>
@@ -735,6 +659,23 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         </div>
         <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Des joueurs ont commandé des pions directement</div>
         <div id="pions-joueurs-a-valider-liste"></div>
+      </div>
+
+      <!-- RECUPERATION : recrediter manuellement un joueur -->
+      <div style="background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(217,119,6,.08));border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#fbbf24;margin-bottom:8px">🛠️ Recréditer un joueur</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Crédit direct de pions (récupération après incident ou geste commercial)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <input id="recred-code" placeholder="Code joueur" style="flex:1;min-width:110px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;text-transform:uppercase">
+          <select id="recred-valeur" style="padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+            <option value="100">Pion 100 XPF</option>
+            <option value="50">Pion 50 XPF</option>
+            <option value="20">Pion 20 XPF</option>
+          </select>
+          <input id="recred-nb" type="number" placeholder="Nb pions" style="width:90px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+        </div>
+        <button onclick="recrediterJoueur()" style="width:100%;padding:10px;background:#f59e0b;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">💰 Créditer le joueur</button>
+        <div id="recred-result" style="margin-top:8px"></div>
       </div>
 
       <!-- PIONS A VALIDER - comme tickets -->
@@ -883,7 +824,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <input id="joueur-pion-montant" type="number" placeholder="Ex: 1000" min="500" step="500" oninput="calcPionsJoueur()" style="margin-bottom:8px"/>
       <div id="joueur-pion-calcul" style="display:none;background:rgba(99,102,241,.1);border-radius:8px;padding:10px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,.5);margin-bottom:4px"><span>Montant payé</span><span id="joueur-pion-prix">0 XPF</span></div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (2%)</span><span id="joueur-pion-commission">0 XPF</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px"><span>Commission (20%)</span><span id="joueur-pion-commission">0 XPF</span></div>
         <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#818cf8"><span>Pions reçus</span><span id="joueur-pion-nb">0 pions</span></div>
       </div>
       <div class="lbl">Mode de paiement</div>
@@ -1014,23 +955,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <button onclick="genererJeu('ta75','generer-ta75')" id="btn-ta75" style="width:100%;padding:10px;background:linear-gradient(135deg,#64b5f6,#3949ab);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:6px">⚡ Générer TRIPLE ACTION 75</button>
         <div id="ta75-result" style="margin-top:6px"></div>
       </div>
-
-      <!-- OHANA 75 -->
-      <div style="margin-top:14px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);border-radius:10px;padding:12px">
-        <div style="font-size:13px;font-weight:700;color:#818cf8;margin-bottom:8px">🎱 OHANA 75</div>
-        <div style="display:flex;gap:8px;margin-bottom:6px">
-          <div style="flex:1">
-            <div class="lbl">Nb tickets</div>
-            <input id="ohana75-nb" type="number" value="500" min="1" max="1000" style="font-size:13px"/>
-          </div>
-          <div style="flex:1">
-            <div class="lbl">Série départ</div>
-            <input id="ohana75-serie" type="number" value="1" min="1" style="font-size:13px"/>
-          </div>
-        </div>
-        <button onclick="genererOhana75()" id="btn-ohana75" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:6px">⚡ Générer OHANA 75</button>
-        <div id="ohana75-result" style="margin-top:6px"></div>
-      </div>
       <div style="background:linear-gradient(135deg,rgba(229,57,53,rgba(229,57,53,.1));border:1px solid rgba(229,57,53,.3);border-radius:10px;padding:14px;margin-bottom:10px">
         <div style="font-size:13px;font-weight:600;color:#ef5350;margin-bottom:10px">🎱 60 BOULES</div>
         <div class="g2">
@@ -1154,20 +1078,9 @@ async function accesJoueurPions(){
   const code = document.getElementById("joueur-code").value.trim().toUpperCase();
   if(!code){alert("Entrez votre code ticket");return;}
   codeJoueurActuel = code;
-  
-  // Vérifier si notification en attente
-  try{
-    const rn = await fetch('/api/notification/joueur/'+code);
-    const dn = await rn.json();
-    if(dn.ok && dn.message){
-      afficherNotificationJoueur(code, dn.message);
-    }
-  }catch(e){}
-  
   show("s-joueur-pions");
   chargerSoldesPionsJoueur(code);
   chargerJeuxDisponibles(code);
-  chargerCodeParrain(code);
   // Auto-refresh toutes les 10 secondes
   setInterval(function(){ 
     chargerSoldesPionsJoueur(code);
@@ -1372,18 +1285,15 @@ function buildOrgSpace(){
       
       <!-- Choix du jeu -->
       <div class="lbl">Jeu</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        <select id="cmd-jeu" style="flex:1;font-size:13px;margin-bottom:0" onchange="loadJeuxSelect()">
-          <option value="">Choisir un jeu...</option>
-          <option value="TRIPLE ACTION 75">🎯 TRIPLE ACTION 75</option>
-          <option value="60 BOULES">🎱 60 BOULES</option>
-          <option value="40 BOULES">🎳 40 BOULES</option>
-          <option value="4 COINS">🪙 4 COINS</option>
-          <option value="500 FRANCS">💵 500 FRANCS</option>
-          <option value="1 DOLLAR">💰 1 DOLLAR</option>
-          <option value="OHANA 75">🌺 OHANA 75</option>
-        </select>
-      </div>
+      <select id="cmd-jeu" style="margin-bottom:10px;font-size:13px">
+        <option value="">Choisir un jeu...</option>
+        <option value="TRIPLE ACTION 75">🎯 TRIPLE ACTION 75</option>
+        <option value="60 BOULES">🎱 60 BOULES</option>
+        <option value="40 BOULES">🎳 40 BOULES</option>
+        <option value="4 COINS">🪙 4 COINS</option>
+        <option value="500 FRANCS">💵 500 FRANCS</option>
+        <option value="1 DOLLAR">💰 1 DOLLAR</option>
+      </select>
       
       <!-- Choix du pack -->
       <div class="lbl">Pack de tickets</div>
@@ -1415,20 +1325,8 @@ function buildOrgSpace(){
         <div style="font-size:16px;font-weight:700;color:#fff" id="cmd-resume-text"></div>
       </div>
       
-      <div class="lbl">Mode de paiement</div>
-      <select id="cmd-mode-paiement" onchange="afficherInfoBancaire('cmd-mode-paiement','cmd-info-bancaire')" style="margin-bottom:8px">
-        <option value="">Choisir le mode de paiement...</option>
-        <option value="Carte">💳 Paiement par carte (Stripe) — Automatique</option>
-        <option value="CCP">CCP Papeete</option>
-        <option value="Deblock">Deblock</option>
-        <option value="Especes Papeete">Espèces — Boutique Papeete</option>
-        <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
-      </select>
-      <div id="cmd-info-bancaire" style="display:none"></div>
-      <input id="cmd-ref-paiement" placeholder="Référence (si virement/espèces)" style="margin-bottom:12px;font-size:13px"/>
-      
       <button onclick="passerCommande()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Passer la commande</button>
-      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Paiement carte → PDF automatique ! Autres modes → traitement manuel</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Nous recevons votre commande immédiatement et vous préparons vos tickets</div>
     </div>
 
     <!-- MES COMMANDES EN COURS -->
@@ -1714,7 +1612,7 @@ function buildOrgSpace(){
           <div id="solde-pions-100" style="font-size:22px;font-weight:800;color:#818cf8">0</div>
         </div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">Commission 2% incluse dans chaque commande</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center">Commission 20% incluse dans chaque commande</div>
     </div>
 
     <!-- COMMANDER PIONS -->
@@ -1742,14 +1640,14 @@ function buildOrgSpace(){
           <span>Montant payé</span><span id="pion-prix">0 XPF</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:#f87171;margin-bottom:4px">
-          <span>Commission (2%)</span><span id="pion-commission">0 XPF</span>
+          <span>Commission (20%)</span><span id="pion-commission">0 XPF</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#818cf8">
           <span>Pions reçus</span><span id="pion-nb-recus">0 pions</span>
         </div>
       </div>
       <div class="lbl">Mode de paiement</div>
-      <select id="pion-mode-paiement" onchange="afficherInfoBancaire('pion-mode-paiement','org-pion-info-bancaire')" style="margin-bottom:8px">
+      <select id="pion-mode-paiement" style="margin-bottom:8px">
         <option value="">Choisir le mode de paiement...</option>
         <option value="CCP">CCP Papeete</option>
         <option value="Deblock">Deblock</option>
@@ -1757,7 +1655,6 @@ function buildOrgSpace(){
         <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
         <option value="Carte">Paiement par carte</option>
       </select>
-      <div id="org-pion-info-bancaire" style="display:none"></div>
       <input id="pion-ref-paiement" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
       <button onclick="commanderPions()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander et confirmer le paiement</button>
       <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Votre commande sera traitée après vérification du paiement</div>
@@ -1818,78 +1715,10 @@ function switchJoueurTab(n, el){
   if(n==='pions') chargerSoldesPionsJoueur(codeJoueurActuel);
 }
 
-// === JOUEURS ORGANISATEUR ===
-async function loadJoueursOrg(){
-  try{
-    const r = await fetch('/api/joueurs/liste', {headers: {'X-Token': TOKEN}});
-    const joueurs = await r.json();
-    const liste = document.getElementById('org-joueurs-liste');
-    if(!liste) return;
-    if(!joueurs.length){
-      liste.innerHTML = '<div style="text-align:center;padding:12px;color:var(--mu);font-size:13px">Aucun joueur pour le moment</div>';
-      return;
-    }
-    liste.innerHTML = '';
-    joueurs.forEach(function(j){
-      var div = document.createElement('div');
-      div.style.cssText = 'background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
-      div.innerHTML = '<div>' +
-        '<div style="font-size:13px;font-weight:600;color:#fff">' + (j.acheteur||'Joueur') + '</div>' +
-        '<div style="font-size:11px;color:var(--mu)">Code: <span style="color:#818cf8;font-weight:700">' + j.code_acheteur + '</span></div>' +
-        '<div style="font-size:11px;color:var(--mu)">' + (j.jeu ? '🎮 ' + j.jeu : '⏳ Pas encore de jeu assigné') + '</div>' +
-        '</div>' +
-        '<button onclick="prefillDistribuer(this.dataset.code)" data-code="' + j.code_acheteur + '" style="padding:6px 10px;background:rgba(99,102,241,.3);color:#818cf8;border:0.5px solid #6366f1;border-radius:6px;cursor:pointer;font-size:11px">🎫 Distribuer</button>';
-      liste.appendChild(div);
-    });
-  }catch(e){}
-}
-
-function prefillDistribuer(el){
-  var code = el.dataset ? el.dataset.code : el;
-  document.getElementById('dist-code-joueur').value = code;
-  // Scroller vers le formulaire
-  document.getElementById('dist-code-joueur').scrollIntoView({behavior:'smooth'});
-}
-
-async function distribuerTicket(){
-  var code = document.getElementById('dist-code-joueur').value.trim().toUpperCase();
-  var jeu = document.getElementById('dist-jeu').value;
-  var serie = document.getElementById('dist-serie').value;
-  var pages = document.getElementById('dist-pages').value;
-  
-  if(!code){ alert('Entrez le code du joueur'); return; }
-  if(!jeu){ alert('Choisissez un jeu'); return; }
-  if(!serie){ alert('Entrez la série de départ'); return; }
-  
-  try{
-    const r = await fetch('/api/joueurs/distribuer', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-      body: JSON.stringify({
-        code_joueur: code,
-        jeu: jeu,
-        serie: parseInt(serie),
-        nb_pages: parseInt(pages||1)
-      })
-    });
-    const d = await r.json();
-    if(d.ok){
-      document.getElementById('dist-result').innerHTML = 
-        '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:10px;text-align:center;color:#34d399">✅ Ticket distribué au joueur ' + code + ' !</div>';
-      document.getElementById('dist-code-joueur').value = '';
-      document.getElementById('dist-serie').value = '';
-      loadJoueursOrg();
-    } else {
-      alert(d.msg || 'Erreur');
-    }
-  }catch(e){ alert('Erreur de connexion'); }
-}
-
 function switchOrgTab(n, el){
   document.querySelectorAll("#s-organisateur .tab").forEach(t=>t.classList.remove("active"));
   document.querySelectorAll("#s-organisateur .nb").forEach(b=>b.classList.remove("active"));
   document.getElementById("tab-org-"+n).classList.add("active");
-  if(n==="joueurs") loadJoueursOrg();
   el.classList.add("active");
   if(n==="verif") loadAlertesBingo();
   if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();setTimeout(function(){loadVentesPaiement();loadMesCommandes();},500);startAutoRefreshOrg();}
@@ -1933,18 +1762,15 @@ function buildRevSpace(){
       
       <!-- Choix du jeu -->
       <div class="lbl">Jeu</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        <select id="cmd-jeu" style="flex:1;font-size:13px;margin-bottom:0" onchange="loadJeuxSelect()">
-          <option value="">Choisir un jeu...</option>
-          <option value="TRIPLE ACTION 75">🎯 TRIPLE ACTION 75</option>
-          <option value="60 BOULES">🎱 60 BOULES</option>
-          <option value="40 BOULES">🎳 40 BOULES</option>
-          <option value="4 COINS">🪙 4 COINS</option>
-          <option value="500 FRANCS">💵 500 FRANCS</option>
-          <option value="1 DOLLAR">💰 1 DOLLAR</option>
-          <option value="OHANA 75">🌺 OHANA 75</option>
-        </select>
-      </div>
+      <select id="cmd-jeu" style="margin-bottom:10px;font-size:13px">
+        <option value="">Choisir un jeu...</option>
+        <option value="TRIPLE ACTION 75">🎯 TRIPLE ACTION 75</option>
+        <option value="60 BOULES">🎱 60 BOULES</option>
+        <option value="40 BOULES">🎳 40 BOULES</option>
+        <option value="4 COINS">🪙 4 COINS</option>
+        <option value="500 FRANCS">💵 500 FRANCS</option>
+        <option value="1 DOLLAR">💰 1 DOLLAR</option>
+      </select>
       
       <!-- Choix du pack -->
       <div class="lbl">Pack de tickets</div>
@@ -1976,20 +1802,8 @@ function buildRevSpace(){
         <div style="font-size:16px;font-weight:700;color:#fff" id="cmd-resume-text"></div>
       </div>
       
-      <div class="lbl">Mode de paiement</div>
-      <select id="cmd-mode-paiement" onchange="afficherInfoBancaire('cmd-mode-paiement','cmd-info-bancaire')" style="margin-bottom:8px">
-        <option value="">Choisir le mode de paiement...</option>
-        <option value="Carte">💳 Paiement par carte (Stripe) — Automatique</option>
-        <option value="CCP">CCP Papeete</option>
-        <option value="Deblock">Deblock</option>
-        <option value="Especes Papeete">Espèces — Boutique Papeete</option>
-        <option value="Especes Raiatea">Espèces — Boutique Raiatea</option>
-      </select>
-      <div id="cmd-info-bancaire" style="display:none"></div>
-      <input id="cmd-ref-paiement" placeholder="Référence (si virement/espèces)" style="margin-bottom:12px;font-size:13px"/>
-      
       <button onclick="passerCommande()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Passer la commande</button>
-      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Paiement carte → PDF automatique ! Autres modes → traitement manuel</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:6px">Nous recevons votre commande immédiatement et vous préparons vos tickets</div>
     </div>
 
     <!-- MES COMMANDES EN COURS -->
@@ -2349,51 +2163,49 @@ var carteNumeros = {}; // {numero: [{page, x, y}]}
 async function analyserPageNumeroPDF(page, pageNum){
   try{
     const textContent = await page.getTextContent();
-    // Viewport natif (scale 1.0) pour coordonnées PDF pures
-    const viewportNatif = page.getViewport({scale: 1.0});
-    const W = viewportNatif.width;
-    const H = viewportNatif.height;
-    
-    // Grouper les items par position Y proche (même ligne)
-    var lignes = {};
-    
+    const SCALE_RENDU = 2.0;
+    const viewport = page.getViewport({scale: SCALE_RENDU});
+
+    // Passe 1 : collecter tous les candidats numeros
+    var candidats = [];
     textContent.items.forEach(function(item){
-      var texte = item.str.trim();
-      if(!texte) return;
-      
-      // Position en coordonnées PDF natives
-      var tx = item.transform[4];
-      var ty = item.transform[5];
-      var w = Math.abs(item.width) || 10;
-      var h = Math.abs(item.height) || 10;
-      
-      // Centre du numéro
-      var cx = tx + w / 2;
-      // En PDF, Y=0 est en bas — convertir en % depuis le haut
-      var cy = H - ty - h / 2;
-      
-      var xPct = (cx / W) * 100;
-      var yPct = (cy / H) * 100;
-      
-      // Essayer de parser comme numéro
-      var num = parseInt(texte);
+      const texte = item.str.trim();
+      const num = parseInt(texte, 10);
       if(!isNaN(num) && num >= 1 && num <= 90 && texte === String(num)){
-        if(xPct > 2 && xPct < 98 && yPct > 2 && yPct < 98){
-          if(!carteNumeros[num]) carteNumeros[num] = [];
-          var dejaLa = carteNumeros[num].some(function(p){
-            return p.page === pageNum && Math.abs(p.x - xPct) < 3 && Math.abs(p.y - yPct) < 3;
-          });
-          if(!dejaLa){
-            carteNumeros[num].push({page: pageNum, x: xPct, y: yPct});
-          }
-        }
+        const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        // Taille reelle de police en pixels viewport (gere aussi la rotation)
+        const fontH = Math.hypot(transform[2], transform[3]);
+        candidats.push({
+          num: num,
+          tx: transform[4],
+          ty: transform[5], // = ligne de BASE du texte
+          w: (item.width || 10) * SCALE_RENDU,
+          fontH: fontH
+        });
       }
     });
-    
-    var nbTrouves = Object.keys(carteNumeros).filter(function(n){ 
-      return carteNumeros[n].some(function(p){ return p.page === pageNum; });
-    }).length;
-    console.log('Page ' + pageNum + ': ' + nbTrouves + ' numéros trouvés sur ' + W.toFixed(0) + 'x' + H.toFixed(0));
+    if(!candidats.length) return;
+
+    // Passe 2 : ne garder que la taille de police DOMINANTE (= numeros des grilles)
+    // Elimine les faux positifs : "75" du titre, telephone, numero de serie...
+    var compteTailles = {};
+    candidats.forEach(function(c){
+      var clef = Math.round(c.fontH);
+      compteTailles[clef] = (compteTailles[clef] || 0) + 1;
+    });
+    var tailleDominante = parseInt(Object.keys(compteTailles).sort(function(a,b){
+      return compteTailles[b] - compteTailles[a];
+    })[0], 10);
+
+    candidats.forEach(function(c){
+      if(Math.abs(c.fontH - tailleDominante) > tailleDominante * 0.2) return;
+      const xPct = ((c.tx + c.w / 2) / viewport.width) * 100;
+      // Centre du chiffre AU-DESSUS de la ligne de base
+      // REGLAGE : coche trop basse -> augmenter (0.60, 0.65) / trop haute -> diminuer (0.45, 0.40)
+      const yPct = ((c.ty - c.fontH * 0.55) / viewport.height) * 100;
+      if(!carteNumeros[c.num]) carteNumeros[c.num] = [];
+      carteNumeros[c.num].push({page: pageNum, x: xPct, y: yPct});
+    });
   }catch(e){ console.error('analyserPage error:', e); }
 }
 
@@ -2754,18 +2566,9 @@ function tirerBoule(){
         osc.stop(ctx.currentTime + 0.5);
       } catch(e){}
       
-      // Voix qui annonce la boule - annuler la file avant
+      // Voix qui annonce la boule via la file (sans cancel, anti-coupures)
       setTimeout(function(){
-        try{
-          window.speechSynthesis.cancel();
-          setTimeout(function(){
-            const msg = new SpeechSynthesisUtterance(lettre + ' ' + boule);
-            msg.lang = 'fr-FR';
-            msg.rate = 0.8;
-            msg.pitch = 1.1;
-            window.speechSynthesis.speak(msg);
-          }, 50);
-        }catch(e){}
+        try{ annoncerVocal(lettre + ' ' + boule); }catch(e){}
       }, 300);
     }
   }, 60);
@@ -2781,6 +2584,9 @@ function resetTirage(){
   document.querySelectorAll('[id="nb-tires"]').forEach(function(el){ el.textContent = '0'; });
   document.querySelectorAll('[id="nb-restants"]').forEach(function(el){ el.textContent = '75'; });
   document.querySelectorAll('[id="historique-boules"]').forEach(function(el){ el.innerHTML = ''; });
+  // IMPORTANT : vider aussi le tirage sur le SERVEUR,
+  // sinon les joueurs continuent de voir les anciennes boules indefiniment
+  fetch('/api/tirage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({boules: [], vitesse: vitesseTirage||3})}).catch(function(){});
 }
 
 // === BINGO ===
@@ -3004,11 +2810,11 @@ function afficherVirement(montant){
     "<div style='font-size:20px;font-weight:800;color:#fbbf24;text-align:center;margin-bottom:16px'>" + m + " XPF</div>",
     "<div style='background:rgba(99,102,241,.1);border-radius:10px;padding:14px;margin-bottom:10px'>",
     "<div style='font-size:12px;font-weight:600;color:#818cf8;margin-bottom:8px'>Option 1 — CCP Papeete</div>",
-    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>Titulaire : Mlle. MIALHE MAEVA-CARINE<br>IBAN : FR76 14168 00001 10002580501 50<br>BIC : OFTPPFT1XXX<br>Référence : " + ref + "</div>",
+    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>IBAN : FR76 14168 00001 10002580501 50<br>BIC : OFTPPFT1XXX<br>Bénéficiaire : EI TUKEA IMPORT<br>Référence : " + ref + "</div>",
     "</div>",
     "<div style='background:rgba(99,102,241,.1);border-radius:10px;padding:14px;margin-bottom:16px'>",
     "<div style='font-size:12px;font-weight:600;color:#818cf8;margin-bottom:8px'>Option 2 — Deblock</div>",
-    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>Titulaire : Maeva MIALHE<br>IBAN : FR85 1774 8019 84YV 2AJQ KDHA 561<br>BIC : DBLKFR22XXX<br>Référence : " + ref + "</div>",
+    "<div style='font-size:12px;color:rgba(255,255,255,.7);line-height:2'>Compte : EI TUKEA IMPORT<br>Référence : " + ref + "</div>",
     "</div>",
     "<div style='font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-bottom:16px'>Envoyez votre preuve — Activation sous 24h</div>",
     "<div style='display:flex;gap:8px'>",
@@ -3074,6 +2880,24 @@ async function loadPaiementsStripe(){
 
 // Vérifier retour Stripe
 const urlParams = new URLSearchParams(window.location.search);
+if(urlParams.get('paiement') === 'pions_ok'){
+  setTimeout(() => {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3);text-align:center;max-width:90%';
+    msg.innerHTML = '✅ Paiement réussi !<br><span style="font-size:13px;font-weight:400">Vos pions seront crédités dans quelques secondes 🪙</span>';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 8000);
+  }, 1000);
+}
+if(urlParams.get('paiement') === 'pions_annule'){
+  setTimeout(() => {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+    msg.textContent = '⚠️ Paiement annulé — aucun pion commandé';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 6000);
+  }, 1000);
+}
 if(urlParams.get('paiement') === 'success'){
   setTimeout(() => {
     const msg = document.createElement('div');
@@ -3115,43 +2939,13 @@ function updateResumeCmd(){
 async function passerCommande(){
   var jeu = document.getElementById('cmd-jeu').value;
   var serie = document.getElementById('cmd-serie').value || '1';
-  var mode = document.getElementById('cmd-mode-paiement') ? document.getElementById('cmd-mode-paiement').value : '';
-  var ref = document.getElementById('cmd-ref-paiement') ? document.getElementById('cmd-ref-paiement').value.trim() : '';
   if(!jeu){ alert('Choisissez un jeu'); return; }
   if(!packCmdSelectionne.nb){ alert('Choisissez un pack'); return; }
-  if(!mode){ alert('Choisissez votre mode de paiement'); return; }
-  
-  // Si paiement par carte → Stripe automatique
-  if(mode === 'Carte'){
-    try{
-      const r = await fetch('/api/paiement/tickets', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-        body: JSON.stringify({
-          jeu: jeu,
-          pack: packCmdSelectionne.nb,
-          prix: packCmdSelectionne.prix,
-          serie: serie,
-          code_org: CODE_ORG
-        })
-      });
-      const d = await r.json();
-      if(d.ok && d.url){
-        window.open(d.url, '_blank');
-        toast('toast-t', '💳 Page de paiement ouverte — PDF généré automatiquement après paiement !');
-        return;
-      } else {
-        alert(d.msg || 'Erreur paiement carte');
-        return;
-      }
-    }catch(e){ alert('Erreur connexion Stripe'); return; }
-  }
-  
   try{
     const r = await fetch('/api/commande/passer', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-      body: JSON.stringify({jeu, pack: packCmdSelectionne.nb, prix: packCmdSelectionne.prix, serie, mode_paiement: mode, ref_paiement: ref})
+      body: JSON.stringify({jeu, pack: packCmdSelectionne.nb, prix: packCmdSelectionne.prix, serie})
     });
     const d = await r.json();
     if(d.ok){
@@ -3504,39 +3298,6 @@ async function genererJeu(uid, route){
 function genererTA75(){ genererJeu('ta75','generer-ta75'); }
 
 // === GENERATION TICKETS TA75 ===
-async function genererOhana75(){
-  const nb = document.getElementById('ohana75-nb').value || 500;
-  const serie = document.getElementById('ohana75-serie').value || 1;
-  const btn = document.getElementById('btn-ohana75');
-  const result = document.getElementById('ohana75-result');
-  btn.disabled = true;
-  btn.textContent = '⏳ Génération en cours...';
-  result.innerHTML = '<div style="font-size:12px;color:var(--ac2)">Génération de ' + nb + ' tickets OHANA 75...</div>';
-  try{
-    const r = await fetch('/api/admin/generer-ohana75', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-      body: JSON.stringify({nb_tickets: parseInt(nb), serie_start: parseInt(serie)})
-    });
-    if(r.ok){
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'OHANA75_' + String(serie).padStart(5,'0') + '.pdf';
-      a.click();
-      result.innerHTML = '<div style="color:#34d399;font-size:12px">✅ PDF téléchargé !</div>';
-    } else {
-      const d = await r.json();
-      result.innerHTML = '<div style="color:#f87171;font-size:12px">❌ ' + (d.msg||'Erreur') + '</div>';
-    }
-  }catch(e){
-    result.innerHTML = '<div style="color:#f87171;font-size:12px">❌ Erreur connexion</div>';
-  }
-  btn.disabled = false;
-  btn.textContent = '⚡ Générer OHANA 75';
-}
-
 async function genererTA75(){
   const nb = parseInt(document.getElementById('ta75-nb')?.value || 500);
   const serie = parseInt(document.getElementById('ta75-serie')?.value || 1);
@@ -3589,7 +3350,7 @@ function previewGain(){
     return;
   }
   var cagnotte80 = Math.round(mises * 0.80);
-  var partOrg = Math.round(mises * 0.02);
+  var partOrg = Math.round(mises * 0.20);
   preview.style.display = 'block';
   if(btnAnnoncer) btnAnnoncer.style.display = 'block';
   document.getElementById('prev-total').textContent = mises.toLocaleString('fr-FR');
@@ -3692,6 +3453,7 @@ function loadPionsPaiement(){
         '<option value="Deblock">Deblock</option>' +
         '<option value="Especes Papeete">Espèces — Boutique Papeete</option>' +
         '<option value="Especes Raiatea">Espèces — Boutique Raiatea</option>' +
+        '<option value="Carte">Paiement par carte</option>' +
         '</select>' +
         '<input id="pion-ref-' + c.id + '" placeholder="Référence ou confirmation" style="font-size:12px;margin-bottom:6px;width:100%"/>';
       var btn = document.createElement('button');
@@ -3827,7 +3589,7 @@ async function validerTicketPions(commandeId){
 }
 
 // === NOUVEAU SYSTEME PIONS ===
-var valeurPionSelectionne = 20; // 20 XPF par défaut
+var valeurPionSelectionne = 0;
 var valeurDonPion = 0;
 
 function selValeurPion(val, el){
@@ -3858,7 +3620,7 @@ function calcPions(){
     if(calcDiv) calcDiv.style.display = 'none';
     return;
   }
-  var commission = Math.round(montant * 0.02);
+  var commission = Math.round(montant * 0.20);
   var valeurRecue = montant - commission;
   var nbPions = Math.floor(valeurRecue / valeurPionSelectionne);
   calcDiv.style.display = 'block';
@@ -3870,38 +3632,34 @@ function calcPions(){
 async function commanderPions(){
   if(!valeurPionSelectionne){ alert('Choisissez la valeur du pion'); return; }
   var montant = parseFloat(document.getElementById('pion-montant').value || 0);
-  if(montant <= 0){ alert('Entrez un montant'); return; }
+  if(montant < 500){ alert('Montant minimum : 500 XPF'); return; }
   var mode = document.getElementById('pion-mode-paiement') ? document.getElementById('pion-mode-paiement').value : '';
   var ref = document.getElementById('pion-ref-paiement') ? document.getElementById('pion-ref-paiement').value.trim() : '';
   if(!mode){ alert('Choisissez votre mode de paiement'); return; }
-  var commission = Math.round(montant * 0.02);
+  var commission = Math.round(montant * 0.20);
   var valeurRecue = montant - commission;
   var nbPions = Math.floor(valeurRecue / valeurPionSelectionne);
-  
-  // Si paiement par carte → ouvrir Stripe
+
+  // PAIEMENT PAR CARTE : page Stripe + credit automatique
   if(mode === 'Carte'){
     try{
-      const r = await fetch('/api/paiement/pions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-        body: JSON.stringify({
-          code: CODE_ORG,
-          valeur_pion: valeurPionSelectionne,
-          montant: montant,
-          nb_pions: nbPions,
-          type: 'organisateur'
-        })
+      const rs = await fetch('/api/pions/stripe-checkout', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+        body: JSON.stringify({profil: 'organisateur', valeur_pion: valeurPionSelectionne, montant: montant})
       });
-      const d = await r.json();
-      if(d.ok && d.url){
-        window.open(d.url, '_blank');
-        return;
+      const ds = await rs.json();
+      if(ds.ok && ds.url){
+        toast('toast-pions', '💳 Redirection vers le paiement sécurisé...');
+        window.location.href = ds.url;
       } else {
-        alert(d.msg || 'Erreur paiement carte');
-        return;
+        alert(ds.msg || 'Paiement par carte indisponible — choisissez un autre mode');
       }
-    }catch(e){ alert('Erreur connexion Stripe'); return; }
+    }catch(e){
+      alert('Paiement par carte indisponible — choisissez un autre mode');
+    }
+    return;
   }
+
   try{
     const r = await fetch('/api/pions/commande', {
       method: 'POST',
@@ -4101,138 +3859,8 @@ async function commanderTicketAvecPions(jeuId, jeu, prix, nbTickets, codeOrg, co
   }catch(e){ alert('Erreur de connexion'); }
 }
 
-// === NOTIFICATION JOUEUR ===
-function afficherNotificationJoueur(code, message){
-  var overlay = document.createElement('div');
-  overlay.id = 'notif-overlay-joueur';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-  var box = document.createElement('div');
-  box.style.cssText = 'background:#111218;border:2px solid #f59e0b;border-radius:16px;padding:24px;max-width:400px;width:100%';
-  box.innerHTML = '<div style="font-size:20px;text-align:center;margin-bottom:12px">⚠️</div>' +
-    '<div style="font-size:15px;font-weight:700;color:#fbbf24;margin-bottom:12px;text-align:center">Message important</div>' +
-    '<div style="font-size:13px;color:rgba(255,255,255,.8);line-height:1.6;margin-bottom:20px">' + message + '</div>';
-  var btn = document.createElement('button');
-  btn.style.cssText = 'width:100%;padding:12px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700';
-  btn.textContent = "✅ J'ai compris";
-  btn.onclick = function(){
-    overlay.remove();
-    fetch('/api/notification/joueur/lue/'+code, {method:'POST'}).catch(function(){});
-  };
-  box.appendChild(btn);
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-}
-
-// === PARRAINAGE ET BONUS ===
-var codeParrainActuel = "";
-
-async function chargerCodeParrain(code){
-  try{
-    const r = await fetch('/api/parrainage/code/'+code);
-    const d = await r.json();
-    if(d.ok){
-      codeParrainActuel = d.code_parrain;
-      var el = document.getElementById('code-parrain-display');
-      if(el) el.textContent = d.code_parrain;
-      var stats = document.getElementById('parrainage-stats');
-      if(stats) stats.textContent = d.nb_filleuls + ' ami(s) parrainé(s) — ' + d.bonus_total + ' pions gagnés';
-    }
-  }catch(e){}
-}
-
-function copierCodeParrain(){
-  if(!codeParrainActuel) return;
-  navigator.clipboard.writeText(codeParrainActuel).then(function(){
-    var btn = document.querySelector('[onclick="copierCodeParrain()"]');
-    if(btn){ btn.textContent = '✅ Copié !'; setTimeout(function(){ btn.textContent = '📋 Copier mon code'; }, 2000); }
-  }).catch(function(){
-    alert('Votre code : ' + codeParrainActuel);
-  });
-}
-
-async function utiliserParrainage(){
-  var code = document.getElementById('input-code-parrain').value.trim().toUpperCase();
-  var result = document.getElementById('parrainage-result');
-  if(!code){ result.innerHTML = '<div style="color:#f87171;font-size:12px">Entrez un code parrainage</div>'; return; }
-  if(!codeJoueurActuel){ result.innerHTML = '<div style="color:#f87171;font-size:12px">Connectez-vous d abord</div>'; return; }
-  try{
-    const r = await fetch('/api/parrainage/utiliser', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code_joueur: codeJoueurActuel, code_parrain: code})
-    });
-    const d = await r.json();
-    if(d.ok){
-      result.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px;margin-top:6px">'+d.msg+'</div>';
-      chargerSoldesPionsJoueur(codeJoueurActuel);
-    } else {
-      result.innerHTML = '<div style="color:#f87171;font-size:12px;margin-top:6px">'+d.msg+'</div>';
-    }
-  }catch(e){ result.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur connexion</div>'; }
-}
-
-// === COORDONNÉES BANCAIRES ===
-var INFO_BANCAIRE = {
-  "CCP": {
-    titre: "💰 Virement CCP Papeete",
-    couleur: "#f59e0b",
-    infos: [
-      {label: "Titulaire", valeur: "Mlle. MIALHE MAEVA-CARINE"},
-      {label: "Banque", valeur: "14168"},
-      {label: "Code guichet", valeur: "00001"},
-      {label: "N° de compte", valeur: "10002580501"},
-      {label: "Clé", valeur: "50"},
-      {label: "IBAN", valeur: "FR76 14168 00001 10002580501 50"},
-      {label: "BIC", valeur: "OFTPPFT1XXX"},
-      {label: "Domiciliation", valeur: "CCP PAPEETE — Tél: (689) 40 432 432"}
-    ]
-  },
-  "Deblock": {
-    titre: "🏦 Virement Deblock",
-    couleur: "#6366f1",
-    infos: [
-      {label: "Titulaire", valeur: "Maeva MIALHE"},
-      {label: "Banque", valeur: "17748"},
-      {label: "Guichet", valeur: "01984"},
-      {label: "N° de compte", valeur: "YV2AJQKDHA5"},
-      {label: "Clé RIB", valeur: "61"},
-      {label: "IBAN", valeur: "FR85 1774 8019 84YV 2AJQ KDHA 561"},
-      {label: "BIC", valeur: "DBLKFR22XXX"},
-      {label: "Domiciliation", valeur: "Deblock — Spaces Shake Building, Lille"}
-    ]
-  }
-};
-
-function afficherInfoBancaire(selectId, targetId){
-  var sel = document.getElementById(selectId);
-  var target = document.getElementById(targetId);
-  if(!sel || !target) return;
-  
-  var mode = sel.value;
-  var info = INFO_BANCAIRE[mode];
-  
-  if(info){
-    var bg = mode === 'CCP' ? 'rgba(245,158,11,.12)' : 'rgba(99,102,241,.12)';
-    var bd = mode === 'CCP' ? 'rgba(245,158,11,.4)' : 'rgba(99,102,241,.4)';
-    var h = '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:10px;padding:12px;margin-top:8px">';
-    h += '<div style="font-size:13px;font-weight:700;color:'+info.couleur+';margin-bottom:8px">'+info.titre+'</div>';
-    h += '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:8px">Effectuez votre virement puis indiquez la référence ci-dessous</div>';
-    info.infos.forEach(function(i){
-      h += '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">';
-      h += '<span style="color:rgba(255,255,255,.5)">'+i.label+'</span>';
-      h += '<span style="color:#fff;font-weight:600">'+i.valeur+'</span>';
-      h += '</div>';
-    });
-    h += '</div>';
-    target.innerHTML = h;
-    target.style.display = 'block';
-  } else {
-    target.innerHTML = '';
-    target.style.display = 'none';
-  }
-}
 // === PIONS JOUEUR DIRECT ===
-var valeurPionJoueur = 20; // 20 XPF par défaut
+var valeurPionJoueur = 0;
 var codeJoueurActuel = "";
 
 function selValeurPionJoueur(val, el){
@@ -4253,7 +3881,7 @@ function calcPionsJoueur(){
     if(calcDiv) calcDiv.style.display = 'none';
     return;
   }
-  var commission = Math.round(montant * 0.02);
+  var commission = Math.round(montant * 0.20);
   var valeurRecue = montant - commission;
   var nbPions = Math.floor(valeurRecue / valeurPionJoueur);
   calcDiv.style.display = 'block';
@@ -4265,40 +3893,37 @@ function calcPionsJoueur(){
 async function commanderPionsJoueur(){
   if(!valeurPionJoueur){ alert('Choisissez la valeur du pion'); return; }
   var montant = parseFloat(document.getElementById('joueur-pion-montant').value || 0);
-  if(montant <= 0){ alert('Entrez un montant'); return; }
+  if(montant < 500){ alert('Montant minimum : 500 XPF'); return; }
   var mode = document.getElementById('joueur-pion-mode').value;
   var ref = document.getElementById('joueur-pion-ref').value.trim();
   if(!mode){ alert('Choisissez votre mode de paiement'); return; }
   
-  var commission = Math.round(montant * 0.02);
+  var commission = Math.round(montant * 0.20);
   var valeurRecue = montant - commission;
   var nbPions = Math.floor(valeurRecue / valeurPionJoueur);
-  
-  // Si paiement par carte → ouvrir Stripe
+
+  // PAIEMENT PAR CARTE : ouvrir la page de paiement securisee Stripe
+  // Les pions seront credites AUTOMATIQUEMENT apres le paiement
   if(mode === 'Carte'){
     try{
-      const r = await fetch('/api/paiement/pions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          code: codeJoueurActuel,
-          valeur_pion: valeurPionJoueur,
-          montant: montant,
-          nb_pions: nbPions,
-          type: 'joueur'
-        })
+      const rs = await fetch('/api/pions/stripe-checkout', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({profil: 'joueur', code: codeJoueurActuel, valeur_pion: valeurPionJoueur, montant: montant})
       });
-      const d = await r.json();
-      if(d.ok && d.url){
-        window.open(d.url, '_blank');
-        return;
+      const ds = await rs.json();
+      if(ds.ok && ds.url){
+        document.getElementById('joueur-pion-result').innerHTML =
+          '<div style="background:rgba(99,102,241,.2);border:1px solid #6366f1;border-radius:8px;padding:10px;text-align:center;color:#818cf8;margin-top:6px">💳 Redirection vers le paiement sécurisé...</div>';
+        window.location.href = ds.url;
       } else {
-        alert(d.msg || 'Erreur paiement carte');
-        return;
+        alert(ds.msg || 'Paiement par carte indisponible — choisissez un autre mode');
       }
-    }catch(e){ alert('Erreur connexion Stripe'); return; }
+    }catch(e){
+      alert('Paiement par carte indisponible — choisissez un autre mode');
+    }
+    return;
   }
-  
+
   try{
     const r = await fetch('/api/pions/commande-joueur', {
       method: 'POST',
@@ -4339,54 +3964,6 @@ function chargerSoldesPionsJoueur(code){
     if(document.getElementById('joueur-solde-20')) document.getElementById('joueur-solde-20').textContent = d.pions_20 || 0;
     if(document.getElementById('joueur-solde-50')) document.getElementById('joueur-solde-50').textContent = d.pions_50 || 0;
     if(document.getElementById('joueur-solde-100')) document.getElementById('joueur-solde-100').textContent = d.pions_100 || 0;
-  })
-  .catch(function(){});
-}
-
-// === GESTION JEUX ===
-async function ajouterNouveauJeu(){
-  var nom = prompt('Nom du nouveau jeu (ex: OHANA 75, BIN 9...) :');
-  if(!nom || !nom.trim()) return;
-  nom = nom.trim().toUpperCase();
-  
-  try{
-    const r = await fetch('/api/jeux/ajouter', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
-      body: JSON.stringify({nom: nom})
-    });
-    const d = await r.json();
-    if(d.ok){
-      // Ajouter dans tous les selects de jeux
-      document.querySelectorAll('#cmd-jeu').forEach(function(sel){
-        var opt = document.createElement('option');
-        opt.value = nom;
-        opt.textContent = '🎮 ' + nom;
-        sel.appendChild(opt);
-        sel.value = nom;
-      });
-      toast('toast-b', '✅ Jeu ' + nom + ' ajouté !');
-    }
-  }catch(e){ alert('Erreur'); }
-}
-
-function loadJeuxSelect(){
-  // Charger les jeux personnalisés depuis le serveur
-  fetch('/api/jeux/liste', {headers: {'X-Token': TOKEN}})
-  .then(function(r){ return r.json(); })
-  .then(function(jeux){
-    document.querySelectorAll('#cmd-jeu').forEach(function(sel){
-      // Garder les options par défaut et ajouter les personnalisés
-      var valeursExistantes = Array.from(sel.options).map(function(o){ return o.value; });
-      jeux.forEach(function(j){
-        if(!valeursExistantes.includes(j)){
-          var opt = document.createElement('option');
-          opt.value = j;
-          opt.textContent = '🎮 ' + j;
-          sel.appendChild(opt);
-        }
-      });
-    });
   })
   .catch(function(){});
 }
@@ -4557,20 +4134,32 @@ async function toggleMicro(){
       microWs = new WebSocket(wsUrl);
       
       microWs.onopen = function(){
-        // Démarrer MediaRecorder en streaming continu
-        var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-        mediaRecorder = new MediaRecorder(microStream, {mimeType: mimeType, audioBitsPerSecond: 32000});
-        
-        mediaRecorder.ondataavailable = function(e){
-          if(e.data.size > 0 && microWs && microWs.readyState === WebSocket.OPEN){
-            microWs.send(e.data);
-          }
-        };
-        
-        // Envoyer des chunks toutes les 250ms — streaming fluide sans coupure
-        mediaRecorder.start(250);
-        
-        microActif = true;
+        // Detection du format supporte (WebM sur Android/PC, MP4 sur iPhone)
+        var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                     : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+
+        microActif = true; // AVANT le demarrage du cycle
+
+        // Cycle d'enregistrement par segments COMPLETS de 1,5 s
+        // (avec start(250), seuls les premiers octets contenaient l'en-tete WebM,
+        //  les chunks suivants etaient illisibles seuls -> c'est ca qui coupait)
+        function cycleEnregistrement(){
+          if(!microActif) return;
+          var rec = new MediaRecorder(microStream, mimeType ? {mimeType: mimeType, audioBitsPerSecond: 32000} : {audioBitsPerSecond: 32000});
+          mediaRecorder = rec;
+          rec.ondataavailable = function(e){
+            if(e.data.size > 0 && microWs && microWs.readyState === WebSocket.OPEN){
+              microWs.send(e.data);
+            }
+          };
+          rec.start();
+          setTimeout(function(){
+            try{ if(rec.state !== 'inactive') rec.stop(); }catch(err){}
+            if(microActif) cycleEnregistrement();
+          }, 1500);
+        }
+        cycleEnregistrement();
+
         btn.style.background = 'rgba(239,68,68,.5)';
         btn.style.borderColor = '#ef4444';
         btn.style.boxShadow = '0 0 20px rgba(239,68,68,.5)';
@@ -4647,6 +4236,7 @@ async function envoyerMessageMicro(){
 // Vérifier les messages micro côté joueur toutes les 3 secondes
 let dernierMessageJoueur = "";
 let derniereBouleAnnoncee = 0;
+var boulesAnnoncees = null; // null = premier chargement (pas de recitation de l'historique)
 let dernierAudioTimestamp = "";
 let audioContext = null;
 
@@ -4686,40 +4276,100 @@ var sourceBuffer = null;
 var audioQueue = [];
 var audioProcessing = false;
 
+var joueurMicroPing = null;
+var codeOrgMicroActuel = null;
+var wakeLockMicro = null;
+
+// Garder l'ecran allume pendant le direct (sinon le telephone se met en veille et le son s'arrete)
+async function demanderWakeLock(){
+  try{
+    if('wakeLock' in navigator){
+      wakeLockMicro = await navigator.wakeLock.request('screen');
+    }
+  }catch(e){}
+}
+
 function connecterMicroJoueur(codeOrg){
   if(!codeOrg) return;
+  // Eviter les doubles connexions
+  if(joueurMicroWs && joueurMicroWs.readyState === WebSocket.OPEN && codeOrgMicroActuel === codeOrg) return;
+  codeOrgMicroActuel = codeOrg;
   try{
     const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/micro/joueur/' + codeOrg;
     joueurMicroWs = new WebSocket(wsUrl);
-    
+
     joueurMicroWs.binaryType = 'arraybuffer';
-    
+
+    joueurMicroWs.onopen = function(){
+      // Ping toutes les 20 s pour que le serveur et Railway gardent le tuyau ouvert
+      if(joueurMicroPing) clearInterval(joueurMicroPing);
+      joueurMicroPing = setInterval(function(){
+        try{
+          if(joueurMicroWs && joueurMicroWs.readyState === WebSocket.OPEN) joueurMicroWs.send('ping');
+        }catch(e){}
+      }, 20000);
+      demanderWakeLock();
+    };
+
     joueurMicroWs.onmessage = function(e){
       if(e.data instanceof ArrayBuffer){
         jouerAudioBuffer(e.data);
       }
     };
-    
+
     joueurMicroWs.onclose = function(){
+      if(joueurMicroPing){ clearInterval(joueurMicroPing); joueurMicroPing = null; }
       // Reconnecter après 3 secondes
       setTimeout(function(){ connecterMicroJoueur(codeOrg); }, 3000);
     };
-    
+
     joueurMicroWs.onerror = function(){};
   }catch(e){}
 }
 
+// Au retour sur l'app (telephone deverrouille, retour d'une autre appli) :
+// reconnexion IMMEDIATE du micro + ecran maintenu allume
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible' && codeOrgMicroActuel){
+    if(!joueurMicroWs || joueurMicroWs.readyState !== WebSocket.OPEN){
+      connecterMicroJoueur(codeOrgMicroActuel);
+    }
+    demanderWakeLock();
+  }
+});
+
+var fileAudioMicro = [];
+var audioMicroEnCours = false;
+
 function jouerAudioBuffer(arrayBuffer){
+  fileAudioMicro.push(arrayBuffer);
+  // Si du retard s'accumule, on saute au plus recent (latence maitrisee)
+  if(fileAudioMicro.length > 3) fileAudioMicro = fileAudioMicro.slice(-2);
+  traiterFileAudioMicro();
+}
+
+function traiterFileAudioMicro(){
+  if(audioMicroEnCours || !fileAudioMicro.length) return;
+  audioMicroEnCours = true;
+  var buf = fileAudioMicro.shift();
   try{
-    var blob = new Blob([arrayBuffer], {type: 'audio/webm'});
+    var bytes = new Uint8Array(buf);
+    // En-tete EBML (0x1A45DFA3) = WebM, sinon MP4 (iPhone)
+    var estWebm = bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3;
+    var blob = new Blob([buf], {type: estWebm ? 'audio/webm' : 'audio/mp4'});
     var url = URL.createObjectURL(blob);
     var audio = new Audio(url);
-    audio.play().then(function(){ 
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
-    }).catch(function(){
+    var fini = function(){
       URL.revokeObjectURL(url);
-    });
-  }catch(e){}
+      audioMicroEnCours = false;
+      traiterFileAudioMicro();
+    };
+    audio.onended = fini;
+    audio.onerror = fini;
+    audio.play().catch(fini);
+  }catch(e){
+    audioMicroEnCours = false;
+  }
 }
 
 async function jouerAudioMicro(b64){
@@ -4818,7 +4468,7 @@ function verifierBingoAutomatique(){
       var pageKey = 'page_' + pos.page;
       var cochesPage = cochesParPage[pageKey] || [];
       return cochesPage.some(function(c){
-        return Math.abs(c.x - pos.x) < 8 && Math.abs(c.y - pos.y) < 8;
+        return Math.abs(c.x - pos.x) < 5 && Math.abs(c.y - pos.y) < 5;
       });
     });
     if(estCoche) numerosCoches.push(parseInt(num));
@@ -4967,6 +4617,71 @@ function initialiserVoix(){
 document.addEventListener('touchstart', initialiserVoix, {once: true});
 document.addEventListener('click', initialiserVoix, {once: true});
 
+// === FILE D'ANNONCE VOCALE (anti-coupures, anti-boules muettes) ===
+var fileAnnonces = [];
+var annonceEnCours = false;
+var voixFr = null;
+
+function chargerVoixFr(){
+  try{
+    var voix = window.speechSynthesis.getVoices();
+    voixFr = voix.find(function(v){ return v.lang && v.lang.indexOf('fr') === 0; }) || null;
+  }catch(e){}
+}
+if('speechSynthesis' in window){
+  chargerVoixFr();
+  window.speechSynthesis.onvoiceschanged = chargerVoixFr;
+  // Anti-blocage Chrome : le moteur se met parfois en pause tout seul
+  setInterval(function(){ try{ if(window.speechSynthesis.paused) window.speechSynthesis.resume(); }catch(e){} }, 3000);
+}
+
+async function recrediterJoueur(){
+  var codeJ = (document.getElementById('recred-code').value || '').trim().toUpperCase();
+  var valeur = parseInt(document.getElementById('recred-valeur').value);
+  var nb = parseInt(document.getElementById('recred-nb').value);
+  var res = document.getElementById('recred-result');
+  if(!codeJ || !nb){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Code joueur et nombre de pions obligatoires</div>';
+    return;
+  }
+  try{
+    const r = await fetch('/api/pions/recrediter-joueur', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({code_joueur: codeJ, valeur_pion: valeur, nb_pions: nb})
+    });
+    const d = await r.json();
+    if(d.ok){
+      var s = d.solde || {};
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + nb + ' pions à ' + valeur + ' XPF crédités à ' + codeJ + ' — Solde : ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
+      document.getElementById('recred-nb').value = '';
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
+
+function annoncerVocal(texte){
+  fileAnnonces.push(texte);
+  traiterFileAnnonces();
+}
+
+function traiterFileAnnonces(){
+  if(annonceEnCours || !fileAnnonces.length || !('speechSynthesis' in window)) return;
+  annonceEnCours = true;
+  var msg = new SpeechSynthesisUtterance(fileAnnonces.shift());
+  msg.lang = 'fr-FR';
+  if(voixFr) msg.voice = voixFr;
+  msg.rate = 0.8; msg.pitch = 1.1; msg.volume = 1;
+  var suivant = function(){ annonceEnCours = false; setTimeout(traiterFileAnnonces, 250); };
+  msg.onend = suivant;
+  msg.onerror = suivant;
+  // Filet de securite si onend ne se declenche jamais (bug Android connu)
+  setTimeout(function(){ if(annonceEnCours){ annonceEnCours = false; traiterFileAnnonces(); } }, 8000);
+  window.speechSynthesis.speak(msg);
+}
+
 function startTirageAutoRefresh(){
   if(tirageInterval) clearInterval(tirageInterval);
   tirageInterval = setInterval(loadTirageJoueur, 5000);
@@ -4991,6 +4706,9 @@ async function loadTirageJoueur(){
     const el = els[0];
     if(!boules.length){
       els.forEach(e => e.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--mu)">Aucune boule tirée pour le moment</div>');
+      // Tirage remis a zero -> nouvelle partie : reinitialiser annonces et pointage auto
+      boulesAnnoncees = [];
+      dernieresBoulesCochees = [];
       return;
     }
     // Dernière boule tirée en grand
@@ -5020,25 +4738,20 @@ async function loadTirageJoueur(){
     // Pointage automatique si activé
     if(pointageAutoActif) pointageAutomatique(boules);
     
-    // Annoncer la dernière boule à voix haute si nouvelle
-    if(boules.length > 0){
-      var derniereBoule = boules[boules.length-1];
-      if(derniereBoule !== derniereBouleAnnoncee){
-        derniereBouleAnnoncee = derniereBoule;
-        var lettreBoule = getLettre(derniereBoule);
-        try{
-          // Annuler TOUT ce qui est en file et lire uniquement la dernière boule
-          window.speechSynthesis.cancel();
-          setTimeout(function(){
-            var msg = new SpeechSynthesisUtterance(lettreBoule + ' ' + derniereBoule);
-            msg.lang = 'fr-FR';
-            msg.rate = 0.8;
-            msg.pitch = 1.1;
-            msg.volume = 1;
-            window.speechSynthesis.speak(msg);
-          }, 100);
-        }catch(e){}
-      }
+    // Annoncer TOUTES les nouvelles boules depuis le dernier passage
+    if(boulesAnnoncees === null){
+      boulesAnnoncees = boules.slice(); // arrivee en cours de partie : pas de recitation
+    } else if(boules.length < boulesAnnoncees.length){
+      // Le tirage a ete remis a zero puis relance entre deux actualisations -> nouvelle partie
+      boulesAnnoncees = boules.slice();
+      dernieresBoulesCochees = [];
+    } else {
+      boules.forEach(function(b){
+        if(boulesAnnoncees.indexOf(b) === -1){
+          boulesAnnoncees.push(b);
+          annoncerVocal(getLettre(b) + ' ' + b);
+        }
+      });
     }
   }catch(e){}
 }
