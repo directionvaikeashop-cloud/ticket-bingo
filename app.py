@@ -1665,6 +1665,24 @@ def solde_pions_joueur(code_joueur):
         "pions_100": pions.get("100", 0)
     })
 
+@app.route("/api/pions/refuser-joueur", methods=["POST"])
+def refuser_pions_joueur():
+    """ADMIN — Refuser une commande de pions jamais payee (commande fantome)"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    commande_id = request.json.get("commande_id", "")
+    for c in DB.get("commandes_pions_joueurs", []):
+        if c["id"] == commande_id:
+            c["statut"] = "refusee"
+            c["date_refus"] = datetime.datetime.now().isoformat()
+            save_data()
+            return jsonify({"ok": True})
+    return jsonify({"ok": False, "msg": "Commande introuvable"}), 404
+
 @app.route("/api/pions/valider-joueur", methods=["POST"])
 def valider_pions_joueur():
     global DB
