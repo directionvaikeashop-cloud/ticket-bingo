@@ -2488,6 +2488,44 @@ def get_micro_status():
         "message": DB.get("micro_message", "")
     })
 
+# === GENERATION GENERIQUE : TOUS LES JEUX DU REGISTRE ===
+@app.route("/api/admin/generer-jeu", methods=["POST"])
+def generer_jeu_generique():
+    """ADMIN — Genere un PDF pour N'IMPORTE QUEL jeu du registre GENERATEURS_JEUX.
+    Couvre automatiquement OHANA 75 10 BOULES et tous les futurs jeux installes."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+
+    d = request.json or {}
+    jeu = (d.get("jeu") or "").strip()
+    infos = GENERATEURS_JEUX.get(jeu)
+    if not infos:
+        return jsonify({"ok": False, "msg": f"Jeu inconnu du registre : {jeu}"}), 404
+
+    nb_tickets = max(1, min(int(d.get("nb_tickets", 500)), 1000))
+    serie_start = max(1, int(d.get("serie_start", 1)))
+
+    slug = "".join(c if c.isalnum() else "_" for c in jeu)
+    output_path = f"/data/{slug}_{serie_start:05d}_to_{serie_start + nb_tickets - 1:05d}.pdf"
+    os.makedirs("/data", exist_ok=True)
+
+    try:
+        infos["generer"](nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        save_commande(jeu, nb_tickets, serie_start, output_path, d.get("client", ""))
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=f"{slug}_{serie_start:05d}.pdf",
+            mimetype="application/pdf"
+        )
+    except Exception as e:
+        print(f"[GENERER-JEU ERR] {jeu} : {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
 # === GENERATION TICKETS TRIPLE ACTION 75 ===
 @app.route("/api/admin/generer-ta75", methods=["POST"])
 def generer_ta75():
