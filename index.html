@@ -1408,6 +1408,8 @@ function buildOrgSpace(){
       </div>
       <div class="lbl">📧 Email du joueur (optionnel)</div>
       <input id="t-email" type="email" placeholder="joueur@email.com" style="margin-bottom:10px"/>
+      <div class="lbl">Code joueur existant (optionnel — la joueuse garde son code et ses pions)</div>
+      <input class="t-code-existant" placeholder="Ex: WQ7HEA — vide = nouveau code" style="margin-bottom:10px;text-transform:uppercase"/>
       <div class="g2">
         <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
         <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
@@ -1885,6 +1887,8 @@ function buildRevSpace(){
       </div>
       <div class="lbl">📧 Email du joueur (optionnel)</div>
       <input id="t-email" type="email" placeholder="joueur@email.com" style="margin-bottom:10px"/>
+      <div class="lbl">Code joueur existant (optionnel — la joueuse garde son code et ses pions)</div>
+      <input class="t-code-existant" placeholder="Ex: WQ7HEA — vide = nouveau code" style="margin-bottom:10px;text-transform:uppercase"/>
       <div class="g2">
         <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
         <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
@@ -2469,7 +2473,9 @@ async function regTicket(){
   }
   try{
     const emailJoueur = document.getElementById("t-email") ? document.getElementById("t-email").value.trim() : "";
-    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin,email:emailJoueur})});
+    let codeExistant = "";
+    document.querySelectorAll('.t-code-existant').forEach(function(ch){ if(ch.value.trim()) codeExistant = ch.value.trim().toUpperCase(); });
+    const r=await fetch("/api/ticket",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({acheteur:a,jeu:j,serie:s,prix:p,photo_url,pdf_url,page_debut:pageDebut,page_fin:pageFin,email:emailJoueur,code_acheteur:codeExistant})});
     const d=await r.json();
     if(d.ok){
       document.getElementById("t-code-result").innerHTML=`
@@ -2479,7 +2485,9 @@ async function regTicket(){
           <div style="font-size:11px;color:var(--mu);margin-top:8px">Envoyez ce code à votre client<br/>Il l'utilise dans l'onglet 🎮 Jouer</div>
         </div>`;
       ["t-acheteur","t-serie","t-prix"].forEach(id=>document.getElementById(id).value="");
-      document.getElementById("t-jeu").value="";if(document.getElementById("t-email"))document.getElementById("t-email").value="";supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
+      document.getElementById("t-jeu").value="";if(document.getElementById("t-email"))document.getElementById("t-email").value="";document.querySelectorAll('.t-code-existant').forEach(function(ch){ ch.value=''; });supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
+    } else {
+      toast("toast-t", d.msg || "Erreur", false);
     }
   }catch(e){toast("toast-t","Erreur",false);}
 }
