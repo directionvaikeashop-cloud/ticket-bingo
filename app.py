@@ -2899,7 +2899,6 @@ def stripe_checkout_pions():
         print(f"[STRIPE PIONS ERR] {e}")
         return jsonify({"ok": False, "msg": "Erreur de paiement — choisissez un autre mode"}), 500
 
-@app.route("/api/paiement/webhook", methods=["POST"])
 def _notifier_admin_stripe(titre, details, montant_xpf):
     """Email a l'administratrice a chaque paiement Stripe recu (restaure 12/06/2026)"""
     if not SENDGRID_API_KEY:
@@ -2928,6 +2927,7 @@ def _notifier_admin_stripe(titre, details, montant_xpf):
         print(f"[NOTIF STRIPE ERR] {e}")
 
 
+@app.route("/api/paiement/webhook", methods=["POST"])
 def stripe_webhook():
     """Reçoit les notifications Stripe après paiement"""
     payload = request.get_data()
