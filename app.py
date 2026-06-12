@@ -1709,7 +1709,7 @@ def _deduire_valeur_pion(montant, nb_pions, valeur_meta):
     if valeur_meta and str(valeur_meta) in ["20", "50", "100"]:
         return str(valeur_meta)
     if nb_pions > 0:
-        approx = (montant * 0.80) / nb_pions
+        approx = (montant * 0.98) / nb_pions  # commission carte 2%
         return str(min([20, 50, 100], key=lambda v: abs(v - approx)))
     return "100"
 
@@ -1836,7 +1836,7 @@ def stripe_crediter():
             "code_joueur": code,
             "valeur_pion": int(valeur),
             "montant_paye": montant,
-            "commission": round(montant * 0.20),
+            "commission": round(montant * 0.02),
             "nb_pions": nb_pions,
             "mode_paiement": "Carte (Stripe) — rapprochement",
             "ref_paiement": session_id[:24],
@@ -2238,8 +2238,8 @@ def stripe_checkout_pions():
     if not code or valeur_pion not in [20, 50, 100] or montant < 500:
         return jsonify({"ok": False, "msg": "Données invalides"}), 400
 
-    # Calcul COTE SERVEUR (anti-triche) : commission 20%, pions sur la valeur restante
-    commission = round(montant * 0.20)
+    # Calcul COTE SERVEUR (anti-triche) : commission CARTE = 2%, pions sur la valeur restante
+    commission = round(montant * 0.02)
     nb_pions = int((montant - commission) // valeur_pion)
     if nb_pions <= 0:
         return jsonify({"ok": False, "msg": "Montant trop faible pour cette valeur de pion"}), 400
