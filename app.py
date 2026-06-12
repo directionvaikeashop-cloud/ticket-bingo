@@ -1704,6 +1704,119 @@ def restaurer_donnees():
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)}), 500
 
+def _deduire_valeur_pion(montant, nb_pions, valeur_meta):
+    """Deduit la valeur du pion : metadata si presente, sinon calcul depuis le montant"""
+    if valeur_meta and str(valeur_meta) in ["20", "50", "100"]:
+        return str(valeur_meta)
+    if nb_pions > 0:
+        approx = (montant * 0.80) / nb_pions
+        return str(min([20, 50, 100], key=lambda v: abs(v - approx)))
+    return "100"
+
+@app.route("/api/admin/stripe-paiements-pions")
+def stripe_paiements_pions():
+    """ADMIN — Liste les paiements de pions recus sur Stripe avec etat de rapprochement"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    if not stripe or not STRIPE_SECRET_KEY:
+        return jsonify({"ok": False, "msg": "Stripe non configuré"}), 503
+    try:
+        deja_traites = set(DB.get("stripe_credites", []))
+        # References deja enregistrees par le webhook (nouveau circuit)
+        refs_webhook = set()
+        for c in DB.get("commandes_pions_joueurs", []):
+            if c.get("ref_paiement"):
+                refs_webhook.add(str(c["ref_paiement"]))
+        resultats = []
+        sessions = stripe.checkout.Session.list(limit=100)
+        for sess in sessions.auto_paging_iter():
+            if sess.get("payment_status") != "paid":
+                continue
+            meta = sess.get("metadata", {}) or {}
+            type_p = meta.get("type", "")
+            if type_p not in ["pions", "pions_joueur", "pions_org"]:
+                continue
+            code = (meta.get("code") or meta.get("code_org") or "").upper().strip()
+            montant = sess.get("amount_total", 0)
+            nb_pions = int(meta.get("nb_pions", 0) or 0)
+            valeur = _deduire_valeur_pion(montant, nb_pions, meta.get("valeur_pion"))
+            traite = (sess["id"] in deja_traites) or (sess["id"][:24] in refs_webhook)
+            solde = DB.get("pions_joueurs", {}).get(code, {})
+            resultats.append({
+                "session_id": sess["id"],
+                "date": datetime.datetime.fromtimestamp(sess["created"]).strftime("%d/%m %H:%M"),
+                "code": code,
+                "montant": montant,
+                "nb_pions": nb_pions,
+                "valeur_pion": valeur,
+                "type": type_p,
+                "deja_traite": traite,
+                "solde_actuel": solde
+            })
+            if len(resultats) >= 100:
+                break
+        return jsonify({"ok": True, "paiements": resultats})
+    except Exception as e:
+        print(f"[STRIPE SYNC ERR] {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
+@app.route("/api/admin/stripe-crediter", methods=["POST"])
+def stripe_crediter():
+    """ADMIN — Credite un paiement Stripe verifie (idempotent : jamais deux fois)"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    if not stripe or not STRIPE_SECRET_KEY:
+        return jsonify({"ok": False, "msg": "Stripe non configuré"}), 503
+    session_id = request.json.get("session_id", "")
+    if "stripe_credites" not in DB:
+        DB["stripe_credites"] = []
+    if session_id in DB["stripe_credites"]:
+        return jsonify({"ok": False, "msg": "Ce paiement a déjà été crédité"}), 400
+    try:
+        sess = stripe.checkout.Session.retrieve(session_id)
+        if sess.get("payment_status") != "paid":
+            return jsonify({"ok": False, "msg": "Paiement non confirmé chez Stripe"}), 400
+        meta = sess.get("metadata", {}) or {}
+        code = (meta.get("code") or meta.get("code_org") or "").upper().strip()
+        montant = sess.get("amount_total", 0)
+        nb_pions = int(meta.get("nb_pions", 0) or 0)
+        valeur = _deduire_valeur_pion(montant, nb_pions, meta.get("valeur_pion"))
+        if not code or nb_pions <= 0:
+            return jsonify({"ok": False, "msg": "Données du paiement incomplètes"}), 400
+        if "pions_joueurs" not in DB:
+            DB["pions_joueurs"] = {}
+        if code not in DB["pions_joueurs"]:
+            DB["pions_joueurs"][code] = {}
+        DB["pions_joueurs"][code][valeur] = DB["pions_joueurs"][code].get(valeur, 0) + nb_pions
+        DB["stripe_credites"].append(session_id)
+        if "commandes_pions_joueurs" not in DB:
+            DB["commandes_pions_joueurs"] = []
+        DB["commandes_pions_joueurs"].insert(0, {
+            "id": secrets.token_hex(4).upper(),
+            "code_joueur": code,
+            "valeur_pion": int(valeur),
+            "montant_paye": montant,
+            "commission": round(montant * 0.20),
+            "nb_pions": nb_pions,
+            "mode_paiement": "Carte (Stripe) — rapprochement",
+            "ref_paiement": session_id[:24],
+            "statut": "validee",
+            "date": datetime.datetime.now().isoformat()
+        })
+        save_data()
+        return jsonify({"ok": True, "code": code, "nb_pions": nb_pions, "valeur": valeur, "solde": DB["pions_joueurs"][code]})
+    except Exception as e:
+        print(f"[STRIPE CREDIT ERR] {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
 @app.route("/api/pions/recrediter-joueur", methods=["POST"])
 def recrediter_pions_joueur():
     """ADMIN — Recredite directement des pions a un joueur (recuperation apres incident)"""
