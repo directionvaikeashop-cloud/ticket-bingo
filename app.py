@@ -390,7 +390,18 @@ def enregistrer_ticket():
     code_org = s["code"] if s else "ADMIN"
     if not d.get("acheteur") or not d.get("jeu") or not d.get("serie"):
         return jsonify({"ok": False, "msg": "Champs manquants"}), 400
-    code_acheteur = gen_code(6)
+    # Code joueur EXISTANT fourni (re-vente apres reset : la joueuse garde son code et ses pions)
+    code_demande = (d.get("code_acheteur") or "").upper().strip()
+    if code_demande:
+        if not (4 <= len(code_demande) <= 8) or not code_demande.isalnum():
+            return jsonify({"ok": False, "msg": "Code joueur invalide (4 à 8 lettres/chiffres)"}), 400
+        # Refuser si ce code est deja attache a un ticket actif
+        deja = next((t for t in DB["tickets"] if t.get("code_acheteur", "").upper() == code_demande), None)
+        if deja:
+            return jsonify({"ok": False, "msg": f"Le code {code_demande} est déjà utilisé par un ticket actif"}), 400
+        code_acheteur = code_demande
+    else:
+        code_acheteur = gen_code(6)
     email_joueur = d.get("email", "")
     ticket = {
         "id": hashlib.md5(f"{d['acheteur']}{d['serie']}{datetime.datetime.now()}".encode()).hexdigest()[:8],
