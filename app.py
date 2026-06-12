@@ -1312,7 +1312,7 @@ def calculer_cagnotte():
     
     # Calcul cagnotte — 80% joueur, 20% organisateur
     cagnotte_annoncee = round(total_mises * 0.80)  # 80% pour le gagnant
-    part_org = round(total_mises * 0.20)            # 20% pour l'organisateur
+    part_org = round(total_mises * 0.02)            # 20% pour l'organisateur
     
     # Sauvegarder la cagnotte du tournoi
     if "cagnottes" not in DB:
