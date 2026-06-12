@@ -1979,6 +1979,42 @@ def publier_message_joueurs():
     save_data()
     return jsonify({"ok": True, "actif": bool(texte)})
 
+@app.route("/api/message-prive/<code>")
+def lire_message_prive(code):
+    """Message personnel destine a UN code precis (organisateur ou joueur)"""
+    global DB
+    DB = load_data()
+    msg = DB.get("messages_prives", {}).get(code.upper().strip(), {})
+    if not msg.get("actif"):
+        return jsonify({"actif": False})
+    return jsonify({"actif": True, "texte": msg.get("texte", ""), "date": msg.get("date", "")})
+
+@app.route("/api/admin/message-prive", methods=["POST"])
+def publier_message_prive():
+    """ADMIN — Publier ou retirer un message prive pour un code donne"""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False}), 403
+    d = request.json
+    code = (d.get("code") or "").upper().strip()
+    texte = (d.get("texte") or "").strip()
+    if not code:
+        return jsonify({"ok": False, "msg": "Code obligatoire"}), 400
+    if "messages_prives" not in DB:
+        DB["messages_prives"] = {}
+    if texte:
+        DB["messages_prives"][code] = {"actif": True, "texte": texte[:600],
+                                       "date": datetime.datetime.now().strftime("%d/%m %H:%M")}
+        msg = f"Message privé publié pour {code} — visible uniquement par ce code"
+    else:
+        DB["messages_prives"].pop(code, None)
+        msg = f"Message privé de {code} retiré"
+    save_data()
+    return jsonify({"ok": True, "msg": msg})
+
 @app.route("/api/admin/bloquer-code", methods=["POST"])
 def bloquer_code_joueur():
     """ADMIN — Bloquer ou debloquer un code joueur (code compromis, litige...)"""
