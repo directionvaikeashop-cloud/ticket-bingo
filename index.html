@@ -687,6 +687,19 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div id="maintenance-result" style="margin-top:8px"></div>
       </div>
 
+      <!-- RECREATION TICKETS EN MASSE -->
+      <div style="background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(22,163,74,.08));border:1px solid rgba(34,197,94,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#4ade80;margin-bottom:8px">🚀 Recréer les tickets en masse</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Après un reset : une ligne = un ancien code (réactivé tel quel) ou <b>+Nom</b> (nouveau code généré). Les pions restent attachés aux codes.</div>
+        <textarea id="recreer-lignes" rows="6" placeholder="WQ7HEA&#10;DL3PUD&#10;+Tevna&#10;+Poehere" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;font-family:monospace;margin-bottom:8px"></textarea>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input id="recreer-org" placeholder="Code organisateur (ex: CPFRD66H)" style="flex:1;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;text-transform:uppercase">
+          <input id="recreer-jeu" placeholder="Jeu (optionnel)" style="flex:1;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+        </div>
+        <button onclick="recreerTickets()" style="width:100%;padding:10px;background:#16a34a;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🚀 Recréer tous les tickets</button>
+        <div id="recreer-result" style="margin-top:8px"></div>
+      </div>
+
       <!-- CREDIT EN MASSE / DEDOMMAGEMENT -->
       <div style="background:linear-gradient(135deg,rgba(236,72,153,.12),rgba(219,39,119,.08));border:1px solid rgba(236,72,153,.4);border-radius:12px;padding:14px;margin-bottom:14px">
         <div style="font-size:14px;font-weight:700;color:#f472b6;margin-bottom:8px">🎁 Crédit en masse (dédommagement)</div>
@@ -4780,6 +4793,40 @@ document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'joueur-pion-mode') calcPionsJoueur();
   if(e.target && e.target.id === 'pion-mode-paiement') calcPions();
 });
+
+// === RECREATION TICKETS EN MASSE ===
+async function recreerTickets(){
+  var lignes = document.getElementById('recreer-lignes').value.trim();
+  var codeOrg = document.getElementById('recreer-org').value.trim().toUpperCase();
+  var jeu = document.getElementById('recreer-jeu').value.trim();
+  var res = document.getElementById('recreer-result');
+  if(!lignes){ res.innerHTML = '<div style="color:#f87171;font-size:12px">Collez la liste des codes</div>'; return; }
+  if(!codeOrg){ res.innerHTML = '<div style="color:#f87171;font-size:12px">Indiquez le code organisateur (les tickets lui seront rattachés)</div>'; return; }
+  var nb = lignes.split('\n').filter(function(l){ return l.trim(); }).length;
+  if(!confirm('Recréer ' + nb + ' ticket(s) rattachés à ' + codeOrg + ' ?')) return;
+  res.innerHTML = '<div style="color:#4ade80;font-size:12px">Création en cours...</div>';
+  try{
+    const r = await fetch('/api/admin/recreer-tickets', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({lignes: lignes, code_org: codeOrg, jeu: jeu})
+    });
+    const d = await r.json();
+    if(d.ok){
+      var html = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px;margin-bottom:6px">✅ Terminé ! Notez bien les NOUVEAUX codes ci-dessous :</div>';
+      html += '<div style="font-size:12px;color:#fff;line-height:2;font-family:monospace;background:var(--s2);border-radius:8px;padding:10px;max-height:220px;overflow:auto">';
+      (d.resultats || []).forEach(function(x){
+        var coul = x.statut === 'nouveau' ? '#fbbf24' : (x.statut === 'réactivé' ? '#4ade80' : '#f87171');
+        html += '<span style="color:' + coul + '">' + (x.ligne.indexOf('+')===0 ? x.ligne.slice(1) : x.ligne) + ' → <b>' + (x.code || '—') + '</b> (' + x.statut + ')</span><br>';
+      });
+      html += '</div>';
+      res.innerHTML = html;
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
 
 // === CREDIT EN MASSE ===
 async function crediterEnMasse(){
