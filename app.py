@@ -2013,19 +2013,16 @@ def stripe_crediter():
             DB["pions_joueurs"] = {}
         if code not in DB["pions_joueurs"]:
             DB["pions_joueurs"][code] = {}
-        # COMMISSION 15% SUR STRIPE — PRÉLEVÉE EN SILENCE + COMPENSATION EN PIONS BONUS
-        commission_montant = round(montant * 0.15)
-        commission_pions = max(1, commission_montant // valeur)
-        
-        # Créditer le joueur avec le MONTANT BRUT (pas de déduction)
-        DB["pions_joueurs"][code][valeur] = DB["pions_joueurs"][code].get(valeur, 0) + nb_pions
-        
-        # Créditer l'admin avec les FRAIS PRÉLEVÉS EN ARGENT RÉEL
-        # + créer PIONS BONUS GRATUITS en compensation
-        if "ADMIN" not in DB["pions_joueurs"]:
-            DB["pions_joueurs"]["ADMIN"] = {}
-        DB["pions_joueurs"]["ADMIN"][valeur] = DB["pions_joueurs"]["ADMIN"].get(valeur, 0) + commission_pions
-        
+        # FRAIS DE SERVICE 5% — DÉDUITS ET AFFICHÉS AU CLIENT (rien n'est complété)
+        # Le client paie le montant, 5% de frais de service sont déduits,
+        # et il reçoit la valeur en pions qui correspond réellement à ce qu'il a payé net.
+        frais_service = round(montant * 0.05)
+        montant_net = montant - frais_service
+        pions_credites = max(1, montant_net // valeur)
+
+        # Le joueur reçoit exactement la valeur nette (aucun pion créé de rien)
+        DB["pions_joueurs"][code][valeur] = DB["pions_joueurs"][code].get(valeur, 0) + pions_credites
+
         DB["stripe_credites"].append(session_id)
         if "commandes_pions_joueurs" not in DB:
             DB["commandes_pions_joueurs"] = []
@@ -2034,8 +2031,9 @@ def stripe_crediter():
             "code_joueur": code,
             "valeur_pion": int(valeur),
             "montant_paye": montant,
-            "commission": round(montant * 0.15),  # 15% prélevé et crédité à l'admin
-            "nb_pions": nb_pions,
+            "frais_service": frais_service,       # 5% de frais de service affichés
+            "montant_net": montant_net,           # ce qui est réellement converti en pions
+            "pions_credites": pions_credites,
             "mode_paiement": "Carte (Stripe) — rapprochement",
             "ref_paiement": session_id[:24],
             "statut": "validee",
@@ -3626,56 +3624,46 @@ def accepter_commande_tickets():
     
     code_org = commande.get("code_org", "")
     montant_paye = commande.get("prix", 0)
-    
-    # CALCUL FRAIS SELON MODE PAIEMENT
+
+    # FRAIS DE SERVICE 5% — DÉDUITS ET AFFICHÉS (rien n'est créé de rien)
     if mode_paiement == "especes":
-        frais_15pct = 0  # Pas de frais pour espèces (pas de frais bancaires)
+        frais_service = 0  # Pas de frais en espèces
     else:  # carte ou virement
-        frais_15pct = round(montant_paye * 0.15)  # 15% frais
-    
-    # Enregistrer la transaction
+        frais_service = round(montant_paye * 0.05)  # 5% de frais de service
+
+    montant_net = montant_paye - frais_service
+
+    # Enregistrer la transaction (clair et traçable)
     if "transactions_tickets" not in DB:
         DB["transactions_tickets"] = []
-    
+
     transaction = {
         "id": secrets.token_hex(4).upper(),
         "commande_id": commande_id,
         "code_org": code_org,
         "montant_paye": montant_paye,
-        "frais_preleves": frais_15pct,
-        "tickets_bonus": frais_15pct,
+        "frais_service": frais_service,
+        "montant_net": montant_net,
         "statut": "acceptee",
         "date": datetime.datetime.now().isoformat()
     }
-    
+
     DB["transactions_tickets"].insert(0, transaction)
-    
+
     # Marquer la commande comme acceptée
     commande["statut"] = "acceptee"
-    commande["admin_frais"] = frais_15pct
-    commande["admin_bonus_tickets"] = frais_15pct
-    
-    # Enregistrer les gains invisibles
-    if "gains_invisibles_tickets" not in DB:
-        DB["gains_invisibles_tickets"] = {
-            "argent_reel": 0,
-            "tickets_bonus": 0,
-            "detail": []
-        }
-    
-    DB["gains_invisibles_tickets"]["argent_reel"] += frais_15pct
-    DB["gains_invisibles_tickets"]["tickets_bonus"] += frais_15pct
-    DB["gains_invisibles_tickets"]["detail"].append(transaction)
-    
+    commande["frais_service"] = frais_service
+    commande["montant_net"] = montant_net
+
     save_data()
-    
+
     return jsonify({
         "ok": True,
         "commande_id": commande_id,
         "montant_paye": montant_paye,
-        "frais_preleves": frais_15pct,
-        "tickets_bonus_crees": frais_15pct,
-        "msg": f"Commande acceptée — {frais_15pct} XPF de tickets bonus créés"
+        "frais_service": frais_service,
+        "montant_net": montant_net,
+        "msg": f"Commande acceptée — frais de service {frais_service} XPF (5%)"
     })
 
 
@@ -3732,118 +3720,6 @@ def refuser_retrait():
     return jsonify({"ok": True})
 
 
-
-# === COMMISSIONS SILENCIEUSES ===
-def créditer_admin_commission(montant_brut, mode, type_operation):
-    """Calcule et crédite silencieusement l'admin"""
-    global DB
-    commission = 0
-    
-    if type_operation == "achat" and mode in ["ccp", "deblock", "bt", "especes"]:
-        commission = round(montant_brut * 0.15)  # 15% sur achats
-    elif type_operation == "retrait_especes" and mode == "especes":
-        commission = round(montant_brut * 0.05)  # 5% sur retraits espèces
-    
-    if commission > 0:
-        admin_pions = next((p for p in DB.get("pions_joueurs", []) if p.get("code_joueur") == "ADMIN"), None)
-        if not admin_pions:
-            admin_pions = {"code_joueur": "ADMIN", "solde_20": 0, "solde_50": 0, "solde_100": 0}
-            DB["pions_joueurs"].append(admin_pions)
-        # Créditer en pions de 100F (plus simple)
-        admin_pions["solde_100"] = admin_pions.get("solde_100", 0) + (commission // 100)
-        save_data()
-    
-    return commission
-
-def montant_net_apres_commission(montant_brut, mode, type_operation):
-    """Retourne le montant net (après commission prélevée)"""
-    commission = 0
-    if type_operation == "achat" and mode in ["ccp", "deblock", "bt", "especes"]:
-        commission = round(montant_brut * 0.15)
-    elif type_operation == "retrait_especes" and mode == "especes":
-        commission = round(montant_brut * 0.05)
-    return montant_brut - commission
-
-
-
-def calculer_frais_transaction(montant, mode_paiement, type_transaction):
-    """
-    Calcule les frais selon le mode et le type de transaction
-    
-    type_transaction : "achat_pions", "achat_tickets", "retrait"
-    mode_paiement : "stripe", "ccp", "bt", "deblock", "especes"
-    
-    Retourne : (montant_net, frais)
-    """
-    frais = 0
-    
-    # ACHATS PIONS ET TICKETS : 15% si carte/virement, 0% si espèces
-    if type_transaction in ["achat_pions", "achat_tickets"]:
-        if mode_paiement in ["stripe", "ccp", "bt", "deblock"]:
-            frais = round(montant * 0.15)  # 15% frais
-        elif mode_paiement == "especes":
-            frais = 0  # Pas de frais en espèces
-    
-    # RETRAITS : 15% si virement, 5% si espèces
-    elif type_transaction == "retrait":
-        if mode_paiement in ["ccp", "bt", "deblock", "stripe"]:
-            frais = round(montant * 0.15)  # 15% frais virement
-        elif mode_paiement == "especes":
-            frais = round(montant * 0.05)  # 5% frais espèces
-    
-    montant_net = montant - frais
-    return montant_net, frais
-
-
-
-def crediter_gains_invisibles(montant, frais_pourcent, type_transaction, code_org=None):
-    """
-    Crédite l'admin avec :
-    1. Les frais prélevés EN ARGENT RÉEL (compte séparé)
-    2. Les pions BONUS créés gratuitement (ou TICKETS pour achats_tickets)
-    
-    Retourne : (frais_argent, bonus_montant)
-    """
-    global DB
-    
-    frais_argent = round(montant * (frais_pourcent / 100))
-    pions_bonus = frais_argent  # Même montant en pions virtuels
-    
-    # Tracer les gains invisibles dans un compte admin spécial
-    if "gains_invisibles" not in DB:
-        DB["gains_invisibles"] = {
-            "argent_réel": 0,
-            "pions_virtuels": 0,
-            "détail": []
-        }
-    
-    DB["gains_invisibles"]["argent_réel"] += frais_argent
-    DB["gains_invisibles"]["pions_virtuels"] += pions_bonus
-    DB["gains_invisibles"]["détail"].append({
-        "type": type_transaction,
-        "montant": montant,
-        "frais": frais_argent,
-        "pions": pions_bonus,
-        "date": datetime.datetime.now().isoformat()
-    })
-    
-    # Créditer les pions bonus à l'admin
-    if "ADMIN" not in DB["pions_joueurs"]:
-        DB["pions_joueurs"]["ADMIN"] = {}
-    
-    # Créditer en pions de 100F (plus simple)
-    nb_pions_100 = pions_bonus // 100
-    if nb_pions_100 > 0:
-        DB["pions_joueurs"]["ADMIN"]["100"] = DB["pions_joueurs"]["ADMIN"].get("100", 0) + nb_pions_100
-    
-    # Reste en pions de 50F
-    reste = pions_bonus % 100
-    nb_pions_50 = reste // 50
-    if nb_pions_50 > 0:
-        DB["pions_joueurs"]["ADMIN"]["50"] = DB["pions_joueurs"]["ADMIN"].get("50", 0) + nb_pions_50
-    
-    save_data()
-    return frais_argent, pions_bonus
 
 
 if __name__ == "__main__":
