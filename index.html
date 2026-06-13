@@ -264,6 +264,15 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <!-- MOYENS DE PAIEMENT -->
       <div style="background:rgba(255,255,255,.05);border-radius:12px;padding:16px;margin-bottom:16px">
         <div style="font-size:13px;color:rgba(255,255,255,.7);font-weight:600;margin-bottom:12px">💳 Moyens de paiement</div>
+
+        <!-- PAIEMENT CARTE INSTANTANE (recommande) -->
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,.15),rgba(5,150,105,.08));border:1.5px solid #10b981;border-radius:10px;padding:14px;margin-bottom:14px;text-align:center">
+          <div style="font-size:13px;font-weight:700;color:#34d399;margin-bottom:4px">⚡ Paiement par carte — le plus rapide</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.6);margin-bottom:10px">Réglez maintenant, votre code vous est envoyé après vérification</div>
+          <button onclick="payerAbonnementCarte()" id="btn-payer-carte" style="width:100%;padding:12px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">💳 Payer par carte maintenant</button>
+          <div id="carte-toast" style="margin-top:8px"></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:rgba(255,255,255,.4);margin-bottom:12px">— ou par virement / espèces —</div>
         
         <div style="margin-bottom:12px">
           <div style="font-size:12px;color:#818cf8;font-weight:600;margin-bottom:6px">🏦 Virement bancaire</div>
@@ -1310,6 +1319,47 @@ async function envoyerDemande(){
       alert('Erreur : ' + (d.msg||'Réessayez'));
     }
   }catch(e){alert('Erreur de connexion');}
+}
+
+async function payerAbonnementCarte(){
+  if(!formuleSelectionnee){
+    var t = document.getElementById('carte-toast');
+    if(t) t.innerHTML = '<div style="color:#fbbf24;font-size:12px">Choisissez d\'abord une formule ci-dessus</div>';
+    return;
+  }
+  var montants = {lancement: 4990, mensuel: 9990, "3mois": 12000, "6mois": 22000, "1an": 40000};
+  var montant = montants[formuleSelectionnee] || 9990;
+  var btn = document.getElementById('btn-payer-carte');
+  var toast = document.getElementById('carte-toast');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Redirection...'; }
+  // Enregistrer la demande (pour que l'admin recoive l'email) AVANT de rediriger
+  try{
+    var nom = (document.getElementById('dem-nom')||{}).value || '';
+    var email = (document.getElementById('dem-email')||{}).value || '';
+    var tel = (document.getElementById('dem-tel')||{}).value || '';
+    if(nom && email){
+      await fetch('/api/demande-acces', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nom: nom, email: email, tel: tel, formule: formuleSelectionnee})
+      });
+    }
+  }catch(e){}
+  try{
+    const r = await fetch('/api/paiement/abonnement', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code_org: '', montant: montant})
+    });
+    const d = await r.json();
+    if(d.ok && d.url){
+      window.location.href = d.url;
+    } else {
+      if(toast) toast.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Paiement carte indisponible — utilisez le virement ci-dessous') + '</div>';
+      if(btn){ btn.disabled = false; btn.textContent = '💳 Payer par carte maintenant'; }
+    }
+  }catch(e){
+    if(toast) toast.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur — utilisez le virement ci-dessous</div>';
+    if(btn){ btn.disabled = false; btn.textContent = '💳 Payer par carte maintenant'; }
+  }
 }
 
 async function lancerPaiementAbonnement(montant){
