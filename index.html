@@ -1507,31 +1507,29 @@ function buildOrgSpace(){
       <div id="ventes-paiement-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div></div>
     </div>
     <div class="card">
-      <div class="ct">🎫 Vendre un ticket</div>
-      <div class="g2">
-        <div><div class="lbl">Nom acheteur</div><input id="t-acheteur" placeholder="Jean Martin"/></div>
-        <div><div class="lbl">Jeu</div><select id="t-jeu"><option value="">-- Choisir --</option></select></div>
-      </div>
-      <div class="lbl">📧 Email du joueur (optionnel)</div>
-      <input id="t-email" type="email" placeholder="joueur@email.com" style="margin-bottom:10px"/>
-      <div class="lbl">Code joueur existant (optionnel — la joueuse garde son code et ses pions)</div>
-      <input class="t-code-existant" placeholder="Ex: WQ7HEA — vide = nouveau code" style="margin-bottom:10px;text-transform:uppercase"/>
-      <div class="g2">
-        <div><div class="lbl">N° de série</div><input id="t-serie" placeholder="Ex: 042"/></div>
-        <div><div class="lbl">Prix (XPF)</div><input id="t-prix" type="number" placeholder="100"/></div>
-      </div>
-      <div class="lbl" style="margin-bottom:8px">📎 Feuilles à envoyer</div>
-      <div id="pdf-org-liste" style="margin-bottom:10px"><div style="font-size:13px;color:var(--mu);text-align:center;padding:8px">Chargement...</div></div>
-      <div id="t-pages-zone" style="display:none;background:var(--s2);border-radius:var(--rs);padding:12px;margin-bottom:10px">
-        <div style="font-size:12px;color:var(--ac2);margin-bottom:8px">📄 Pages à envoyer au client</div>
-        <div class="g2">
-          <div><div class="lbl">Page début</div><input id="t-page-debut" type="number" placeholder="1" min="1" style="margin-bottom:0"/></div>
-          <div><div class="lbl">Page fin</div><input id="t-page-fin" type="number" placeholder="2" min="1" style="margin-bottom:0"/></div>
-        </div>
-        <div id="t-pages-info" style="font-size:11px;color:var(--mu);margin-top:6px;text-align:center"></div>
-      </div>
-      <button class="btn btn-p" onclick="regTicket()">Enregistrer et générer le code</button>
+      <div class="ct">🔑 Inscrire une joueuse — générer son code</div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:12px;line-height:1.5">Créez le code personnel d'une nouvelle joueuse. Elle l'utilisera pour se connecter, acheter ses pions et recevoir ses tickets quand vous annoncez un jeu.</div>
+      <div class="lbl">Nom de la joueuse</div>
+      <input id="t-acheteur" placeholder="Ex: Vaiana Tema" style="margin-bottom:10px"/>
+      <div class="lbl">📧 Email (optionnel — pour lui envoyer son code)</div>
+      <input id="t-email" type="email" placeholder="joueuse@email.com" style="margin-bottom:10px"/>
+      <div class="lbl">Code existant (optionnel — si elle a déjà un code, pour le retrouver)</div>
+      <input class="t-code-existant" placeholder="Vide = nouveau code généré" style="margin-bottom:10px;text-transform:uppercase"/>
+      <button class="btn btn-p" onclick="regTicket()">🔑 Générer le code de la joueuse</button>
       <div id="t-code-result"></div>
+
+      <!-- ANCIEN MODULE COMPLET — conserve en secours (masque). Pour reactiver : retirer display:none -->
+      <div style="display:none">
+        <select id="t-jeu"><option value="">-- Choisir --</option></select>
+        <input id="t-serie" placeholder="Ex: 042"/>
+        <input id="t-prix" type="number" placeholder="100"/>
+        <div id="pdf-org-liste"></div>
+        <div id="t-pages-zone" style="display:none">
+          <input id="t-page-debut" type="number" min="1"/>
+          <input id="t-page-fin" type="number" min="1"/>
+          <div id="t-pages-info"></div>
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="ct">📊 Tickets vendus</div>
@@ -2563,13 +2561,14 @@ function selectionnerPDFExistant(url, el){
 // === TICKETS ===
 async function regTicket(){
   const a=document.getElementById("t-acheteur").value.trim();
-  const j=document.getElementById("t-jeu").value;
-  const s=document.getElementById("t-serie").value.trim();
-  const p=parseInt(document.getElementById("t-prix").value)||0;
-  const pageDebut=parseInt(document.getElementById("t-page-debut").value)||null;
-  const pageFin=parseInt(document.getElementById("t-page-fin").value)||null;
-  if(!a||!j||!s){toast("toast-t","Remplissez tous les champs",false);return;}
-  toast("toast-t","Enregistrement...");
+  const j=document.getElementById("t-jeu")?document.getElementById("t-jeu").value:"";
+  const s=document.getElementById("t-serie")?document.getElementById("t-serie").value.trim():"";
+  const p=document.getElementById("t-prix")?(parseInt(document.getElementById("t-prix").value)||0):0;
+  const pageDebut=document.getElementById("t-page-debut")?(parseInt(document.getElementById("t-page-debut").value)||null):null;
+  const pageFin=document.getElementById("t-page-fin")?(parseInt(document.getElementById("t-page-fin").value)||null):null;
+  let codeExist="";document.querySelectorAll('.t-code-existant').forEach(function(ch){ if(ch.value.trim()) codeExist=ch.value.trim(); });
+  if(!a){toast("toast-t","Entrez le nom de la joueuse",false);return;}
+  toast("toast-t","Création du code...");
   let photo_url=null,pdf_url=null;
   if(tPdfUrlExistant){
     pdf_url = tPdfUrlExistant;
@@ -2592,8 +2591,17 @@ async function regTicket(){
           <div class="code-val">${d.code_acheteur}</div>
           <div style="font-size:11px;color:var(--mu);margin-top:8px">Envoyez ce code à votre client<br/>Il l'utilise dans l'onglet 🎮 Jouer</div>
         </div>`;
-      ["t-acheteur","t-serie","t-prix"].forEach(id=>document.getElementById(id).value="");
-      document.getElementById("t-jeu").value="";if(document.getElementById("t-email"))document.getElementById("t-email").value="";document.querySelectorAll('.t-code-existant').forEach(function(ch){ ch.value=''; });supprimerTicketDoc();tPdfUrlExistant=null;document.getElementById('t-pdf-existant').value='';loadTickets();chargerPDFsOrganisateur();toast("toast-t","Ticket enregistré !");
+      ["t-acheteur","t-serie","t-prix"].forEach(id=>{var el=document.getElementById(id);if(el)el.value="";});
+      if(document.getElementById("t-jeu"))document.getElementById("t-jeu").value="";
+      if(document.getElementById("t-email"))document.getElementById("t-email").value="";
+      document.querySelectorAll('.t-code-existant').forEach(function(ch){ ch.value=''; });
+      try{supprimerTicketDoc();}catch(e){}
+      tPdfUrlExistant=null;
+      var pe=document.getElementById('t-pdf-existant'); if(pe) pe.value='';
+      loadTickets();
+      try{chargerPDFsOrganisateur();}catch(e){}
+      var msgEmail = emailJoueur ? "Code créé — envoyé par email à la joueuse !" : "Code créé !";
+      toast("toast-t", msgEmail);
     } else {
       toast("toast-t", d.msg || "Erreur", false);
     }
