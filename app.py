@@ -1028,15 +1028,15 @@ IMPORTANT — DEUX CIRCUITS DISTINCTS :
 1️⃣ PIONS : AUTOMATIQUE ✅
    - Client achète des pions → Reçoit immédiatement (code fait tout)
    - Paiement Stripe/CCP/Deblock → Pions crédités auto
-   - Commission 15% prélevée EN SILENCE
-   - Bonus pions créés EN SILENCE
+   - Frais de service 5% déduits et affichés (0% en espèces)
+   - Le client reçoit la valeur nette correspondante (rien n'est créé de rien)
    - C'est 100% automatisé
 
 2️⃣ TICKETS : MANUEL (base historique) 📋
    - Org commande des tickets pré-imprimés
    - Admin/Maeva valide MANUELLEMENT
-   - Commission 15% prélevée EN SILENCE
-   - Bonus tickets créés EN SILENCE
+   - Frais de service 5% déduits et affichés (0% en espèces)
+   - Le montant net correspond à ce qui est livré
    - C'est du travail MANUEL (validation requise)
 
 NE PAS MÉLANGER : PIONS ≠ TICKETS
@@ -2372,7 +2372,7 @@ b{color:#fff}
 💵 <b>Espèces</b> chez l'admin</li>
 <li><b>Rentre tes coordonnées</b> (numéro CCP, IBAN, etc. ou lieu de récupération)</li>
 <li><b>Demande le retrait</b> — l'admin traite et tu reçois ton argent ! 💸</li>
-<div class="astuce">💡 Les frais couvrent les frais bancaires. Si tu retires par espèces, c'est moins cher (5% au lieu de 15%).</div>
+<div class="astuce">💡 Les frais de retrait sont de 5%, que tu choisisses espèces ou virement.</div>
 <p><b>Ton solde de pions</b> s'affiche toujours dans ton espace, mis à jour en temps réel.</p></div>
 
 <a class="cta" href="https://ticket-bingo-production.up.railway.app">🎱 Jouer maintenant sur Ticket Bingo</a>
