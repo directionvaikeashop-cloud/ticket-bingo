@@ -2260,7 +2260,7 @@ b{color:#fff}
 
 <div class="card"><h2>1. 🏪 S'approvisionner — Acheter des tickets pour les revendre</h2>
 <p>Avant vos tournois, achetez vos tickets depuis votre espace :</p>
-<li><b>Commandez les tickets</b> (cartons pré-imprimés) : OHANA, TRIPLE ACTION, 1 DOLLAR, etc. Vous payez le prix du carton (ex: 2500 XPF). Frais 15% appliqués automatiquement.</li>
+<li><b>Commandez les tickets</b> (cartons pré-imprimés) : OHANA, TRIPLE ACTION, 1 DOLLAR, etc. Vous payez le prix du carton (ex: 2500 XPF).</li>
 <li><b>Après validation de votre paiement</b>, les tickets apparaissent dans « Mes tickets reçus ».</li>
 <li><b>Vous les vendez aux joueuses</b> au prix que vous décidez — c'est VOTRE MARGE ! 💰</li></div>
 
@@ -2290,7 +2290,7 @@ b{color:#fff}
 <li><b>Pointage automatique</b> : les tickets se cochent tout seuls</li>
 <li><b>Alertes BINGO</b> : l'alerte arrive avec le ticket de la joueuse — vous vérifiez et validez</li>
 <div class="astuce">💡 Demandez aux joueuses de toucher leur écran en arrivant (débloque le son) et de garder l'application affichée.</div>
-<p><b>La cagnotte</b> : 80 % des mises pour la gagnante (payée <b>EN PIONS</b>), 20 % pour vous, l'organisateur. Après le tournoi, elle peut retirer ses pions en argent directement auprès de l'administrateur (frais 15% virement ou 5% espèces).</p></div>
+<p><b>La cagnotte</b> : 80 % des mises pour la gagnante (payée <b>EN PIONS</b>), 20 % pour vous, l'organisateur. Après le tournoi, elle peut retirer ses pions en argent directement auprès de l'administrateur.</p></div>
 
 <div class="card"><h2>6. 🔄 Après le tournoi</h2>
 <p>Rien d'obligatoire ! Repartez de l'étape 3 : annoncez, encaissez, redistribuez. Le « Reset tournoi » efface tirage et alertes si besoin — <b>les codes et les pions de vos joueuses ne sont jamais touchés</b>.</p></div>
@@ -2370,8 +2370,8 @@ b{color:#fff}
 <p>Bouton <b>« 💰 Retirer mes pions en argent »</b> dans ton espace :</p>
 <li><b>Entre le montant</b> que tu veux retirer (ex: 650 XPF)</li>
 <li><b>Choisis comment le recevoir :</b><br>
-🏦 <b>Virement</b> (CCP, BT, Deblock) — frais 15%<br>
-💵 <b>Espèces</b> chez l'admin — frais 5%</li>
+🏦 <b>Virement</b> (CCP, BT, Deblock)<br>
+💵 <b>Espèces</b> chez l'admin</li>
 <li><b>Rentre tes coordonnées</b> (numéro CCP, IBAN, etc. ou lieu de récupération)</li>
 <li><b>Demande le retrait</b> — l'admin traite et tu reçois ton argent ! 💸</li>
 <div class="astuce">💡 Les frais couvrent les frais bancaires. Si tu retires par espèces, c'est moins cher (5% au lieu de 15%).</div>
