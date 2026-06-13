@@ -3190,7 +3190,7 @@ if(urlParams.get('paiement') === 'pions_ok'){
   setTimeout(() => {
     const msg = document.createElement('div');
     msg.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3);text-align:center;max-width:90%';
-    msg.innerHTML = '✅ Paiement reçu<br><span style="font-size:13px;font-weight:400">Frais bancaires appliqués<br>Vos pions seront crédités 🪙</span>';
+    msg.innerHTML = '✅ Paiement reçu — merci !<br><span style="font-size:13px;font-weight:400">Frais de service 5% inclus<br>Vos pions sont crédités 🪙</span>';
     document.body.appendChild(msg);
     setTimeout(() => msg.remove(), 8000);
   }, 1000);
