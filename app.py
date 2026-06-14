@@ -213,8 +213,26 @@ ICONE_512_B64 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAIAAAB7GkOtAAAvt0lEQVR4nO3deZw
 
 @app.route("/manifest.json")
 def manifest():
-    """Manifest simple et valide sans complications"""
-    return '{"name":"Ticket Bingo","short_name":"Ticket Bingo","description":"Le bingo en ligne de Polynesie : tournois en direct, joue avec ta communaute.","start_url":"/","display":"standalone","orientation":"portrait","background_color":"#08090d","theme_color":"#08090d","lang":"fr"}', 200, {"Content-Type": "application/manifest+json"}
+    """Manifest avec icones integrees en data URL (lisibles par PWABuilder)"""
+    import json as _json
+    data = {
+        "name": "Ticket Bingo",
+        "short_name": "Ticket Bingo",
+        "description": "Le bingo en ligne de Polynesie : tournois en direct, joue avec ta communaute.",
+        "start_url": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#08090d",
+        "theme_color": "#08090d",
+        "lang": "fr",
+        "icons": [
+            {"src": "data:image/png;base64," + ICONE_192_B64, "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "data:image/png;base64," + ICONE_512_B64, "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "data:image/png;base64," + ICONE_192_B64, "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "data:image/png;base64," + ICONE_512_B64, "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+        ]
+    }
+    return Response(_json.dumps(data), mimetype="application/manifest+json")
 
 @app.route("/icone-192.png")
 def icone_192():
