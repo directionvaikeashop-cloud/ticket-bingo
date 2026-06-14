@@ -3866,143 +3866,154 @@ def releve_transactions():
 
 @app.route("/releve/<code>")
 def releve_code(code):
-    """Relevé de compte pour un joueur ou organisateur spécifique"""
     global DB
     DB = load_data()
     
-    # Vérifier que le code existe
-    if code not in DB.get("codes", {}):
-        return "<h1>Code introuvable</h1>", 404
-    
-    info_code = DB["codes"][code]
-    nom_code = info_code.get("nom", code)
+    # Trouver le nom : soit dans codes (organisateur), soit dans les tickets (joueur)
+    nom_code = code
+    if code in DB.get("codes", {}):
+        nom_code = DB["codes"][code].get("nom", code)
+    else:
+        # Chercher dans les tickets pour les joueurs
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and t.get("code_acheteur") == code and t.get("acheteur"):
+                nom_code = t.get("acheteur")
+                break
     
     transactions = []
     
-    try:
-        # Paiements Stripe
-        for pid, p in DB.get("paiements_stripe", {}).items():
-            if isinstance(p, dict) and p.get("code_joueur") == code and p.get("statut") == "valide":
+    # Ventes de tickets (organisateur)
+    for v in DB.get("ventes", []):
+        if isinstance(v, dict) and v.get("code_org") == code:
+            transactions.append({
+                "date": v.get("date", "?"),
+                "type": "Vente tickets",
+                "description": str(v.get("jeu", "?")) + " - " + str(v.get("pack", "?")) + " cartes",
+                "entree": v.get("total", 0),
+                "sortie": 0
+            })
+    
+    # Paiements Stripe (code_org, montant)
+    ps = DB.get("paiements_stripe", [])
+    if isinstance(ps, list):
+        for p in ps:
+            if isinstance(p, dict) and p.get("code_org") == code and p.get("statut") in ("paye", "valide"):
                 transactions.append({
                     "date": p.get("date", "?"),
-                    "type": "Paiement",
-                    "description": p.get("description", "?"),
-                    "entree": p.get("montant_xpf", 0),
+                    "type": "Paiement " + str(p.get("type", "")),
+                    "description": str(p.get("description", "") or p.get("type", "Paiement")),
+                    "entree": p.get("montant", 0),
                     "sortie": 0
                 })
-    except:
-        pass
     
-    try:
-        # Ventes de tickets
-        for v in DB.get("ventes", []):
-            if isinstance(v, dict) and v.get("code_org") == code:
-                transactions.append({
-                    "date": v.get("date", "?"),
-                    "type": "Vente tickets",
-                    "description": f"{v.get('jeu', '?')} - {v.get('pack', '?')} cartes",
-                    "entree": v.get("total", 0),
-                    "sortie": 0
-                })
-    except:
-        pass
+    # Tickets achetés (joueur)
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") == code:
+            transactions.append({
+                "date": t.get("date", "?"),
+                "type": "Achat ticket",
+                "description": str(t.get("jeu", "?")) + " - serie " + str(t.get("serie", "?")),
+                "entree": 0,
+                "sortie": t.get("prix", 0)
+            })
     
-    try:
-        # Commandes pions
-        for cpo in DB.get("commandes_pions_joueurs", []):
-            if isinstance(cpo, dict) and cpo.get("code_joueur") == code:
-                transactions.append({
-                    "date": cpo.get("date", "?"),
-                    "type": "Achat pions",
-                    "description": f"Pack {cpo.get('pack_type', '?')}",
-                    "entree": cpo.get("montant_total_xpf", 0),
-                    "sortie": 0
-                })
-    except:
-        pass
+    # Commandes pions joueurs
+    for cpo in DB.get("commandes_pions_joueurs", []):
+        if isinstance(cpo, dict) and cpo.get("code_joueur") == code:
+            transactions.append({
+                "date": cpo.get("date", "?"),
+                "type": "Achat pions",
+                "description": "Pack " + str(cpo.get("pack_type", "?")),
+                "entree": cpo.get("montant_total_xpf", 0),
+                "sortie": 0
+            })
     
-    transactions.sort(key=lambda x: x["date"], reverse=True)
+    transactions.sort(key=lambda x: str(x["date"]), reverse=True)
     
     total_e = sum(t["entree"] for t in transactions)
     total_s = sum(t["sortie"] for t in transactions)
     solde = total_e - total_s
     
-    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'><title>Relevé {code}</title><style>
-    body{{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}}
-    h1{{color:#58a6ff}}
-    .info{{color:#8b949e;margin:10px 0 30px 0}}
-    .totaux{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}}
-    .montant{{font-size:20px;font-weight:bold}}
-    .vert{{color:#3fb950}}
-    .rouge{{color:#f85149}}
-    .bleu{{color:#58a6ff}}
-    table{{width:100%;border-collapse:collapse;margin-top:20px}}
-    th{{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}}
-    td{{border:1px solid #30363d;padding:10px}}
-    tr:hover{{background:#21262d}}
-    </style></head><body>
-    <h1>Relevé de {code}</h1>
-    <div class='info'>{nom_code}</div>
-    <div class='totaux'>
-        <div><strong>Entrées</strong><br><span class='montant vert'>+{total_e:,} XPF</span></div>
-        <div><strong>Sorties</strong><br><span class='montant rouge'>-{total_s:,} XPF</span></div>
-        <div><strong>Solde</strong><br><span class='montant bleu'>{solde:,} XPF</span></div>
-    </div>
-    """
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Releve " + str(code) + "</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}.info{color:#8b949e;margin:10px 0 30px 0}"
+    html += ".totaux{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}"
+    html += ".montant{font-size:20px;font-weight:bold}.vert{color:#3fb950}.rouge{color:#f85149}.bleu{color:#58a6ff}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:20px}th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:10px}tr:hover{background:#21262d}"
+    html += ".btn{padding:12px 24px;background:#58a6ff;color:#0d1117;border:none;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin-top:20px}</style></head><body>"
+    html += "<h1>Releve de " + str(code) + "</h1><div class='info'>" + str(nom_code) + "</div>"
+    html += "<div class='totaux'><div><strong>Entrees</strong><br><span class='montant vert'>+" + format(total_e, ",") + " XPF</span></div>"
+    html += "<div><strong>Sorties</strong><br><span class='montant rouge'>-" + format(total_s, ",") + " XPF</span></div>"
+    html += "<div><strong>Solde</strong><br><span class='montant bleu'>" + format(solde, ",") + " XPF</span></div></div>"
     
     if transactions:
-        html += "<table><tr><th>Date</th><th>Type</th><th>Description</th><th>Entrée</th><th>Sortie</th></tr>"
+        html += "<table><tr><th>Date</th><th>Type</th><th>Description</th><th>Entree</th><th>Sortie</th></tr>"
         for t in transactions:
-            e = f"{t['entree']:,}" if t['entree'] > 0 else ""
-            s = f"{t['sortie']:,}" if t['sortie'] > 0 else ""
-            html += f"<tr><td>{t['date'][:16]}</td><td>{t['type']}</td><td>{t['description']}</td><td>{e}</td><td>{s}</td></tr>"
+            e = format(t["entree"], ",") if t["entree"] > 0 else ""
+            s = format(t["sortie"], ",") if t["sortie"] > 0 else ""
+            html += "<tr><td>" + str(t["date"])[:16] + "</td><td>" + str(t["type"]) + "</td><td>" + str(t["description"]) + "</td><td>" + e + "</td><td>" + s + "</td></tr>"
         html += "</table>"
     else:
         html += "<p style='color:#8b949e;margin-top:20px'>Aucune transaction</p>"
     
-    html += f"""<br><br><a href="/releve/{code}/download" style="padding:10px 20px;background:#58a6ff;color:#0d1117;border:none;border-radius:4px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block">Telecharger en TXT</a></body></html>"""
+    html += "<a href='/releve/" + str(code) + "/download' class='btn'>Telecharger en TXT</a>"
+    html += "</body></html>"
     return html
-
-    return html
-
-
-
 
 @app.route("/releves-all")
 def releves_all():
     global DB
     DB = load_data()
     
+    # Organisateurs et codes d'accès (depuis "codes")
     codes = sorted(DB.get("codes", {}).items(), key=lambda x: x[1].get("nom", ""))
     
-    html = '''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Releves</title><style>
+    # Tous les joueurs (depuis pions_joueurs + tickets)
+    joueurs = set()
+    pj = DB.get("pions_joueurs", {})
+    if isinstance(pj, dict):
+        joueurs.update(pj.keys())
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur"):
+            joueurs.add(t.get("code_acheteur"))
+    
+    # Noms des joueurs (depuis les tickets)
+    noms_joueurs = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms_joueurs[t.get("code_acheteur")] = t.get("acheteur")
+    
+    html = '''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tous les releves</title><style>
     body{font-family:Arial,sans-serif;background:#0d1117;color:#e6edf3;padding:20px}
     h1{color:#58a6ff;text-align:center}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;max-width:1200px;margin:0 auto}
-    .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px}
+    h2{color:#3fb950;border-bottom:2px solid #30363d;padding-bottom:8px;margin-top:30px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;max-width:1200px;margin:0 auto}
+    .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px}
     .card:hover{border-color:#58a6ff;background:#21262d}
-    .nom{color:#58a6ff;font-weight:bold;font-size:15px;margin-bottom:8px}
-    .code{color:#8b949e;font-family:monospace;font-size:12px;margin-bottom:12px}
-    .badge{display:inline-block;padding:4px 8px;border-radius:4px;font-size:11px;background:#0d1117;color:#3fb950}
-    .link{display:block;margin-top:12px;padding:10px;background:#58a6ff;color:#0d1117;text-decoration:none;border-radius:4px;text-align:center;font-weight:bold}
+    .nom{color:#58a6ff;font-weight:bold;font-size:14px;margin-bottom:6px}
+    .code{color:#8b949e;font-family:monospace;font-size:12px;margin-bottom:10px}
+    .badge{display:inline-block;padding:3px 7px;border-radius:4px;font-size:10px;background:#0d1117;color:#3fb950}
+    .link{display:block;margin-top:10px;padding:8px;background:#58a6ff;color:#0d1117;text-decoration:none;border-radius:4px;text-align:center;font-weight:bold;font-size:13px}
     </style></head><body>
-    <h1>Tous les releves</h1>
-    <div class="grid">'''
+    <h1>Releves de tout le monde</h1>'''
     
+    # Section organisateurs
+    html += "<h2>Organisateurs et acces (" + str(len(codes)) + ")</h2><div class='grid'>"
     for code, info in codes:
         nom = info.get("nom", code)
-        badge = "Admin" if info.get("admin") else "Code"
-        html += f'<div class="card"><div class="nom">{nom}</div><div class="code">{code}</div><div class="badge">{badge}</div><a href="/releve/{code}" class="link">Voir</a></div>'
+        badge = "Admin" if info.get("admin") else "Organisateur"
+        html += "<div class='card'><div class='nom'>" + str(nom) + "</div><div class='code'>" + str(code) + "</div><div class='badge'>" + badge + "</div><a href='/releve/" + str(code) + "' class='link'>Voir releve</a></div>"
+    html += "</div>"
     
-    html += '</div></body></html>'
+    # Section joueurs
+    html += "<h2>Joueurs (" + str(len(joueurs)) + ")</h2><div class='grid'>"
+    for code in sorted(joueurs):
+        nom = noms_joueurs.get(code, "Joueur")
+        html += "<div class='card'><div class='nom'>" + str(nom) + "</div><div class='code'>" + str(code) + "</div><div class='badge'>Joueur</div><a href='/releve/" + str(code) + "' class='link'>Voir releve</a></div>"
+    html += "</div>"
+    
+    html += "</body></html>"
     return html
-
-
-
-
-
-
-
 
 @app.route("/releve/<code>/download")
 def releve_download(code):
@@ -4010,39 +4021,58 @@ def releve_download(code):
         global DB
         DB = load_data()
         
-        if code not in DB.get("codes", {}):
-            return "Code introuvable", 404
-        
-        info = DB["codes"][code]
-        nom = info.get("nom", code)
+        # Nom : organisateur ou joueur
+        nom = code
+        if code in DB.get("codes", {}):
+            nom = DB["codes"][code].get("nom", code)
+        else:
+            for t in DB.get("tickets", []):
+                if isinstance(t, dict) and t.get("code_acheteur") == code and t.get("acheteur"):
+                    nom = t.get("acheteur")
+                    break
         
         lines = ["RELEVE DE " + str(code), "Nom: " + str(nom), ""]
-        total = 0
+        total_e = 0
+        total_s = 0
         
-        # Ventes de tickets
-        ventes = DB.get("ventes", [])
-        if isinstance(ventes, list):
-            for v in ventes:
-                if isinstance(v, dict) and v.get("code_org") == code:
-                    d = str(v.get("date", "?"))[:10]
-                    jeu = str(v.get("jeu", "?"))
-                    montant = v.get("total", 0)
-                    total += montant
-                    lines.append(d + " | Vente " + jeu + " | " + str(montant) + " XPF")
+        # Ventes (organisateur)
+        for v in DB.get("ventes", []):
+            if isinstance(v, dict) and v.get("code_org") == code:
+                d = str(v.get("date", "?"))[:10]
+                montant = v.get("total", 0)
+                total_e += montant
+                lines.append(d + " | Vente " + str(v.get("jeu", "?")) + " | +" + str(montant) + " XPF")
         
-        # Paiements Stripe (c'est une LISTE, champ code_org et montant)
+        # Paiements Stripe
         ps = DB.get("paiements_stripe", [])
         if isinstance(ps, list):
             for p in ps:
                 if isinstance(p, dict) and p.get("code_org") == code and p.get("statut") in ("paye", "valide"):
                     d = str(p.get("date", "?"))[:10]
                     montant = p.get("montant", 0)
-                    typ = str(p.get("type", "paiement"))
-                    total += montant
-                    lines.append(d + " | Paiement " + typ + " | " + str(montant) + " XPF")
+                    total_e += montant
+                    lines.append(d + " | Paiement " + str(p.get("type", "")) + " | +" + str(montant) + " XPF")
+        
+        # Tickets achetes (joueur)
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and t.get("code_acheteur") == code:
+                d = str(t.get("date", "?"))[:10]
+                montant = t.get("prix", 0)
+                total_s += montant
+                lines.append(d + " | Achat ticket " + str(t.get("jeu", "?")) + " | -" + str(montant) + " XPF")
+        
+        # Commandes pions joueurs
+        for cpo in DB.get("commandes_pions_joueurs", []):
+            if isinstance(cpo, dict) and cpo.get("code_joueur") == code:
+                d = str(cpo.get("date", "?"))[:10]
+                montant = cpo.get("montant_total_xpf", 0)
+                total_e += montant
+                lines.append(d + " | Achat pions | +" + str(montant) + " XPF")
         
         lines.append("")
-        lines.append("TOTAL: " + str(total) + " XPF")
+        lines.append("Total entrees: +" + str(total_e) + " XPF")
+        lines.append("Total sorties: -" + str(total_s) + " XPF")
+        lines.append("SOLDE: " + str(total_e - total_s) + " XPF")
         
         text = "\n".join(lines)
         response = make_response(text)
