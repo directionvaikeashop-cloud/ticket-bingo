@@ -4131,4 +4131,4 @@ def releve_pdf(code):
     doc.build(elements)
     buffer.seek(0)
     
-    return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=f"releve_{code}.pdf")
+    return send_file(buffer, mimetype='application/pdf', as_attachment=True, attachment_filename=f"releve_{code}.pdf")
