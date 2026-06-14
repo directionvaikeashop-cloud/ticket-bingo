@@ -3965,52 +3965,80 @@ def releves_all():
     global DB
     DB = load_data()
     
-    # Organisateurs et codes d'accès (depuis "codes")
-    codes = sorted(DB.get("codes", {}).items(), key=lambda x: x[1].get("nom", ""))
-    
-    # Tous les joueurs (depuis pions_joueurs + tickets)
-    joueurs = set()
-    pj = DB.get("pions_joueurs", {})
-    if isinstance(pj, dict):
-        joueurs.update(pj.keys())
-    for t in DB.get("tickets", []):
-        if isinstance(t, dict) and t.get("code_acheteur"):
-            joueurs.add(t.get("code_acheteur"))
-    
-    # Noms des joueurs (depuis les tickets)
+    # Lien joueur -> organisateur via les tickets
+    joueur_vers_org = {}
     noms_joueurs = {}
     for t in DB.get("tickets", []):
-        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
-            noms_joueurs[t.get("code_acheteur")] = t.get("acheteur")
+        if isinstance(t, dict):
+            cj = t.get("code_acheteur")
+            co = t.get("code_org")
+            if cj and co:
+                joueur_vers_org[cj] = co
+            if cj and t.get("acheteur"):
+                noms_joueurs[cj] = t.get("acheteur")
     
-    html = '''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tous les releves</title><style>
-    body{font-family:Arial,sans-serif;background:#0d1117;color:#e6edf3;padding:20px}
-    h1{color:#58a6ff;text-align:center}
-    h2{color:#3fb950;border-bottom:2px solid #30363d;padding-bottom:8px;margin-top:30px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;max-width:1200px;margin:0 auto}
-    .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px}
-    .card:hover{border-color:#58a6ff;background:#21262d}
-    .nom{color:#58a6ff;font-weight:bold;font-size:14px;margin-bottom:6px}
-    .code{color:#8b949e;font-family:monospace;font-size:12px;margin-bottom:10px}
-    .badge{display:inline-block;padding:3px 7px;border-radius:4px;font-size:10px;background:#0d1117;color:#3fb950}
-    .link{display:block;margin-top:10px;padding:8px;background:#58a6ff;color:#0d1117;text-decoration:none;border-radius:4px;text-align:center;font-weight:bold;font-size:13px}
-    </style></head><body>
-    <h1>Releves de tout le monde</h1>'''
+    # Tous les joueurs connus
+    tous_joueurs = set()
+    pj = DB.get("pions_joueurs", {})
+    if isinstance(pj, dict):
+        tous_joueurs.update(pj.keys())
+    tous_joueurs.update(joueur_vers_org.keys())
     
-    # Section organisateurs
-    html += "<h2>Organisateurs et acces (" + str(len(codes)) + ")</h2><div class='grid'>"
-    for code, info in codes:
-        nom = info.get("nom", code)
-        badge = "Admin" if info.get("admin") else "Organisateur"
-        html += "<div class='card'><div class='nom'>" + str(nom) + "</div><div class='code'>" + str(code) + "</div><div class='badge'>" + badge + "</div><a href='/releve/" + str(code) + "' class='link'>Voir releve</a></div>"
-    html += "</div>"
+    # Organisateurs (codes non-admin)
+    orgs = {}
+    for code, info in DB.get("codes", {}).items():
+        if not info.get("admin"):
+            orgs[code] = {"nom": info.get("nom", code), "joueurs": []}
     
-    # Section joueurs
-    html += "<h2>Joueurs (" + str(len(joueurs)) + ")</h2><div class='grid'>"
-    for code in sorted(joueurs):
-        nom = noms_joueurs.get(code, "Joueur")
-        html += "<div class='card'><div class='nom'>" + str(nom) + "</div><div class='code'>" + str(code) + "</div><div class='badge'>Joueur</div><a href='/releve/" + str(code) + "' class='link'>Voir releve</a></div>"
-    html += "</div>"
+    # Répartir les joueurs sous leur organisateur
+    sans_org = []
+    for cj in sorted(tous_joueurs):
+        co = joueur_vers_org.get(cj)
+        nom_j = noms_joueurs.get(cj, "Joueur")
+        if co and co in orgs:
+            orgs[co]["joueurs"].append((cj, nom_j))
+        else:
+            sans_org.append((cj, nom_j))
+    
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Releves</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff;text-align:center}"
+    html += ".org-bloc{background:#161b22;border:2px solid #30363d;border-radius:12px;padding:20px;margin:20px auto;max-width:1100px}"
+    html += ".org-titre{color:#3fb950;font-size:20px;font-weight:bold;margin-bottom:4px}"
+    html += ".org-code{color:#8b949e;font-family:monospace;font-size:13px;margin-bottom:8px}"
+    html += ".org-link{display:inline-block;padding:8px 16px;background:#3fb950;color:#0d1117;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;margin-bottom:16px}"
+    html += ".joueurs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}"
+    html += ".joueur-card{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px}"
+    html += ".joueur-card:hover{border-color:#58a6ff}"
+    html += ".j-nom{color:#58a6ff;font-weight:bold;font-size:13px}"
+    html += ".j-code{color:#8b949e;font-family:monospace;font-size:11px;margin:4px 0}"
+    html += ".j-link{display:block;padding:6px;background:#58a6ff;color:#0d1117;text-decoration:none;border-radius:4px;text-align:center;font-weight:bold;font-size:12px;margin-top:6px}"
+    html += ".count{background:#1f6feb;color:white;padding:2px 10px;border-radius:12px;font-size:13px;margin-left:8px}</style></head><body>"
+    html += "<h1>Releves par organisateur</h1>"
+    
+    # Chaque organisateur avec ses joueurs
+    for co, data_org in orgs.items():
+        nb = len(data_org["joueurs"])
+        html += "<div class='org-bloc'>"
+        html += "<div class='org-titre'>" + str(data_org["nom"]) + "<span class='count'>" + str(nb) + " joueurs</span></div>"
+        html += "<div class='org-code'>Code: " + str(co) + "</div>"
+        html += "<a href='/releve/" + str(co) + "' class='org-link'>Voir releve organisateur</a>"
+        if data_org["joueurs"]:
+            html += "<div class='joueurs-grid'>"
+            for cj, nom_j in data_org["joueurs"]:
+                html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve/" + str(cj) + "' class='j-link'>Releve</a></div>"
+            html += "</div>"
+        else:
+            html += "<div style='color:#8b949e'>Aucun joueur rattache</div>"
+        html += "</div>"
+    
+    # Joueurs sans organisateur
+    if sans_org:
+        html += "<div class='org-bloc'>"
+        html += "<div class='org-titre' style='color:#8b949e'>Joueurs sans organisateur<span class='count'>" + str(len(sans_org)) + "</span></div>"
+        html += "<div class='joueurs-grid'>"
+        for cj, nom_j in sans_org:
+            html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve/" + str(cj) + "' class='j-link'>Releve</a></div>"
+        html += "</div></div>"
     
     html += "</body></html>"
     return html
