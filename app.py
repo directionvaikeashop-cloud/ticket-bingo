@@ -3675,6 +3675,63 @@ def get_gains_finaux():
     return jsonify(DB.get("gains_finaux", []))
 
 
+
+@app.route("/codes-par-organisateur")
+def codes_par_organisateur():
+    """Affiche tous les codes joueurs classés par organisateur"""
+    global DB
+    DB = load_data()
+    
+    joueur_vers_org = {}
+    joueur_vers_nom = {}
+    for t in DB.get("tickets", []):
+        cj = t.get("code_acheteur")
+        co = t.get("code_org")
+        if cj and co:
+            joueur_vers_org[cj] = co
+            if t.get("acheteur"):
+                joueur_vers_nom[cj] = t.get("acheteur")
+    
+    orgs = {}
+    for code, info in DB.get("codes", {}).items():
+        if info.get("admin"):
+            continue
+        orgs.setdefault(code, {"nom": info.get("nom", "?"), "email": info.get("email", ""), "joueurs": []})
+    
+    tous_joueurs = set(DB.get("pions_joueurs", {}).keys())
+    tous_joueurs.update(joueur_vers_org.keys())
+    
+    sans_org = []
+    for cj in sorted(tous_joueurs):
+        co = joueur_vers_org.get(cj)
+        nom_j = joueur_vers_nom.get(cj, "")
+        if co and co in orgs:
+            orgs[co]["joueurs"].append({"code": cj, "nom": nom_j})
+        else:
+            sans_org.append({"code": cj, "nom": nom_j})
+    
+    html = """<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Codes par organisateur</title><style>body{font-family:Arial,sans-serif;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}h2{color:#3fb950;margin:0 0 4px 0}.org{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:16px 0}.email{color:#8b949e;font-size:13px;margin-bottom:10px}.joueur{background:#0d1117;padding:8px 12px;margin:4px 0;border-radius:6px;border-left:3px solid #58a6ff}.code{font-weight:bold;color:#f0883e;font-family:monospace;font-size:16px}.nom{color:#8b949e;margin-left:10px}.count{background:#1f6feb;color:white;padding:2px 10px;border-radius:12px;font-size:13px}</style></head><body><h1>Codes joueurs par organisateur</h1>"""
+    
+    for co, data_org in orgs.items():
+        nb = len(data_org["joueurs"])
+        html += f"<div class='org'><h2>{data_org['nom']} <span class='count'>{nb}</span></h2><div class='email'>{co}"
+        if data_org["email"]:
+            html += f" - {data_org['email']}"
+        html += "</div>"
+        for j in data_org["joueurs"]:
+            html += f"<div class='joueur'><span class='code'>{j['code']}</span><span class='nom'>{j['nom']}</span></div>"
+        html += "</div>"
+    
+    if sans_org:
+        html += f"<div class='org'><h2>Joueurs sans org ({len(sans_org)})</h2>"
+        for j in sans_org:
+            html += f"<div class='joueur'><span class='code'>{j['code']}</span><span class='nom'>{j['nom']}</span></div>"
+        html += "</div>"
+    
+    html += "</body></html>"
+    return html
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
