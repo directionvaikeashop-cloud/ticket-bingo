@@ -247,26 +247,26 @@ def icone_512():
 
 @app.route("/sw.js")
 def service_worker():
-    """Service worker servi directement (rend l'appli installable pour le Play Store)"""
-    sw_code = """// Service Worker — Ticket Bingo
-const CACHE_NOM = 'ticket-bingo-v1';
-self.addEventListener('install', function(event) { self.skipWaiting(); });
-self.addEventListener('activate', function(event) {
-  event.waitUntil(caches.keys().then(function(noms) {
-    return Promise.all(noms.filter(function(nom) { return nom !== CACHE_NOM; })
-      .map(function(nom) { return caches.delete(nom); }));
-  }));
-  self.clients.claim();
+    """Service worker minimal — installable mais n'intercepte aucune connexion"""
+    sw_code = """// Service Worker minimal — Ticket Bingo
+// Ne met rien en cache, n'intercepte aucune requete : toujours la derniere version.
+self.addEventListener('install', function(event) {
+  self.skipWaiting();
 });
-self.addEventListener('fetch', function(event) {
-  if (event.request.url.indexOf('/api/') !== -1) { return; }
-  event.respondWith(
-    fetch(event.request).then(function(reponse) { return reponse; })
-      .catch(function() { return caches.match(event.request); })
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(noms) {
+      return Promise.all(noms.map(function(nom) { return caches.delete(nom); }));
+    }).then(function() {
+      return self.clients.claim();
+    })
   );
 });
+// Aucun gestionnaire 'fetch' : le navigateur charge tout normalement, sans blocage.
 """
-    return Response(sw_code, mimetype="application/javascript")
+    response = Response(sw_code, mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 @app.route("/icon-192.png")
 def icon192():
