@@ -4060,4 +4060,3 @@ def releve_txt(code):
         as_attachment=True,
         attachment_filename=f"releve_{code}.txt"
     )
-
