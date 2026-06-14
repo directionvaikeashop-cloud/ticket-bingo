@@ -3732,6 +3732,137 @@ def codes_par_organisateur():
     return html
 
 
+
+@app.route("/releve-transactions")
+def releve_transactions():
+    """Relevé de toutes les transactions (comme un relevé bancaire)"""
+    global DB
+    DB = load_data()
+    
+    transactions = []
+    
+    # Paiements Stripe (ventes de pions/tickets)
+    for pid, p in DB.get("paiements_stripe", {}).items():
+        if p.get("statut") == "valide":
+            transactions.append({
+                "date": p.get("date", "?"),
+                "type": "Paiement Stripe",
+                "description": f"Vente pions/tickets - {p.get('description', '?')}",
+                "montant_entree": p.get("montant_xpf", 0),
+                "montant_sortie": 0,
+                "code": p.get("code_joueur", "?")
+            })
+    
+    # Ventes de tickets
+    for v in DB.get("ventes", []):
+        transactions.append({
+            "date": v.get("date", "?"),
+            "type": "Vente de tickets",
+            "description": f"{v.get('jeu', '?')} - Pack {v.get('pack', '?')} cartes",
+            "montant_entree": v.get("total", 0),
+            "montant_sortie": 0,
+            "code": v.get("code_org", "?")
+        })
+    
+    # Commandes de pions
+    for cpo in DB.get("commandes_pions_joueurs", []):
+        montant = cpo.get("montant_total_xpf", 0)
+        transactions.append({
+            "date": cpo.get("date", "?"),
+            "type": "Achat de pions",
+            "description": f"Commande pions - {cpo.get('pack_type', '?')}",
+            "montant_entree": montant,
+            "montant_sortie": 0,
+            "code": cpo.get("code_joueur", "?")
+        })
+    
+    # Transactions pions (crédit/débit)
+    for tp in DB.get("transactions_pions", []):
+        if tp.get("type") == "achat":
+            transactions.append({
+                "date": tp.get("date", "?"),
+                "type": "Crédit pions",
+                "description": f"{tp.get('montant', 0)} XPF - {tp.get('raison', '?')}",
+                "montant_entree": tp.get("montant", 0),
+                "montant_sortie": 0,
+                "code": tp.get("code_joueur", "?")
+            })
+    
+    # Trier par date (plus récent d'abord)
+    transactions.sort(key=lambda x: x["date"], reverse=True)
+    
+    # Calculer les totaux
+    total_entrees = sum(t["montant_entree"] for t in transactions)
+    total_sorties = sum(t["montant_sortie"] for t in transactions)
+    solde = total_entrees - total_sorties
+    
+    # Générer HTML
+    html = """<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Relevé de transactions</title><style>
+    body{font-family:'Courier New',monospace;background:#0d1117;color:#e6edf3;padding:20px}
+    h1{color:#58a6ff;text-align:center}
+    .resume{background:#161b22;border:2px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}
+    .resume-item h3{color:#3fb950;margin:0;font-size:14px;color:#8b949e}
+    .resume-item .montant{font-size:24px;font-weight:bold;font-family:monospace}
+    .entrees{color:#3fb950}
+    .sorties{color:#f85149}
+    .solde{color:#58a6ff}
+    table{width:100%;border-collapse:collapse;background:#161b22;border:1px solid #30363d;margin-top:20px}
+    th{background:#0d1117;border:1px solid #30363d;padding:12px;text-align:left;color:#8b949e;font-weight:bold;font-size:12px}
+    td{border:1px solid #30363d;padding:12px;font-size:13px}
+    tr:nth-child(even){background:#161b22}
+    tr:hover{background:#21262d}
+    .date{color:#8b949e;width:180px}
+    .type{color:#58a6ff;font-weight:bold;width:120px}
+    .description{color:#e6edf3}
+    .montant-entree{color:#3fb950;text-align:right;width:100px;font-weight:bold}
+    .montant-sortie{color:#f85149;text-align:right;width:100px;font-weight:bold}
+    .code{color:#f0883e;font-weight:bold;width:80px}
+    </style></head><body>
+    <h1>📊 Relevé de transactions</h1>
+    <div class='resume'>
+        <div class='resume-item'>
+            <h3>Entrées</h3>
+            <div class='montant entrees'>+{total_entrees:,} XPF</div>
+        </div>
+        <div class='resume-item'>
+            <h3>Sorties</h3>
+            <div class='montant sorties'>-{total_sorties:,} XPF</div>
+        </div>
+        <div class='resume-item'>
+            <h3>Solde</h3>
+            <div class='montant solde'>{solde:,} XPF</div>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th class='date'>Date</th>
+                <th class='type'>Type</th>
+                <th class='description'>Description</th>
+                <th class='code'>Code</th>
+                <th class='montant-entree'>+ Entrée</th>
+                <th class='montant-sortie'>- Sortie</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    for t in transactions:
+        e = f"{t['montant_entree']:,}" if t['montant_entree'] > 0 else ""
+        s = f"{t['montant_sortie']:,}" if t['montant_sortie'] > 0 else ""
+        html += f"""<tr>
+            <td class='date'>{t['date'][:16]}</td>
+            <td class='type'>{t['type']}</td>
+            <td class='description'>{t['description']}</td>
+            <td class='code'>{t['code']}</td>
+            <td class='montant-entree'>{e}</td>
+            <td class='montant-sortie'>{s}</td>
+        </tr>"""
+    
+    html += """</tbody></table></body></html>"""
+    return html
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
