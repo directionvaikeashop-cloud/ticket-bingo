@@ -5936,5 +5936,15 @@ function calculerCombinaisonsPions(montant){
   return unique.map(function(u){ return u.combo; });
 }
 </script>
+<script>
+// Enregistrement du service worker (rend l'appli installable)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js')
+      .then(function(reg) { console.log('Service worker actif'); })
+      .catch(function(err) { console.log('Service worker non enregistré'); });
+  });
+}
+</script>
 </body>
 </html>
