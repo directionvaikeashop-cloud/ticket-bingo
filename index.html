@@ -403,6 +403,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       </select>
       <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
       <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
+      <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
       <div id="joueur-pion-result" style="margin-top:8px"></div>
     </div>
   </div>
@@ -517,6 +518,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         </select>
         <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
         <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
+      <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
         <div id="joueur-pion-result" style="margin-top:8px"></div>
       </div>
     </div>
@@ -925,6 +927,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       </select>
       <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
       <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
+      <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
       <div id="joueur-pion-result" style="margin-top:8px"></div>
     </div>
 
@@ -1885,6 +1888,7 @@ function buildOrgSpace(){
       <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte avec 5%, le joueur commande lui-même ses pions dans son espace.</div>
       <button onclick="donnerPionsJoueur()" style="width:100%;padding:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎁 Donner les pions</button>
       <button onclick="voirMonCircuit()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px">📋 Voir mon circuit de traçage</button>
+      <button onclick="voirMonReleveFinancier()" style="width:100%;padding:10px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:8px">💰 Mon relevé financier (entrées / dépenses)</button>
       <div id="pions-don-result" style="margin-top:8px"></div>
     </div>
   `
@@ -4140,6 +4144,18 @@ function loadSoldesPions(){
 function voirMonCircuit(){
   var code = (ADMIN ? 'ADMIN2024' : (CODE_ORG || ''));
   window.open('/circuit-pions?code=' + encodeURIComponent(code), '_blank');
+}
+
+function voirMonReleveFinancier(){
+  var code = (CODE_ORG || '');
+  if(!code){ alert('Code organisateur introuvable'); return; }
+  window.open('/releve-financier/' + encodeURIComponent(code), '_blank');
+}
+
+function voirMonReleveJoueur(){
+  var code = (codeJoueurActuel || '');
+  if(!code){ alert('Code joueur introuvable'); return; }
+  window.open('/releve-financier-joueur/' + encodeURIComponent(code), '_blank');
 }
 
 async function donnerPionsJoueur(){
