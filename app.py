@@ -2075,7 +2075,7 @@ def stripe_crediter():
         # et il reçoit la valeur en pions qui correspond réellement à ce qu'il a payé net.
         frais_service = round(montant * 0.05)
         montant_net = montant - frais_service
-        pions_credites = max(1, montant_net // valeur)
+        pions_credites = max(1, montant_net // int(valeur))
 
         # Le joueur reçoit exactement la valeur nette (aucun pion créé de rien)
         DB["pions_joueurs"][code][valeur] = DB["pions_joueurs"][code].get(valeur, 0) + pions_credites
