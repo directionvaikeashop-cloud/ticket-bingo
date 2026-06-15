@@ -1497,6 +1497,9 @@ def crediter_pions():
     code_joueur = d.get("code_joueur", "").upper()
     nb_pions = int(d.get("pions", 0))
     prix = int(d.get("prix", 0))
+    # ANTI-MANIPULATION : refuser les montants negatifs ou nuls
+    if nb_pions <= 0 or prix < 0:
+        return jsonify({"ok": False, "msg": "Montant invalide"}), 400
     
     if "pions" not in DB:
         DB["pions"] = {}
@@ -1784,6 +1787,9 @@ def valider_ticket_pions():
     commande = None
     for c in DB.get("commandes_tickets_pions", []):
         if c["id"] == commande_id:
+            # ANTI DOUBLE-VALIDATION
+            if c.get("statut") == "validee":
+                return jsonify({"ok": False, "msg": "Cette commande a déjà été validée"}), 400
             c["statut"] = "validee"
             commande = c
             break
@@ -1911,6 +1917,9 @@ def valider_pions_joueur():
     commande_id = request.json.get("commande_id", "")
     for c in DB.get("commandes_pions_joueurs", []):
         if c["id"] == commande_id:
+            # ANTI DOUBLE-CREDIT : on ne credite que si pas deja validee
+            if c.get("statut") == "validee":
+                return jsonify({"ok": False, "msg": "Cette commande a déjà été créditée"}), 400
             c["statut"] = "validee"
             code_joueur = c["code_joueur"]
             valeur = str(c["valeur_pion"])
@@ -4253,5 +4262,3 @@ def circuit_pions():
     
     html += "</body></html>"
     return html
-
-
