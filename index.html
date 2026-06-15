@@ -1877,6 +1877,7 @@ function buildOrgSpace(){
       </select>
       <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte avec 5%, le joueur commande lui-même ses pions dans son espace.</div>
       <button onclick="donnerPionsJoueur()" style="width:100%;padding:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎁 Donner les pions</button>
+      <button onclick="voirMonCircuit()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px">📋 Voir mon circuit de traçage</button>
       <div id="pions-don-result" style="margin-top:8px"></div>
     </div>
   `
@@ -4127,6 +4128,11 @@ function loadSoldesPions(){
     if(document.getElementById('solde-pions-100')) document.getElementById('solde-pions-100').textContent = d.pions_100 || 0;
   })
   .catch(function(){});
+}
+
+function voirMonCircuit(){
+  var code = (ADMIN ? 'ADMIN2024' : (CODE_ORG || ''));
+  window.open('/circuit-pions?code=' + encodeURIComponent(code), '_blank');
 }
 
 async function donnerPionsJoueur(){
