@@ -580,6 +580,12 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
           <div><div class="lbl">N° de série</div><input id="b-serie" placeholder="Ex: 001"/></div>
           <div><div class="lbl">Prix par paquet (XPF)</div><input id="b-prix" type="number" placeholder="500" oninput="majTot()"/></div>
         </div>
+        <div class="lbl" style="margin-bottom:4px">💳 Mode de paiement</div>
+        <select id="b-mode-paiement" style="margin-bottom:10px">
+          <option value="Carte">Carte (5% de frais)</option>
+          <option value="Virement">Virement (5% de frais)</option>
+          <option value="Espèces">Espèces (0% de frais)</option>
+        </select>
         <div class="lbl" style="margin-bottom:8px">📎 Document sécurisé (optionnel)</div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <button class="btn-sm" style="flex:1;padding:10px" onclick="document.getElementById('doc-photo').click()">📸 Photo</button>
@@ -2137,6 +2143,7 @@ async function enregistrerVente(){
   const serie=document.getElementById("b-serie").value.trim();
   const prix=parseInt(document.getElementById("b-prix").value)||0;
   var codeOrg=document.getElementById("b-code-org")?document.getElementById("b-code-org").value.trim().toUpperCase():"";
+  var mode_paiement=document.getElementById("b-mode-paiement")?document.getElementById("b-mode-paiement").value:"Carte";
   if(!codeOrg && codeOrgActuel) codeOrg = codeOrgActuel;
   if(!client||!jeu||!serie){toast("toast-b","Remplissez les champs obligatoires",false);return;}
   if(!codeOrg){toast("toast-b","⚠️ Le code de l'organisateur est obligatoire !",false);document.getElementById("b-code-org").focus();return;}
@@ -2144,7 +2151,7 @@ async function enregistrerVente(){
   let photo_url=null,pdf_url=null;
   if(docFile){toast("toast-b","Upload sécurisé...");const url=await uploadDoc(docFile,docType);if(docType==="photo")photo_url=url;else pdf_url=url;}
   try{
-    const r=await fetch("/api/vente",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({client,email,jeu,tournoi_id,pack:pk,qty,serie,prix,photo_url,pdf_url,code_org_destinataire:codeOrg})});
+    const r=await fetch("/api/vente",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify({client,email,jeu,tournoi_id,pack:pk,qty,serie,prix,photo_url,pdf_url,code_org_destinataire:codeOrg,mode_paiement})});
     const d=await r.json();
     if(d.ok){toast("toast-b","Vente enregistrée !");["b-client","b-email","b-serie","b-prix"].forEach(id=>document.getElementById(id).value="");document.getElementById("b-jeu").value="";document.getElementById("b-tournoi").value="";supprimerDoc();qty=1;document.getElementById("qv").textContent="1";document.getElementById("btv").textContent="0 XPF";loadVentes();loadStats();}
     else toast("toast-b",d.msg,false);
