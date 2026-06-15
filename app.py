@@ -4471,3 +4471,156 @@ def releve_financier_joueur(code):
     return html
 
 
+
+# ============================================
+# SYSTEME DE RETRAIT DE PIONS EN ARGENT (fin de tournoi)
+# La joueuse demande -> l'organisateur valide -> les pions sont retires
+# Cash = 0% de frais, Virement = 5% de frais
+# ============================================
+
+@app.route("/api/retrait/demander", methods=["POST"])
+def demander_retrait():
+    """La joueuse demande de convertir ses pions en argent."""
+    global DB
+    DB = load_data()
+    d = request.json
+    code_joueur = (d.get("code_joueur") or "").upper().strip()
+    code_org = (d.get("code_org") or "").upper().strip()
+    montant = int(d.get("montant", 0))
+    mode = str(d.get("mode", "Cash"))  # Cash ou Virement
+    coordonnees = str(d.get("coordonnees", ""))  # pour virement
+    
+    if code_joueur in DB.get("codes_bloques", []):
+        return jsonify({"ok": False, "msg": "Ce code a été désactivé"}), 403
+    if not code_joueur or montant < 20:
+        return jsonify({"ok": False, "msg": "Montant invalide (minimum 20 XPF)"}), 400
+    
+    # Verifier le solde de pions de la joueuse
+    pions = DB.get("pions_joueurs", {}).get(code_joueur, {})
+    solde_total = 0
+    for v, nb in pions.items():
+        try:
+            solde_total += int(v) * nb
+        except (ValueError, TypeError):
+            pass
+    if montant > solde_total:
+        return jsonify({"ok": False, "msg": f"Solde insuffisant — vous avez {solde_total} XPF de pions"}), 400
+    
+    # Calcul des frais : Cash = 0%, Virement = 5%
+    mode_bas = mode.lower()
+    if "virement" in mode_bas or "ccp" in mode_bas or "bt" in mode_bas or "deblock" in mode_bas:
+        frais = round(montant * 0.05)
+    else:
+        frais = 0  # Cash
+    montant_net = montant - frais
+    
+    if "demandes_retrait" not in DB:
+        DB["demandes_retrait"] = []
+    
+    demande = {
+        "id": secrets.token_hex(4).upper(),
+        "code_joueur": code_joueur,
+        "code_org": code_org,
+        "montant_demande": montant,
+        "mode": mode,
+        "coordonnees": coordonnees,
+        "frais": frais,
+        "montant_net": montant_net,
+        "statut": "en_attente",
+        "date": datetime.datetime.now().isoformat()
+    }
+    DB["demandes_retrait"].insert(0, demande)
+    save_data()
+    return jsonify({"ok": True, "demande_id": demande["id"], "montant_net": montant_net, "frais": frais})
+
+
+@app.route("/api/retrait/liste")
+def liste_retraits():
+    """L'organisateur voit les demandes de retrait de ses joueuses (ou admin voit tout)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False}), 403
+    
+    code = s["code"]
+    est_admin = s.get("admin")
+    resultats = []
+    for r in DB.get("demandes_retrait", []):
+        if est_admin or r.get("code_org") == code:
+            resultats.append(r)
+    return jsonify(resultats)
+
+
+@app.route("/api/retrait/valider", methods=["POST"])
+def valider_retrait():
+    """L'organisateur valide : les pions sont retires du compte de la joueuse."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False}), 403
+    
+    demande_id = request.json.get("demande_id", "")
+    for r in DB.get("demandes_retrait", []):
+        if r["id"] == demande_id:
+            # ANTI DOUBLE-VALIDATION
+            if r.get("statut") == "validee":
+                return jsonify({"ok": False, "msg": "Ce retrait a déjà été validé"}), 400
+            
+            code_joueur = r["code_joueur"]
+            montant = int(r["montant_demande"])
+            
+            # Re-verifier le solde au moment de la validation (anti-triche)
+            pions = DB.get("pions_joueurs", {}).get(code_joueur, {})
+            solde_total = 0
+            for v, nb in pions.items():
+                try:
+                    solde_total += int(v) * nb
+                except (ValueError, TypeError):
+                    pass
+            if montant > solde_total:
+                return jsonify({"ok": False, "msg": "Solde de pions insuffisant maintenant"}), 400
+            
+            # Debiter les pions (priorite aux plus petites valeurs)
+            reste = montant
+            for valeur in ["20", "50", "100"]:
+                nb_dispo = pions.get(valeur, 0)
+                if nb_dispo > 0 and reste > 0:
+                    val_int = int(valeur)
+                    nb_utilise = min(nb_dispo, reste // val_int)
+                    if nb_utilise > 0:
+                        pions[valeur] = nb_dispo - nb_utilise
+                        reste -= nb_utilise * val_int
+            if reste > 0:
+                return jsonify({"ok": False, "msg": "Impossible de couvrir le montant avec les pions disponibles"}), 400
+            
+            DB["pions_joueurs"][code_joueur] = pions
+            r["statut"] = "validee"
+            r["date_validation"] = datetime.datetime.now().isoformat()
+            save_data()
+            return jsonify({"ok": True, "montant_net": r.get("montant_net")})
+    
+    return jsonify({"ok": False, "msg": "Demande introuvable"}), 404
+
+
+@app.route("/api/retrait/refuser", methods=["POST"])
+def refuser_retrait():
+    """L'organisateur refuse une demande (les pions ne sont pas touches)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False}), 403
+    demande_id = request.json.get("demande_id", "")
+    for r in DB.get("demandes_retrait", []):
+        if r["id"] == demande_id and r.get("statut") == "en_attente":
+            r["statut"] = "refusee"
+            save_data()
+            return jsonify({"ok": True})
+    return jsonify({"ok": False, "msg": "Demande introuvable"}), 404
+
+
