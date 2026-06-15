@@ -761,6 +761,12 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div style="margin-top:8px">
           <button onclick="voirMonCircuit()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">📋 Circuit de traçage des pions (complet)</button>
         </div>
+        <div style="margin-top:12px;padding:12px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:8px">
+          <div style="font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:6px">🔍 Vérifier les codes émis par un organisateur</div>
+          <div style="font-size:11px;color:var(--mu);margin-bottom:8px">En cas de conflit : voir tous les codes joueurs qu'un organisateur a vraiment créés, avec les dates.</div>
+          <input id="controle-code-org" placeholder="Code organisateur (ex: CPFRD66H)" style="width:100%;padding:8px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:8px;box-sizing:border-box"/>
+          <button onclick="voirCodesEmis()" style="width:100%;padding:10px;background:#60a5fa;color:#0d1117;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🔍 Voir les codes émis</button>
+        </div>
         <div style="margin-top:12px;padding:12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:8px">
           <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:6px">🔗 Fusionner deux codes organisateur</div>
           <div style="font-size:11px;color:var(--mu);margin-bottom:8px">Transfère TOUT (pions, joueuses, ventes...) du code source vers le code cible. ⚠️ Fais une sauvegarde avant !</div>
@@ -4161,6 +4167,12 @@ function loadSoldesPions(){
 function voirMonCircuit(){
   var code = (ADMIN ? 'ADMIN2024' : (CODE_ORG || ''));
   window.open('/circuit-pions?code=' + encodeURIComponent(code), '_blank');
+}
+
+function voirCodesEmis(){
+  var code = document.getElementById('controle-code-org').value.trim().toUpperCase();
+  if(!code){ alert('Entre le code de l\u0027organisateur'); return; }
+  window.open('/codes-emis/' + encodeURIComponent(code), '_blank');
 }
 
 async function fusionnerCodes(){
