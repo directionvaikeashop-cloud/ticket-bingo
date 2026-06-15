@@ -4328,6 +4328,17 @@ def releve_financier_org(code):
                 "recette": t.get("montant_total", 0)
             })
     
+    # === RECETTES : tickets vendus aux joueuses (en pions) ===
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and c.get("code_org") == code:
+            lignes.append({
+                "date": c.get("date", "?"),
+                "type": "Vente tickets (pions)",
+                "desc": str(c.get("jeu", "?")) + " — " + str(c.get("nb_tickets", "?")) + " tickets — Joueuse " + str(c.get("code_joueur", "?")),
+                "depense": 0,
+                "recette": c.get("total_pions", 0)
+            })
+    
     # === RECETTES : part de cagnotte (20%) ===
     for g in DB.get("gains_finaux", []):
         if isinstance(g, dict) and g.get("code_org") == code:
@@ -4698,5 +4709,70 @@ def fusionner_codes():
         "msg": f"Fusion réussie : {rapport['pions_org']} pions et {rapport['transactions']} opérations transférés de {source} vers {cible}. L'ancien code {source} a été désactivé.",
         "rapport": rapport
     })
+
+
+
+@app.route("/ventes-tickets/<code>")
+def ventes_tickets_org(code):
+    """Page dediee : toutes les ventes de tickets d'un organisateur a ses joueuses."""
+    global DB
+    DB = load_data()
+    code = code.upper().strip()
+    
+    nom = code
+    if code in DB.get("codes", {}):
+        nom = DB["codes"][code].get("nom", code)
+    
+    ventes = []
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and c.get("code_org") == code:
+            ventes.append({
+                "date": c.get("date", "?"),
+                "joueur": c.get("code_joueur", "?"),
+                "jeu": c.get("jeu", "?"),
+                "nb": c.get("nb_tickets", 0),
+                "total": c.get("total_pions", 0),
+                "statut": c.get("statut", "?")
+            })
+    
+    ventes.sort(key=lambda x: str(x["date"]), reverse=True)
+    
+    total_tickets = sum(v["nb"] for v in ventes)
+    total_pions = sum(v["total"] for v in ventes)
+    
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Ventes de tickets</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:20px}"
+    html += ".totaux{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}"
+    html += ".m{font-size:18px;font-weight:bold;color:#3fb950}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}tr:hover{background:#21262d}"
+    html += ".ok{color:#3fb950}.att{color:#f59e0b}</style></head><body>"
+    html += "<h1>Ventes de tickets</h1>"
+    html += "<div class='sub'>" + str(nom) + " (" + code + ") &rarr; ses joueuses</div>"
+    html += "<div class='totaux'>"
+    html += "<div><strong>Ventes</strong><br><span class='m'>" + str(len(ventes)) + "</span></div>"
+    html += "<div><strong>Tickets vendus</strong><br><span class='m'>" + format(total_tickets, ",") + "</span></div>"
+    html += "<div><strong>Total en pions</strong><br><span class='m'>" + format(total_pions, ",") + " XPF</span></div>"
+    html += "</div>"
+    
+    if ventes:
+        html += "<table><tr><th>Date</th><th>Joueuse</th><th>Jeu</th><th>Nb tickets</th><th>Total pions</th><th>Statut</th></tr>"
+        for v in ventes:
+            cls = "ok" if v["statut"] == "validee" else "att"
+            lbl = "Valide" if v["statut"] == "validee" else "En attente"
+            html += "<tr><td>" + str(v["date"])[:16] + "</td>"
+            html += "<td>" + str(v["joueur"]) + "</td>"
+            html += "<td>" + str(v["jeu"]) + "</td>"
+            html += "<td>" + str(v["nb"]) + "</td>"
+            html += "<td>" + format(v["total"], ",") + " XPF</td>"
+            html += "<td class='" + cls + "'>" + lbl + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='color:#8b949e;margin-top:20px'>Aucune vente de ticket pour le moment.</p>"
+    
+    html += "</body></html>"
+    return html
 
 
