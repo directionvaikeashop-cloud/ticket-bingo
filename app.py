@@ -160,10 +160,127 @@ def save_data():
             # 3) Remplacement ATOMIQUE : soit l'ancien fichier, soit le nouveau, jamais un fichier abime
             os.replace(tmp, DATA_FILE)
         print(f"[SAVE OK] {DATA_FILE}")
+        # Detection d'anomalies APRES la sauvegarde (hors verrou, ne bloque pas l'ecriture)
+        try:
+            verifier_soldes_negatifs()
+        except Exception:
+            pass
     except Exception as e:
         print(f"[SAVE ERR] {e}")
 
 DB = load_data()
+
+# ============================================
+# SYSTEME D'ALERTE ADMIN
+# Detecte les problemes (code invalide, solde negatif, echec credit)
+# et previent l'admin par email + historique
+# ============================================
+ALERTE_EMAIL = os.environ.get("ALERTE_EMAIL", "directionvaikeashop@gmail.com")
+
+def creer_alerte_systeme(type_alerte, niveau, message, cible=""):
+    """Enregistre une alerte et envoie un email a l'admin.
+    niveau: 'grave' (email immediat) ou 'info' (email throttle anti-spam)."""
+    global DB
+    try:
+        if "alertes_systeme" not in DB:
+            DB["alertes_systeme"] = []
+        
+        maintenant = datetime.datetime.now()
+        alerte = {
+            "id": secrets.token_hex(4).upper(),
+            "type": type_alerte,
+            "niveau": niveau,
+            "message": message,
+            "cible": cible,
+            "date": maintenant.isoformat(),
+            "vue": False
+        }
+        DB["alertes_systeme"].insert(0, alerte)
+        # Limiter l'historique a 500 alertes
+        DB["alertes_systeme"] = DB["alertes_systeme"][:500]
+        
+        # Decider d'envoyer un email (anti-spam : pas le meme type+cible dans la derniere heure)
+        il_y_a_1h = (maintenant - datetime.timedelta(hours=1)).isoformat()
+        deja = False
+        for a in DB["alertes_systeme"][1:]:
+            if a.get("type") == type_alerte and a.get("cible") == cible and a.get("email_envoye") and a.get("date", "") > il_y_a_1h:
+                deja = True
+                break
+        envoyer = not deja
+        
+        if envoyer and SENDGRID_API_KEY:
+            try:
+                icone = "🚨" if niveau == "grave" else "⚠️"
+                html = f"""<div style='font-family:sans-serif;max-width:500px;margin:auto'>
+                <div style='background:{"#dc2626" if niveau == "grave" else "#f59e0b"};color:#fff;padding:16px;border-radius:12px 12px 0 0'>
+                <h2 style='margin:0'>{icone} Alerte Ticket Bingo</h2></div>
+                <div style='background:#f9fafb;padding:20px;border-radius:0 0 12px 12px'>
+                <p style='font-size:16px;color:#111'><b>Type :</b> {type_alerte}</p>
+                <p style='font-size:16px;color:#111'><b>Niveau :</b> {"GRAVE" if niveau == "grave" else "Information"}</p>
+                <p style='font-size:16px;color:#111'><b>Detail :</b> {message}</p>
+                {f"<p style='font-size:16px;color:#111'><b>Concerne :</b> {cible}</p>" if cible else ""}
+                <p style='font-size:13px;color:#666'>Recu le {maintenant.strftime("%d/%m/%Y a %H:%M")}</p>
+                <p style='font-size:13px;color:#666'>Consulte toutes les alertes dans ton espace admin.</p>
+                </div></div>"""
+                message_mail = Mail(from_email=(FROM_EMAIL, FROM_NAME), to_emails=ALERTE_EMAIL,
+                                    subject=f"{icone} Alerte Ticket Bingo : {type_alerte}", html_content=html)
+                SendGridAPIClient(SENDGRID_API_KEY).send(message_mail)
+                alerte["email_envoye"] = True
+            except Exception as e:
+                print(f"[ALERTE] Echec envoi email : {e}")
+    except Exception as e:
+        print(f"[ALERTE] Erreur creation alerte : {e}")
+
+
+def journaliser_connexion(code, resultat, type_compte="organisateur", nom=""):
+    """Enregistre chaque tentative de connexion (reussie ou echouee) pour controle anti-mensonge."""
+    global DB
+    try:
+        if "journal_connexions" not in DB:
+            DB["journal_connexions"] = []
+        DB["journal_connexions"].insert(0, {
+            "code": code,
+            "nom": nom,
+            "resultat": resultat,
+            "type_compte": type_compte,
+            "date": datetime.datetime.now().isoformat()
+        })
+        DB["journal_connexions"] = DB["journal_connexions"][:1000]
+    except Exception as e:
+        print(f"[JOURNAL] Erreur : {e}")
+
+
+def verifier_soldes_negatifs():
+    """Detecte tout solde de pions negatif (disparition/anomalie grave). Anti-doublon: 1 alerte/code/heure."""
+    global DB
+    try:
+        maintenant = datetime.datetime.now()
+        il_y_a_1h = (maintenant - datetime.timedelta(hours=1)).isoformat()
+        # Codes deja alertes recemment (anti-doublon historique)
+        deja_alertes = set()
+        for a in DB.get("alertes_systeme", []):
+            if a.get("type") == "Solde de pions négatif" and a.get("date", "") > il_y_a_1h:
+                deja_alertes.add(a.get("cible", ""))
+        
+        # Verifier les soldes des joueuses
+        for code, pions in DB.get("pions_joueurs", {}).items():
+            if isinstance(pions, dict):
+                for valeur, nb in pions.items():
+                    if isinstance(nb, (int, float)) and nb < 0 and code not in deja_alertes:
+                        creer_alerte_systeme("Solde de pions négatif", "grave",
+                                             f"ANOMALIE : la joueuse « {code} » a un solde négatif ({nb} pions à {valeur} XPF). Disparition ou bug possible.", code)
+                        deja_alertes.add(code)
+        
+        # Verifier les stocks des organisateurs
+        for code, pions in DB.get("pions_org", {}).items():
+            if isinstance(pions, dict):
+                for valeur, nb in pions.items():
+                    if isinstance(nb, (int, float)) and nb < 0 and code not in deja_alertes:
+                        creer_alerte_systeme("Solde de pions négatif", "grave",
+                                             f"ANOMALIE : l'organisateur « {code} » a un stock négatif ({nb} pions à {valeur} XPF).", code)
+                        deja_alertes.add(code)
+    except Exception as e:
+        print(f"[ALERTE] Erreur verification soldes : {e}")
 
 # ============================================
 # REGLE UNIQUE DES FRAIS DE SERVICE
@@ -301,11 +418,18 @@ def login():
     code = request.json.get("code", "").strip().upper()
     info = DB["codes"].get(code)
     if not info or not info["actif"]:
+        # ALERTE + JOURNAL : tentative avec un code invalide/desactive
+        if code:
+            resultat = "echec_desactive" if info else "echec_code_inexistant"
+            journaliser_connexion(code, resultat, "organisateur", info["nom"] if info else "")
+            creer_alerte_systeme("Code organisateur invalide", "info",
+                                 f"Tentative de connexion avec le code « {code} » qui n'existe pas ou est désactivé.", code)
         return jsonify({"ok": False, "msg": "Code invalide ou expiré"}), 401
     # Verifier expiration du code
     if "expire" in info:
         try:
             if datetime.datetime.now() > datetime.datetime.fromisoformat(info["expire"]):
+                journaliser_connexion(code, "echec_expire", "organisateur", info["nom"])
                 return jsonify({"ok": False, "msg": "Code invalide ou expiré"}), 401
         except:
             pass
@@ -320,6 +444,7 @@ def login():
         "expire": expire.isoformat(),
         "admin": info.get("admin", False)
     }
+    journaliser_connexion(code, "reussi", "admin" if info.get("admin") else "organisateur", info["nom"])
     save_data()
     return jsonify({"ok": True, "token": token, "nom": info["nom"], "admin": info.get("admin", False), "code_org": code})
 
@@ -651,17 +776,25 @@ def get_ticket_acheteur(code):
     DB = load_data()
     code = code.upper().strip()
     if code in DB.get("codes_bloques", []):
+        journaliser_connexion(code, "echec_desactive", "joueur")
         return jsonify({"ok": False, "msg": "Ce code a été désactivé. Contactez votre organisateur."}), 403
     # Chercher dans tickets_acheteurs
     ticket_id = DB.get("tickets_acheteurs", {}).get(code)
     if ticket_id:
         ticket = next((t for t in DB["tickets"] if t["id"] == ticket_id), None)
         if ticket:
+            journaliser_connexion(code, "reussi", "joueur", ticket.get("acheteur", ""))
             return jsonify({"ok": True, "ticket": ticket})
     # Chercher directement dans tickets par code_acheteur
     ticket = next((t for t in DB["tickets"] if t.get("code_acheteur", "").upper() == code), None)
     if ticket:
+        journaliser_connexion(code, "reussi", "joueur", ticket.get("acheteur", ""))
         return jsonify({"ok": True, "ticket": ticket})
+    # ALERTE + JOURNAL : un joueur essaie un code introuvable
+    if code:
+        journaliser_connexion(code, "echec_code_inexistant", "joueur")
+        creer_alerte_systeme("Code joueur introuvable", "info",
+                             f"Un joueur a essayé d'accéder avec le code « {code} » qui n'existe pas.", code)
     return jsonify({"ok": False, "msg": "Code introuvable"}), 404
 
 @app.route("/api/verifier", methods=["POST"])
@@ -4849,6 +4982,119 @@ def codes_emis_org(code_org):
         html += "<p style='color:#8b949e;font-size:12px;margin-top:16px'>Ce releve liste UNIQUEMENT les codes reellement crees par cet organisateur dans le systeme, avec leur date exacte. En cas de litige, c'est la preuve de ce qui a ete emis.</p>"
     else:
         html += "<p style='color:#8b949e;margin-top:20px'>Cet organisateur n'a cree aucun code joueur.</p>"
+    
+    html += "</body></html>"
+    return html
+
+
+
+@app.route("/alertes-systeme")
+def page_alertes_systeme():
+    """Page admin : historique de toutes les alertes (problemes detectes)."""
+    global DB
+    DB = load_data()
+    
+    alertes = DB.get("alertes_systeme", [])
+    nb_graves = sum(1 for a in alertes if a.get("niveau") == "grave")
+    nb_non_vues = sum(1 for a in alertes if not a.get("vue"))
+    
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Alertes systeme</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:20px}"
+    html += ".totaux{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}"
+    html += ".m{font-size:22px;font-weight:bold}.grave{color:#f85149}.info{color:#f59e0b}.ok{color:#3fb950}"
+    html += ".alerte{background:#161b22;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid #30363d}"
+    html += ".alerte.g{border-left-color:#f85149}.alerte.i{border-left-color:#f59e0b}"
+    html += ".badge{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:bold}"
+    html += ".badge.g{background:rgba(248,81,73,.2);color:#f85149}.badge.i{background:rgba(245,158,11,.2);color:#f59e0b}"
+    html += ".date{font-size:11px;color:#8b949e}</style></head><body>"
+    html += "<h1>🚨 Alertes systeme</h1>"
+    html += "<div class='sub'>Tous les problemes detectes automatiquement sur l'application.</div>"
+    html += "<div class='totaux'>"
+    html += "<div><strong>Total</strong><br><span class='m'>" + str(len(alertes)) + "</span></div>"
+    html += "<div><strong>Graves</strong><br><span class='m grave'>" + str(nb_graves) + "</span></div>"
+    html += "<div><strong>Non vues</strong><br><span class='m info'>" + str(nb_non_vues) + "</span></div>"
+    html += "</div>"
+    
+    if alertes:
+        for a in alertes[:200]:
+            niv = a.get("niveau", "info")
+            cls = "g" if niv == "grave" else "i"
+            lbl = "GRAVE" if niv == "grave" else "INFO"
+            date = str(a.get("date", "?"))[:16].replace("T", " ")
+            html += "<div class='alerte " + cls + "'>"
+            html += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>"
+            html += "<span style='font-weight:bold'>" + str(a.get("type", "?")) + "</span>"
+            html += "<span class='badge " + cls + "'>" + lbl + "</span></div>"
+            html += "<div style='font-size:13px;color:#e6edf3'>" + str(a.get("message", "")) + "</div>"
+            html += "<div class='date'>" + date + (" — Email envoyé ✉️" if a.get("email_envoye") else "") + "</div>"
+            html += "</div>"
+    else:
+        html += "<p style='color:#3fb950;margin-top:20px;text-align:center'>✅ Aucune alerte — tout va bien !</p>"
+    
+    html += "</body></html>"
+    return html
+
+
+
+@app.route("/journal-connexions")
+def page_journal_connexions():
+    """Page admin : journal de toutes les tentatives de connexion (anti-mensonge).
+    Filtre possible via ?code=XXXX pour verifier un compte precis."""
+    global DB
+    DB = load_data()
+    
+    code_filtre = request.args.get("code", "").upper().strip()
+    journal = DB.get("journal_connexions", [])
+    if code_filtre:
+        journal = [j for j in journal if j.get("code") == code_filtre]
+    
+    # Libelles des resultats
+    libelles = {
+        "reussi": ("✅ Connexion réussie", "#3fb950"),
+        "echec_code_inexistant": ("❌ Code inexistant", "#f85149"),
+        "echec_desactive": ("🚫 Code désactivé", "#f59e0b"),
+        "echec_expire": ("⏰ Code expiré", "#f59e0b")
+    }
+    
+    nb_reussis = sum(1 for j in journal if j.get("resultat") == "reussi")
+    nb_echecs = len(journal) - nb_reussis
+    
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Journal connexions</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:20px}"
+    html += ".totaux{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:20px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center}"
+    html += ".m{font-size:22px;font-weight:bold}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}tr:hover{background:#21262d}"
+    html += ".code{color:#818cf8;font-weight:bold}.date{color:#8b949e}</style></head><body>"
+    html += "<h1>🔐 Journal des connexions</h1>"
+    if code_filtre:
+        html += "<div class='sub'>Tentatives du code <b style='color:#818cf8'>" + code_filtre + "</b> — controle anti-mensonge</div>"
+    else:
+        html += "<div class='sub'>Toutes les tentatives de connexion (reussies et echouees).</div>"
+    html += "<div class='totaux'>"
+    html += "<div><strong>Total</strong><br><span class='m'>" + str(len(journal)) + "</span></div>"
+    html += "<div><strong>Reussies</strong><br><span class='m ok'>" + str(nb_reussis) + "</span></div>"
+    html += "<div><strong>Echecs</strong><br><span class='m ko'>" + str(nb_echecs) + "</span></div>"
+    html += "</div>"
+    
+    if journal:
+        html += "<table><tr><th>Date / Heure</th><th>Code</th><th>Nom</th><th>Type</th><th>Resultat</th></tr>"
+        for j in journal[:300]:
+            res = j.get("resultat", "?")
+            lbl, coul = libelles.get(res, (res, "#8b949e"))
+            date = str(j.get("date", "?"))[:19].replace("T", " ")
+            html += "<tr><td class='date'>" + date + "</td>"
+            html += "<td class='code'>" + str(j.get("code", "?")) + "</td>"
+            html += "<td>" + str(j.get("nom", "") or "-") + "</td>"
+            html += "<td>" + str(j.get("type_compte", "?")) + "</td>"
+            html += "<td style='color:" + coul + ";font-weight:600'>" + lbl + "</td></tr>"
+        html += "</table>"
+        html += "<p style='color:#8b949e;font-size:12px;margin-top:16px'>Si une personne pretend ne pas avoir pu se connecter : verifiez ici. Si aucune tentative n'apparait avec son code, c'est qu'elle n'a pas essaye. Si une tentative echouee apparait, vous voyez exactement pourquoi.</p>"
+    else:
+        html += "<p style='color:#8b949e;margin-top:20px'>Aucune tentative de connexion enregistree" + (" pour ce code." if code_filtre else ".") + "</p>"
     
     html += "</body></html>"
     return html
