@@ -4774,5 +4774,3 @@ def ventes_tickets_org(code):
     
     html += "</body></html>"
     return html
-
-
