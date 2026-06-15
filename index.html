@@ -404,6 +404,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
       <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
       <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
+      <button onclick="ouvrirModaleRetrait()" style="width:100%;padding:12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💵 Retirer mes pions en argent</button>
       <div id="joueur-pion-result" style="margin-top:8px"></div>
     </div>
   </div>
@@ -519,6 +520,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
         <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
       <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
+      <button onclick="ouvrirModaleRetrait()" style="width:100%;padding:12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💵 Retirer mes pions en argent</button>
         <div id="joueur-pion-result" style="margin-top:8px"></div>
       </div>
     </div>
@@ -928,6 +930,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
       <input id="joueur-pion-ref" placeholder="Référence ou numéro de transaction" style="margin-bottom:12px;font-size:13px"/>
       <button onclick="commanderPionsJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700">📦 Commander mes pions</button>
       <button onclick="voirMonReleveJoueur()" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💰 Mon relevé (pions achetés / dépensés)</button>
+      <button onclick="ouvrirModaleRetrait()" style="width:100%;padding:12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;margin-top:8px">💵 Retirer mes pions en argent</button>
       <div id="joueur-pion-result" style="margin-top:8px"></div>
     </div>
 
@@ -1891,6 +1894,11 @@ function buildOrgSpace(){
       <button onclick="voirMonReleveFinancier()" style="width:100%;padding:10px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:8px">💰 Mon relevé financier (entrées / dépenses)</button>
       <div id="pions-don-result" style="margin-top:8px"></div>
     </div>
+    <div class="card" style="background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(217,119,6,.08));border:1px solid rgba(245,158,11,.3)">
+      <div class="ct" style="justify-content:space-between"><span>💵 Demandes de retrait des joueuses</span><button class="btn-sm" onclick="loadRetraits()">↻</button></div>
+      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">Tes joueuses qui veulent convertir leurs pions en argent. Valide pour retirer leurs pions de leur compte.</div>
+      <div id="liste-retraits" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
   `
 
   // Charger les données
@@ -1920,7 +1928,7 @@ function switchOrgTab(n, el){
   if(n==="verif") loadAlertesBingo();
   if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();setTimeout(function(){loadVentesPaiement();loadMesCommandes();},500);startAutoRefreshOrg();}
   if(n==="revendeurs") loadRevendeurs();
-  if(n==="pions"){loadSoldesPions();loadCommandesPions();setTimeout(function(){loadPionsPaiement();checkCommandesTicketsPions();},500);}
+  if(n==="pions"){loadSoldesPions();loadCommandesPions();setTimeout(function(){loadPionsPaiement();checkCommandesTicketsPions();loadRetraits();},500);}
 }
 
 // === ACCES REVENDEUR ===
@@ -4152,10 +4160,125 @@ function voirMonReleveFinancier(){
   window.open('/releve-financier/' + encodeURIComponent(code), '_blank');
 }
 
+async function loadRetraits(){
+  var box = document.getElementById('liste-retraits');
+  if(!box) return;
+  try{
+    const r = await fetch('/api/retrait/liste', {headers: {'X-Token': TOKEN}});
+    const demandes = await r.json();
+    if(!Array.isArray(demandes) || demandes.length === 0){
+      box.innerHTML = '<div style="color:var(--mu);font-size:13px;text-align:center;padding:8px">Aucune demande de retrait.</div>';
+      return;
+    }
+    box.innerHTML = demandes.map(function(d){
+      var coul = d.statut === 'validee' ? '#22c55e' : (d.statut === 'refusee' ? '#f85149' : '#f59e0b');
+      var label = d.statut === 'validee' ? '✅ Validé' : (d.statut === 'refusee' ? '❌ Refusé' : '⏳ En attente');
+      var coords = d.coordonnees ? ('<div style="font-size:11px;color:var(--mu)">Coord. : ' + d.coordonnees + '</div>') : '';
+      var boutons = '';
+      if(d.statut === 'en_attente'){
+        var q = String.fromCharCode(39);
+        boutons = '<div style="display:flex;gap:6px;margin-top:8px">' +
+          '<button onclick="validerRetrait(' + q + d.id + q + ')" style="flex:1;padding:8px;background:#22c55e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">✅ Valider</button>' +
+          '<button onclick="refuserRetrait(' + q + d.id + q + ')" style="flex:1;padding:8px;background:#f85149;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">❌ Refuser</button>' +
+          '</div>';
+      }
+      return '<div style="background:var(--s2);border-radius:8px;padding:10px;border-left:3px solid ' + coul + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span style="font-weight:700;color:#fff;font-size:13px">🎮 ' + d.code_joueur + '</span>' +
+        '<span style="font-size:11px;color:' + coul + ';font-weight:600">' + label + '</span></div>' +
+        '<div style="font-size:13px;color:#e6edf3;margin-top:4px">' + (d.montant_demande).toLocaleString() + ' XPF — ' + d.mode + '</div>' +
+        '<div style="font-size:12px;color:var(--mu)">Frais : ' + (d.frais).toLocaleString() + ' XPF → Net : <b style="color:#3fb950">' + (d.montant_net).toLocaleString() + ' XPF</b></div>' +
+        coords + boutons + '</div>';
+    }).join('');
+  }catch(e){ box.innerHTML = '<div style="color:#f85149;font-size:13px">Erreur de chargement</div>'; }
+}
+
+async function validerRetrait(id){
+  if(!confirm('Valider ce retrait ? Les pions seront retirés du compte de la joueuse.')) return;
+  try{
+    const r = await fetch('/api/retrait/valider', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({demande_id: id})
+    });
+    const d = await r.json();
+    if(d.ok){ alert('✅ Retrait validé ! Remets ' + (d.montant_net).toLocaleString() + ' XPF à la joueuse.'); loadRetraits(); loadSoldesPions(); }
+    else { alert(d.msg || 'Erreur'); }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
+async function refuserRetrait(id){
+  if(!confirm('Refuser cette demande de retrait ?')) return;
+  try{
+    const r = await fetch('/api/retrait/refuser', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({demande_id: id})
+    });
+    const d = await r.json();
+    if(d.ok){ loadRetraits(); }
+    else { alert(d.msg || 'Erreur'); }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
 function voirMonReleveJoueur(){
   var code = (codeJoueurActuel || '');
   if(!code){ alert('Code joueur introuvable'); return; }
   window.open('/releve-financier-joueur/' + encodeURIComponent(code), '_blank');
+}
+
+function ouvrirModaleRetrait(){
+  if(!codeJoueurActuel){ alert('Code joueur introuvable'); return; }
+  document.getElementById('retrait-montant').value = '';
+  document.getElementById('retrait-mode').value = 'Cash';
+  document.getElementById('retrait-coords').value = '';
+  document.getElementById('retrait-coords-wrap').style.display = 'none';
+  document.getElementById('retrait-calcul').innerHTML = 'Entre un montant pour voir le calcul.';
+  document.getElementById('retrait-result').innerHTML = '';
+  document.getElementById('modale-retrait').style.display = 'flex';
+}
+
+function fermerModaleRetrait(){
+  document.getElementById('modale-retrait').style.display = 'none';
+}
+
+function majCalculRetrait(){
+  var montant = parseInt(document.getElementById('retrait-montant').value || 0);
+  var mode = document.getElementById('retrait-mode').value;
+  // Afficher le champ coordonnées si virement
+  document.getElementById('retrait-coords-wrap').style.display = (mode === 'Virement') ? 'block' : 'none';
+  if(!montant || montant < 20){
+    document.getElementById('retrait-calcul').innerHTML = 'Entre un montant (minimum 20 XPF).';
+    return;
+  }
+  var frais = (mode === 'Virement') ? Math.round(montant * 0.05) : 0;
+  var net = montant - frais;
+  document.getElementById('retrait-calcul').innerHTML =
+    'Montant demandé : <b style="color:#fff">' + montant.toLocaleString() + ' XPF</b><br>' +
+    'Frais (' + (mode === 'Virement' ? '5%' : '0% cash') + ') : <b style="color:#f85149">-' + frais.toLocaleString() + ' XPF</b><br>' +
+    'Tu recevras : <b style="color:#3fb950;font-size:15px">' + net.toLocaleString() + ' XPF</b>';
+}
+
+async function envoyerDemandeRetrait(){
+  var montant = parseInt(document.getElementById('retrait-montant').value || 0);
+  var mode = document.getElementById('retrait-mode').value;
+  var coords = document.getElementById('retrait-coords').value.trim();
+  if(!montant || montant < 20){ alert('Entre un montant valide (minimum 20 XPF)'); return; }
+  if(mode === 'Virement' && !coords){ alert('Entre tes coordonnées pour le virement'); return; }
+  try{
+    const r = await fetch('/api/retrait/demander', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code_joueur: codeJoueurActuel, code_org: codeOrgActuel, montant: montant, mode: mode, coordonnees: coords})
+    });
+    const d = await r.json();
+    if(d.ok){
+      document.getElementById('retrait-result').innerHTML = '<div style="background:rgba(34,197,94,.2);border:1px solid #22c55e;border-radius:8px;padding:10px;text-align:center;color:#34d399">✅ Demande envoyée ! Tu recevras ' + (d.montant_net).toLocaleString() + ' XPF après validation de ton organisateur.</div>';
+      setTimeout(fermerModaleRetrait, 2500);
+    } else {
+      document.getElementById('retrait-result').innerHTML = '<div style="background:rgba(248,81,73,.2);border:1px solid #f85149;border-radius:8px;padding:10px;text-align:center;color:#f85149">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){ alert('Erreur réseau'); }
 }
 
 async function donnerPionsJoueur(){
@@ -5993,5 +6116,35 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
+<div id="modale-retrait" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:16px;padding:20px;max-width:420px;width:100%;max-height:90vh;overflow-y:auto">
+    <div style="font-size:18px;font-weight:800;color:#f59e0b;margin-bottom:4px">💵 Retirer mes pions en argent</div>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:16px">Fin de tournoi — convertis tes pions en argent avec ton organisateur.</div>
+
+    <div style="font-size:13px;color:#e6edf3;margin-bottom:6px">Montant à retirer (XPF)</div>
+    <input id="retrait-montant" type="number" min="20" placeholder="Ex: 500" oninput="majCalculRetrait()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:12px;box-sizing:border-box"/>
+
+    <div style="font-size:13px;color:#e6edf3;margin-bottom:6px">Mode de retrait</div>
+    <select id="retrait-mode" onchange="majCalculRetrait()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:12px;box-sizing:border-box">
+      <option value="Cash">💵 Cash (0% de frais)</option>
+      <option value="Virement">🏦 Virement (5% de frais)</option>
+    </select>
+
+    <div id="retrait-coords-wrap" style="display:none;margin-bottom:12px">
+      <div style="font-size:13px;color:#e6edf3;margin-bottom:6px">Coordonnées (CCP / IBAN / Deblock)</div>
+      <input id="retrait-coords" type="text" placeholder="Tes coordonnées pour le virement" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;box-sizing:border-box"/>
+    </div>
+
+    <div id="retrait-calcul" style="background:#0d1117;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#8b949e">
+      Entre un montant pour voir le calcul.
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button onclick="fermerModaleRetrait()" style="flex:1;padding:12px;background:#30363d;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">Annuler</button>
+      <button onclick="envoyerDemandeRetrait()" style="flex:2;padding:12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Envoyer ma demande</button>
+    </div>
+    <div id="retrait-result" style="margin-top:10px"></div>
+  </div>
+</div>
 </body>
 </html>
