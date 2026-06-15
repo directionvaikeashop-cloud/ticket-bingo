@@ -5212,3 +5212,107 @@ def page_tous_les_codes():
     return html
 
 
+
+@app.route("/enquete-code")
+def enquete_code():
+    """Centre d'enquete : recherche universelle d'un code + liste des codes fantomes."""
+    global DB
+    DB = load_data()
+    code_recherche = request.args.get("code", "").upper().strip()
+    
+    resultat_html = ""
+    if code_recherche:
+        # 1. Existe dans les codes (admin/org/revendeur) ?
+        trouve = False
+        details = []
+        if code_recherche in DB.get("codes", {}):
+            trouve = True
+            info = DB["codes"][code_recherche]
+            role = "Admin" if info.get("admin") else ("Revendeur" if info.get("role") == "revendeur" else "Organisateur")
+            details.append("Type : " + role)
+            details.append("Nom : " + str(info.get("nom", "?")))
+            details.append("Actif : " + ("Oui" if info.get("actif") else "Non"))
+            if info.get("email"):
+                details.append("Email : " + str(info.get("email")))
+        
+        # 2. Existe comme joueuse (ticket) ?
+        tickets_j = [t for t in DB.get("tickets", []) if t.get("code_acheteur", "").upper() == code_recherche]
+        if tickets_j:
+            trouve = True
+            t0 = tickets_j[0]
+            details.append("Type : Joueuse")
+            details.append("Nom : " + str(t0.get("acheteur", "?")))
+            details.append("Organisateur : " + str(t0.get("code_org", "?")))
+            details.append("Cree le : " + str(t0.get("date", "?"))[:16].replace("T", " "))
+            details.append("Nombre de tickets : " + str(len(tickets_j)))
+            pj = DB.get("pions_joueurs", {}).get(code_recherche, {})
+            solde = sum(int(v) * nb for v, nb in pj.items() if str(v).lstrip("-").isdigit())
+            details.append("Solde pions : " + format(solde, ",") + " XPF")
+        
+        # 3. Tentatives de connexion
+        tentatives = [j for j in DB.get("journal_connexions", []) if j.get("code") == code_recherche]
+        nb_echecs = sum(1 for t in tentatives if t.get("resultat") != "reussi")
+        nb_reussis = sum(1 for t in tentatives if t.get("resultat") == "reussi")
+        
+        if trouve:
+            resultat_html = "<div style='background:rgba(34,197,94,.15);border:1px solid #22c55e;border-radius:10px;padding:16px;margin:16px 0'>"
+            resultat_html += "<div style='font-size:18px;font-weight:bold;color:#22c55e'>&#9989; Code " + code_recherche + " EXISTE</div>"
+            for d in details:
+                resultat_html += "<div style='margin-top:6px;color:#e6edf3'>" + d + "</div>"
+        else:
+            resultat_html = "<div style='background:rgba(248,81,73,.15);border:1px solid #f85149;border-radius:10px;padding:16px;margin:16px 0'>"
+            resultat_html += "<div style='font-size:18px;font-weight:bold;color:#f85149'>&#10060; Code " + code_recherche + " N'EXISTE PAS</div>"
+            resultat_html += "<div style='margin-top:6px;color:#e6edf3'>Ce code n'a jamais ete cree dans le systeme (ni organisateur, ni joueuse). Personne ne l'a emis.</div>"
+        
+        resultat_html += "<div style='margin-top:10px;padding-top:10px;border-top:1px solid #30363d;color:#8b949e'>"
+        resultat_html += "Tentatives de connexion : <b style='color:#fff'>" + str(len(tentatives)) + "</b> (" + str(nb_reussis) + " reussies, " + str(nb_echecs) + " echouees)"
+        resultat_html += "</div></div>"
+    
+    # Liste des codes fantomes (inexistants tentes), classes par frequence
+    codes_existants = set(c.upper() for c in DB.get("codes", {}).keys())
+    for t in DB.get("tickets", []):
+        if t.get("code_acheteur"):
+            codes_existants.add(t["code_acheteur"].upper())
+    
+    fantomes = {}
+    for j in DB.get("journal_connexions", []):
+        c = j.get("code", "")
+        if c and c not in codes_existants and j.get("resultat") != "reussi":
+            if c not in fantomes:
+                fantomes[c] = {"code": c, "tentatives": 0, "derniere": j.get("date", ""), "type": j.get("type_compte", "?")}
+            fantomes[c]["tentatives"] += 1
+            if str(j.get("date", "")) > str(fantomes[c]["derniere"]):
+                fantomes[c]["derniere"] = j.get("date", "")
+    
+    liste_fantomes = sorted(fantomes.values(), key=lambda x: x["tentatives"], reverse=True)
+    
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Enquete codes</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}h2{color:#818cf8;margin-top:24px}"
+    html += "form{margin:16px 0}input{padding:10px;border-radius:8px;border:1px solid #30363d;background:#161b22;color:#fff;font-size:14px;width:200px}"
+    html += "button{padding:10px 20px;background:#58a6ff;color:#0d1117;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin-left:8px}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:8px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}tr:hover{background:#21262d}"
+    html += ".code{color:#818cf8;font-weight:bold}.warn{color:#f59e0b;font-weight:bold}</style></head><body>"
+    html += "<h1>&#128270; Centre d'enquete des codes</h1>"
+    html += "<form method='get'><input name='code' placeholder='Tape un code...' value='" + code_recherche + "' autofocus><button type='submit'>Rechercher</button></form>"
+    html += resultat_html
+    
+    html += "<h2>&#128123; Codes fantomes tentes (inexistants)</h2>"
+    if liste_fantomes:
+        html += "<p style='color:#8b949e;font-size:12px'>Codes qui n'existent pas mais que des gens ont essayes. Les plus tentes en haut = les plus suspects.</p>"
+        html += "<table><tr><th>Code</th><th>Tentatives</th><th>Type</th><th>Derniere tentative</th></tr>"
+        for f in liste_fantomes[:100]:
+            cls = "warn" if f["tentatives"] >= 3 else ""
+            html += "<tr><td class='code'>" + f["code"] + "</td>"
+            html += "<td class='" + cls + "'>" + str(f["tentatives"]) + "</td>"
+            html += "<td>" + str(f["type"]) + "</td>"
+            html += "<td>" + str(f["derniere"])[:16].replace("T", " ") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='color:#3fb950'>&#9989; Aucun code fantome tente. Tout est normal.</p>"
+    
+    html += "</body></html>"
+    return html
+
+
