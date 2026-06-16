@@ -165,32 +165,70 @@ def load_data():
         "alertes_bingo": [], "tirage": []
     }
 
-def save_data():
+def _ecrire_donnees_disque():
+    """Écriture atomique réelle sur le disque (anti-corruption)."""
     try:
         with _VERROU_SAUVEGARDE:
             os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-            # 1) Ecrire dans un fichier TEMPORAIRE (le fichier principal n'est jamais a moitie ecrit)
             tmp = DATA_FILE + ".tmp"
             with open(tmp, "w") as f:
                 json.dump(DB, f, ensure_ascii=False, default=str)
                 f.flush()
                 os.fsync(f.fileno())
-            # 2) Conserver la version precedente comme copie de secours
             if os.path.exists(DATA_FILE):
                 try:
                     os.replace(DATA_FILE, DATA_FILE + ".bak")
                 except Exception:
                     pass
-            # 3) Remplacement ATOMIQUE : soit l'ancien fichier, soit le nouveau, jamais un fichier abime
             os.replace(tmp, DATA_FILE)
         print(f"[SAVE OK] {DATA_FILE}")
-        # Detection d'anomalies APRES la sauvegarde (hors verrou, ne bloque pas l'ecriture)
+    except Exception as e:
+        print(f"[SAVE ERR] {e}")
+
+# Système de regroupement des sauvegardes (évite de réécrire en rafale)
+import threading as _threading_save
+import time as _time_save
+_DERNIERE_SAUVEGARDE = [0.0]
+_SAUVEGARDE_EN_ATTENTE = [None]
+_VERROU_THROTTLE = _threading_save.Lock()
+_THROTTLE_SECONDES = 2.0
+
+def _sauvegarde_differee():
+    """Exécute la sauvegarde regroupée après le délai."""
+    with _VERROU_THROTTLE:
+        _SAUVEGARDE_EN_ATTENTE[0] = None
+        _DERNIERE_SAUVEGARDE[0] = _time_save.time()
+    _ecrire_donnees_disque()
+    try:
+        verifier_soldes_negatifs()
+    except Exception:
+        pass
+
+def save_data():
+    """Sauvegarde intelligente : immédiate si isolée, regroupée si en rafale.
+    L'état final est TOUJOURS écrit (aucune perte de données)."""
+    maintenant = _time_save.time()
+    with _VERROU_THROTTLE:
+        depuis_derniere = maintenant - _DERNIERE_SAUVEGARDE[0]
+        if depuis_derniere >= _THROTTLE_SECONDES:
+            # Assez de temps écoulé -> sauvegarder tout de suite
+            _DERNIERE_SAUVEGARDE[0] = maintenant
+            faire_maintenant = True
+        else:
+            # Trop rapproché -> programmer une sauvegarde groupée (une seule en attente)
+            faire_maintenant = False
+            if _SAUVEGARDE_EN_ATTENTE[0] is None:
+                delai = max(0.1, _THROTTLE_SECONDES - depuis_derniere)
+                t = _threading_save.Timer(delai, _sauvegarde_differee)
+                t.daemon = True
+                _SAUVEGARDE_EN_ATTENTE[0] = t
+                t.start()
+    if faire_maintenant:
+        _ecrire_donnees_disque()
         try:
             verifier_soldes_negatifs()
         except Exception:
             pass
-    except Exception as e:
-        print(f"[SAVE ERR] {e}")
 
 DB = load_data()
 
@@ -221,7 +259,7 @@ def creer_alerte_systeme(type_alerte, niveau, message, cible=""):
         }
         DB["alertes_systeme"].insert(0, alerte)
         # Limiter l'historique a 500 alertes
-        DB["alertes_systeme"] = DB["alertes_systeme"][:500]
+        DB["alertes_systeme"] = DB["alertes_systeme"][:200]
         
         # Decider d'envoyer un email (anti-spam : pas le meme type+cible dans la derniere heure)
         il_y_a_1h = (maintenant - datetime.timedelta(hours=1)).isoformat()
@@ -269,7 +307,7 @@ def journaliser_connexion(code, resultat, type_compte="organisateur", nom=""):
             "type_compte": type_compte,
             "date": datetime.datetime.now().isoformat()
         })
-        DB["journal_connexions"] = DB["journal_connexions"][:1000]
+        DB["journal_connexions"] = DB["journal_connexions"][:300]
     except Exception as e:
         print(f"[JOURNAL] Erreur : {e}")
 
