@@ -16,12 +16,36 @@ except ImportError:
     stripe = None
     STRIPE_SECRET_KEY = ""
     STRIPE_WEBHOOK_SECRET = ""
-from generate_triple_action_75 import generate_pdf as generate_ta75_pdf
-from generate_60_boules import generate_pdf as generate_60b_pdf
-from generate_40_boules import generate_pdf as generate_40b_pdf
-from generate_4_coins import generate_pdf as generate_4coins_pdf
-from generate_500_francs import generate_pdf as generate_500f_pdf
-from generate_1_dollar import generate_pdf as generate_1dollar_pdf
+try:
+    from generate_triple_action_75 import generate_pdf as generate_ta75_pdf
+except Exception as _e:
+    generate_ta75_pdf = None
+    print(f"[IMPORT] generate_triple_action_75 indisponible: {_e}")
+try:
+    from generate_60_boules import generate_pdf as generate_60b_pdf
+except Exception as _e:
+    generate_60b_pdf = None
+    print(f"[IMPORT] generate_60_boules indisponible: {_e}")
+try:
+    from generate_40_boules import generate_pdf as generate_40b_pdf
+except Exception as _e:
+    generate_40b_pdf = None
+    print(f"[IMPORT] generate_40_boules indisponible: {_e}")
+try:
+    from generate_4_coins import generate_pdf as generate_4coins_pdf
+except Exception as _e:
+    generate_4coins_pdf = None
+    print(f"[IMPORT] generate_4_coins indisponible: {_e}")
+try:
+    from generate_500_francs import generate_pdf as generate_500f_pdf
+except Exception as _e:
+    generate_500f_pdf = None
+    print(f"[IMPORT] generate_500_francs indisponible: {_e}")
+try:
+    from generate_1_dollar import generate_pdf as generate_1dollar_pdf
+except Exception as _e:
+    generate_1dollar_pdf = None
+    print(f"[IMPORT] generate_1_dollar indisponible: {_e}")
 
 # ============================================================
 # REGISTRE CENTRAL DES GENERATEURS DE JEUX
@@ -3453,7 +3477,7 @@ def stripe_webhook():
                 sid = event["data"]["object"]["id"]
                 if STRIPE_SECRET_KEY and stripe:
                     vraie_session = stripe.checkout.Session.retrieve(sid)
-                    if vraie_session.get("payment_status") != "paid":
+                    if vraie_session["payment_status"] != "paid":
                         print(f"[WEBHOOK] Session {sid} NON payee — ignoree")
                         return jsonify({"ok": True}), 200
                     print(f"[WEBHOOK] Session {sid} confirmee payee via API (mode fallback)")
@@ -3463,7 +3487,7 @@ def stripe_webhook():
     
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        metadata = session.get("metadata", {})
+        metadata = session.get("metadata") if hasattr(session, "get") and callable(session.get) else session.metadata if hasattr(session, "metadata") else {}
         type_p = metadata.get("type", "")
         code_org = metadata.get("code_org", "")
         montant = session.get("amount_total", 0)
@@ -5630,3 +5654,124 @@ def supprimer_tournoi_programme():
         save_data()
         return jsonify({"ok": True})
     return jsonify({"ok": False, "msg": "Tournoi introuvable"}), 404
+
+
+
+@app.route("/diagnostic-pdf")
+def diagnostic_pdf():
+    """Diagnostic des PDF : présents / manquants, groupés par organisateur."""
+    global DB
+    DB = load_data()
+    org_filtre = request.args.get("org", "").strip().upper()
+    tickets = DB.get("tickets", [])
+
+    orgs = {}
+    total_tickets = 0
+    total_present = 0
+    total_manquant = 0
+    total_sans = 0
+
+    for t in tickets:
+        co = t.get("code_org", "?") or "?"
+        if org_filtre and co != org_filtre:
+            continue
+        if co not in orgs:
+            nom_org = DB.get("codes", {}).get(co, {}).get("nom", co)
+            orgs[co] = {"nom": nom_org, "tickets": [], "present": 0, "manquant": 0, "sans": 0}
+        pdf_url = t.get("pdf_url")
+        statut = "sans"
+        if pdf_url:
+            pdf_id = pdf_url.split("/")[-1].replace(".pdf", "")
+            pdf_path = f"/data/pdfs/{pdf_id}.pdf"
+            statut = "present" if os.path.exists(pdf_path) else "manquant"
+        orgs[co]["tickets"].append({
+            "acheteur": t.get("acheteur", "?"),
+            "jeu": t.get("jeu", "?"),
+            "serie": t.get("serie", "?"),
+            "code_acheteur": t.get("code_acheteur", ""),
+            "statut": statut,
+            "date": t.get("date", "")
+        })
+        orgs[co][statut] += 1
+        total_tickets += 1
+        if statut == "present": total_present += 1
+        elif statut == "manquant": total_manquant += 1
+        else: total_sans += 1
+
+    # Construire le HTML
+    def badge(statut):
+        if statut == "present": return '<span style="background:#065f46;color:#6ee7b7;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">✅ PDF présent</span>'
+        if statut == "manquant": return '<span style="background:#7f1d1d;color:#fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">❌ PDF MANQUANT</span>'
+        return '<span style="background:#374151;color:#9ca3af;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">— Sans PDF</span>'
+
+    cartes_orgs = ""
+    for co, info in sorted(orgs.items(), key=lambda x: -x[1]["manquant"]):
+        lignes = ""
+        for tk in info["tickets"]:
+            date_courte = tk["date"][:16].replace("T", " ") if tk["date"] else ""
+            lignes += f'''<tr style="border-bottom:1px solid rgba(255,255,255,.08)">
+                <td style="padding:8px;font-size:13px;color:#fff">{tk["acheteur"]}</td>
+                <td style="padding:8px;font-size:13px;color:#c4b5fd">{tk["jeu"]}</td>
+                <td style="padding:8px;font-size:12px;color:#94a3b8">{tk["serie"]}</td>
+                <td style="padding:8px;font-size:12px;color:#64748b">{tk["code_acheteur"]}</td>
+                <td style="padding:8px;font-size:11px;color:#64748b">{date_courte}</td>
+                <td style="padding:8px;text-align:right">{badge(tk["statut"])}</td>
+            </tr>'''
+        alerte = ""
+        if info["manquant"] > 0:
+            alerte = f'<div style="background:#7f1d1d;color:#fca5a5;padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;font-weight:600">⚠️ {info["manquant"]} PDF manquant(s) — ces joueuses ne peuvent pas ouvrir leur ticket !</div>'
+        cartes_orgs += f'''<div style="background:#1e1b3a;border:1px solid #3730a3;border-radius:14px;padding:18px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+                <div style="font-size:18px;font-weight:800;color:#fff">👤 {info["nom"]}</div>
+                <div style="font-size:12px;color:#94a3b8">Code : {co}</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+                <div style="background:#065f46;color:#6ee7b7;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700">✅ {info["present"]} présents</div>
+                <div style="background:#7f1d1d;color:#fca5a5;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700">❌ {info["manquant"]} manquants</div>
+                <div style="background:#374151;color:#9ca3af;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700">— {info["sans"]} sans PDF</div>
+            </div>
+            {alerte}
+            <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+                <tr style="border-bottom:2px solid #3730a3">
+                    <th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Joueuse</th>
+                    <th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Jeu</th>
+                    <th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Série</th>
+                    <th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Code</th>
+                    <th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Date</th>
+                    <th style="padding:8px;text-align:right;font-size:12px;color:#a78bfa">État PDF</th>
+                </tr>
+                {lignes}
+            </table></div>
+        </div>'''
+
+    if not orgs:
+        cartes_orgs = '<div style="text-align:center;color:#94a3b8;padding:40px">Aucun ticket trouvé' + (f' pour le code {org_filtre}' if org_filtre else '') + '.</div>'
+
+    titre_filtre = f' — {DB.get("codes", {}).get(org_filtre, {}).get("nom", org_filtre)}' if org_filtre else ''
+
+    html = f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Diagnostic PDF{titre_filtre}</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:-apple-system,system-ui,sans-serif;padding:18px;color:#fff">
+    <div style="max-width:900px;margin:0 auto">
+        <div style="text-align:center;margin-bottom:8px">
+            <div style="font-size:14px;font-weight:800;color:#a855f7">🎱 TICKET BINGO</div>
+            <h1 style="font-size:22px;margin:6px 0;color:#fff">🔍 Diagnostic des cartes (PDF){titre_filtre}</h1>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-bottom:20px;flex-wrap:wrap">
+            <div style="background:#1e293b;padding:10px 18px;border-radius:10px;text-align:center">
+                <div style="font-size:22px;font-weight:800;color:#fff">{total_tickets}</div>
+                <div style="font-size:11px;color:#94a3b8">Tickets total</div></div>
+            <div style="background:#065f46;padding:10px 18px;border-radius:10px;text-align:center">
+                <div style="font-size:22px;font-weight:800;color:#6ee7b7">{total_present}</div>
+                <div style="font-size:11px;color:#a7f3d0">PDF présents</div></div>
+            <div style="background:#7f1d1d;padding:10px 18px;border-radius:10px;text-align:center">
+                <div style="font-size:22px;font-weight:800;color:#fca5a5">{total_manquant}</div>
+                <div style="font-size:11px;color:#fecaca">PDF manquants</div></div>
+        </div>
+        {cartes_orgs}
+        <div style="text-align:center;margin-top:20px;font-size:12px;color:#64748b">
+            Astuce : ajoute <code style="color:#a78bfa">?org=CODE</code> à l'adresse pour filtrer un organisateur précis.
+        </div>
+    </div></body></html>'''
+    return Response(html, content_type="text/html; charset=utf-8")
