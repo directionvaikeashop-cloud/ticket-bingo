@@ -2056,6 +2056,8 @@ function buildOrgSpace(){
       <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Tape le montant exact, le calcul se fait seul</div>
       <div class="lbl">Code du joueur gagnant</div>
       <input id="rapide-code" placeholder="Ex: AB12CD" style="text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">
+      <div class="lbl">Jeu gagne (pour la trace)</div>
+      <input id="rapide-jeu" placeholder="Ex: OHANA 75" style="margin-bottom:8px">
       <div class="lbl">Montant total a remettre (XPF)</div>
       <input id="rapide-montant" type="number" placeholder="Ex: 2350" oninput="calcRapide()" style="margin-bottom:8px">
       <div id="rapide-detail" style="display:none;background:rgba(217,70,239,.1);border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px"></div>
@@ -4584,22 +4586,29 @@ async function donnerUnPion(code, valeur, nb){
 }
 async function donnerMontantRapide(){
   var code = document.getElementById('rapide-code').value.trim().toUpperCase();
+  var jeu = (document.getElementById('rapide-jeu') ? document.getElementById('rapide-jeu').value.trim() : '');
   var m = parseInt(document.getElementById('rapide-montant').value||0);
   if(!code){ alert('Entrez le code du joueur'); return; }
   if(!m || m<=0){ alert('Entrez un montant'); return; }
-  calcRapide();
-  var b = window._rapideBreak;
-  if(!b || (b.n100===0 && b.n50===0 && b.n20===0)){ alert('Montant trop faible'); return; }
   try{
-    if(b.n100>0) await donnerUnPion(code, 100, b.n100);
-    if(b.n50>0) await donnerUnPion(code, 50, b.n50);
-    if(b.n20>0) await donnerUnPion(code, 20, b.n20);
-    var msg = (m-b.reste)+' XPF donnes a '+code+(b.reste>0?' (reste '+b.reste+' XPF a part)':'');
-    document.getElementById('rapide-result').innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:10px;text-align:center;color:#34d399">'+msg+'</div>';
-    document.getElementById('rapide-code').value='';
-    document.getElementById('rapide-montant').value='';
-    document.getElementById('rapide-detail').style.display='none';
-    loadSoldesPions();
+    const r = await fetch('/api/gain/enregistrer', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':TOKEN},
+      body: JSON.stringify({code_gagnant:code, jeu:jeu, montant_gain:m})
+    });
+    const d = await r.json();
+    if(d.ok){
+      var reste = d.reste_especes>0 ? ' (reste '+d.reste_especes+' XPF a part)' : '';
+      var msg = d.montant_credite+' XPF en pions donnes a '+code+reste+(jeu?' — '+jeu:'');
+      document.getElementById('rapide-result').innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:10px;text-align:center;color:#34d399">'+msg+'<br><span style="font-size:11px;color:var(--mu)">Gain enregistre dans le journal</span></div>';
+      document.getElementById('rapide-code').value='';
+      if(document.getElementById('rapide-jeu')) document.getElementById('rapide-jeu').value='';
+      document.getElementById('rapide-montant').value='';
+      document.getElementById('rapide-detail').style.display='none';
+      if(typeof loadSoldesPions==='function') loadSoldesPions();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
   }catch(e){ alert('Erreur : '+e.message); }
 }
 
