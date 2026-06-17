@@ -2645,6 +2645,38 @@ b{color:#fff}
 ⭕ <b>Virement</b> : 5% de frais, vous virez le net (ses coordonnées s'affichent)</p>
 <p>⭐ <b>IMPORTANT</b> : les pions ne sont retirés de son compte <b>qu'au moment où vous cliquez « Valider »</b>. C'est votre confirmation qui déclenche le retrait — vous remettez l'argent ensuite. Tout est tracé en cas de litige.</p></div>
 
+<div class="card"><h2>📋 Récapitulatif visuel — les boutons dans l'ordre</h2>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>1.</b> Onglet 🎫 Tickets</div>
+<div style="background:#4f46e5;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">🔑 Générer le code de la joueuse</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>2.</b> Onglet 🪙 Pions</div>
+<div style="background:#6366f1;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">📦 Commander et confirmer le paiement</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>3.</b> Onglet 🪙 Pions — créditer une joueuse</div>
+<div style="background:#059669;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">🎁 Donner les pions</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>4.</b> Onglet 🎮 Jouer</div>
+<div style="background:#7c3aed;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">📢 Annoncer ce jeu !</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>5.</b> Onglet 🏆 Vérifier — tirer les boules</div>
+<div style="background:#0891b2;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600;margin-bottom:5px">▶️ Lancer tirage auto</div>
+<div style="background:#475569;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">🎱 Tirer manuellement</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>6.</b> Valider la gagnante (🏆), puis la payer (🪙 Pions)</div>
+<div style="background:#c026d3;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">⚡ Remettre ce montant</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>7.</b> Onglet 🎮 Jouer — préparer le jeu suivant</div>
+<div style="background:#dc2626;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">🔄 Nouveau tournoi — Remettre à zéro</div>
+<div style="font-size:12px;color:var(--mu);margin-top:6px">Les codes et pions des joueuses restent toujours.</div>
+</div></div>
+
 <div class="card"><h2>✅ Check-list avant chaque tournoi</h2>
 <div class="check"><span class="num">1</span>Mon jeu PDF est commandé et reçu</div>
 <div class="check"><span class="num">2</span>Le jeu est annoncé avec le prix du ticket</div>
@@ -2726,6 +2758,18 @@ b{color:#fff}
 ⭕ <b>Virement</b> : 5% de frais (CCP, BT ou Deblock)</p>
 <p>Tu envoies ta demande à ton organisateur. <b>Tes pions ne sont retirés qu'une fois qu'il valide</b> — ensuite il te remet ton argent. 💰</p>
 <div class="astuce">💡 Le calcul s'affiche en direct : tu vois exactement combien tu vas recevoir avant d'envoyer ta demande.</div></div>
+
+<div class="card"><h2>📋 Récap : 2 façons d'avoir des pions</h2>
+<div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>Façon A — Tu commandes toi-même</b></div>
+<div style="background:#6366f1;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">📦 Commander mes pions</div>
+<div style="font-size:12px;color:var(--mu);margin-top:6px">→ Ta commande part vers l'administrateur, qui valide ton paiement.</div>
+</div>
+<div style="background:var(--s2);border-radius:10px;padding:12px">
+<div style="font-size:13px;color:#fff;margin-bottom:6px"><b>Façon B — Ton organisateur t'en donne</b></div>
+<div style="background:#059669;color:#fff;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600">🎁 (côté organisateur : Donner les pions)</div>
+<div style="font-size:12px;color:var(--mu);margin-top:6px">→ Les pions arrivent direct sur ton compte, tout de suite.</div>
+</div></div>
 
 <a class="cta" href="https://ticket-bingo-production.up.railway.app">🎱 Jouer maintenant sur Ticket Bingo</a>
 <div class="pied">Ticket Bingo — L'application des tournois de bingo en Polynésie 🌺<br>Bonne chance, et que les boules soient avec toi !</div>
