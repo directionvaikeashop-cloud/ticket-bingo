@@ -2645,6 +2645,28 @@ b{color:#fff}
 ⭕ <b>Virement</b> : 5% de frais, vous virez le net (ses coordonnées s'affichent)</p>
 <p>⭐ <b>IMPORTANT</b> : les pions ne sont retirés de son compte <b>qu'au moment où vous cliquez « Valider »</b>. C'est votre confirmation qui déclenche le retrait — vous remettez l'argent ensuite. Tout est tracé en cas de litige.</p></div>
 
+<div class="card"><h2>🗺️ Vue d'ensemble — le déroulé d'un tournoi</h2>
+<div style="background:rgba(37,99,235,.12);border:1px solid rgba(37,99,235,.4);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-weight:800;color:#93c5fd;font-size:14px;margin-bottom:6px">1. AVANT — préparer</div>
+<div style="font-size:13px;color:#dbeafe;line-height:1.7">🎫 Générer les codes joueuses<br>🪙 Commander des pions<br>🪙 Donner des pions aux joueuses<br>🎮 Annoncer le jeu et le prix</div>
+</div>
+<div style="text-align:center;color:var(--mu);font-size:18px;margin:2px 0">↓</div>
+<div style="background:rgba(13,148,136,.12);border:1px solid rgba(13,148,136,.4);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-weight:800;color:#5eead4;font-size:14px;margin-bottom:6px">2. PENDANT — jouer (🏆 Vérifier)</div>
+<div style="font-size:13px;color:#ccfbf1;line-height:1.7">Le tournoi commence<br>Tirer les boules (auto ou à la main)<br>Annoncer au micro · Pause si besoin<br>Vérifier le bingo</div>
+</div>
+<div style="text-align:center;color:var(--mu);font-size:18px;margin:2px 0">↓</div>
+<div style="background:rgba(217,119,6,.12);border:1px solid rgba(217,119,6,.4);border-radius:10px;padding:12px;margin-bottom:8px">
+<div style="font-weight:800;color:#fcd34d;font-size:14px;margin-bottom:6px">3. FIN — clôturer</div>
+<div style="font-size:13px;color:#fef3c7;line-height:1.7">🏆 Valider la gagnante<br>🪙 ⚡ Remettre le gain<br>🎮 Nouveau tournoi (remise à zéro)</div>
+</div>
+<div style="text-align:center;color:var(--mu);font-size:18px;margin:2px 0">↓</div>
+<div style="background:rgba(219,39,119,.12);border:1px solid rgba(219,39,119,.4);border-radius:10px;padding:12px">
+<div style="font-weight:800;color:#f9a8d4;font-size:14px;margin-bottom:6px">QUAND TU VEUX — suivi</div>
+<div style="font-size:13px;color:#fce7f3;line-height:1.7">🪙 Mon relevé financier<br>🪙 Mon circuit de traçage<br>🪙 Mes ventes · Valider les retraits<br>🛒 Générer un code revendeur</div>
+</div>
+<div class="astuce" style="margin-top:10px">💡 Les codes et pions des joueuses ne sont JAMAIS effacés, même au nouveau tournoi.</div></div>
+
 <div class="card"><h2>📋 Récapitulatif visuel — les boutons dans l'ordre</h2>
 <div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:8px">
 <div style="font-size:13px;color:#fff;margin-bottom:6px"><b>1.</b> Onglet 🎫 Tickets</div>
