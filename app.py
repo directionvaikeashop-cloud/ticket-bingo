@@ -1458,6 +1458,81 @@ def crediter_poche_org():
         "nouveau_solde_poche_org": nouveau_solde
     })
 
+@app.route("/api/admin/retirer-pions-joueur", methods=["POST"])
+def retirer_pions_joueur():
+    """ADMIN : retire (corrige) des pions du solde d'un joueur.
+    Sert a corriger une anomalie (pions apparus sans raison). Operation tracee."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Acces admin requis"}), 403
+    d = request.json or {}
+    code_joueur = (d.get("code_joueur") or "").upper().strip()
+    montant = int(d.get("montant", 0) or 0)
+    motif = (d.get("motif") or "").strip()
+    if not code_joueur or montant <= 0:
+        return jsonify({"ok": False, "msg": "Code joueur et montant (>0) obligatoires"}), 400
+    if montant % 10 != 0:
+        return jsonify({"ok": False, "msg": "Le montant doit etre un multiple de 10 XPF"}), 400
+    DB.setdefault("pions_joueurs", {})
+    if code_joueur not in DB["pions_joueurs"]:
+        return jsonify({"ok": False, "msg": "Joueur introuvable"}), 404
+    poche = DB["pions_joueurs"][code_joueur]
+    solde_actuel = poche.get("100", 0) * 100 + poche.get("50", 0) * 50 + poche.get("20", 0) * 20 + poche.get("10", 0) * 10
+    if montant > solde_actuel:
+        return jsonify({"ok": False, "msg": f"Montant superieur au solde ({solde_actuel} XPF)"}), 400
+    # Debiter en puisant dans les pions disponibles (des plus gros aux plus petits)
+    a_retirer = montant
+    pions_retires = {"100": 0, "50": 0, "20": 0, "10": 0}
+    for val in ["100", "50", "20", "10"]:
+        vi = int(val)
+        if a_retirer <= 0:
+            break
+        dispo = poche.get(val, 0)
+        use = min(dispo, a_retirer // vi)
+        poche[val] = dispo - use
+        pions_retires[val] = use
+        a_retirer -= use * vi
+    # S'il reste un residu (ex: il fallait casser un pion de 100 pour retirer 50),
+    # on convertit : retirer un pion superieur et rendre la monnaie
+    if a_retirer > 0:
+        # Chercher un pion superieur a casser
+        for val in ["100", "50", "20"]:
+            vi = int(val)
+            if poche.get(val, 0) > 0 and vi > a_retirer:
+                poche[val] -= 1
+                pions_retires[val] += 1
+                rendu = vi - a_retirer
+                # Rendre la monnaie en pions de 10
+                poche["10"] = poche.get("10", 0) + (rendu // 10)
+                a_retirer = 0
+                break
+    nouveau_solde = poche.get("100", 0) * 100 + poche.get("50", 0) * 50 + poche.get("20", 0) * 20 + poche.get("10", 0) * 10
+    # TRACE
+    DB.setdefault("corrections_pions", [])
+    DB["corrections_pions"].insert(0, {
+        "id": secrets.token_hex(4).upper(),
+        "code_joueur": code_joueur,
+        "montant_retire": montant,
+        "pions_retires": pions_retires,
+        "solde_avant": solde_actuel,
+        "solde_apres": nouveau_solde,
+        "motif": motif,
+        "par": s.get("code", "ADMIN"),
+        "ip": _get_client_ip(),
+        "date": datetime.datetime.now().isoformat()
+    })
+    save_data()
+    return jsonify({
+        "ok": True,
+        "code_joueur": code_joueur,
+        "montant_retire": montant,
+        "solde_avant": solde_actuel,
+        "solde_apres": nouveau_solde
+    })
+
 @app.route("/api/pions/donner", methods=["POST"])
 def donner_pions():
     global DB
