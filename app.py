@@ -1197,6 +1197,141 @@ def mes_commandes_pions():
         return jsonify(commandes)
     return jsonify([c for c in commandes if c.get("code_org") == s["code"]])
 
+@app.route("/api/org/mes-jeux-rembours", methods=["GET"])
+def org_mes_jeux_rembours():
+    """ORGANISATEUR : liste ses jeux avec le total des mises (pour choisir lequel rembourser)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Acces refuse"}), 403
+    code_org = s["code"]
+    # Regrouper les commandes de tickets par jeu (validees + en_attente)
+    jeux = {}
+    for c in DB.get("commandes_tickets_pions", []):
+        if c.get("code_org") != code_org:
+            continue
+        statut = c.get("statut", "")
+        if statut not in ("validee", "en_attente"):
+            continue
+        jeu = c.get("jeu", "?")
+        if jeu not in jeux:
+            jeux[jeu] = {"jeu": jeu, "tickets": 0, "mises": 0, "joueuses": set(), "rembourse": False}
+        jeux[jeu]["tickets"] += c.get("nb_tickets", 0)
+        jeux[jeu]["mises"] += c.get("total_pions", 0)
+        jeux[jeu]["joueuses"].add(c.get("code_joueur"))
+    # Marquer les jeux deja rembourses
+    rembourses = set()
+    for r in DB.get("remboursements_tournoi", []):
+        if r.get("code_org") == code_org:
+            rembourses.add(r.get("jeu"))
+    result = []
+    for jeu, d in jeux.items():
+        result.append({
+            "jeu": jeu,
+            "tickets": d["tickets"],
+            "mises": d["mises"],
+            "nb_joueuses": len(d["joueuses"]),
+            "rembourse": jeu in rembourses
+        })
+    result.sort(key=lambda x: -x["mises"])
+    return jsonify({"ok": True, "jeux": result})
+
+@app.route("/api/org/rembourser-jeu", methods=["POST"])
+def org_rembourser_jeu():
+    """ORGANISATEUR : rembourse toutes les joueuses d'un de ses jeux.
+    Rend les mises aux joueuses (poche joueuse) et retire les mises validees de sa poche org."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Acces refuse"}), 403
+    code_org = s["code"]
+    d = request.json or {}
+    jeu = (d.get("jeu") or "").strip()
+    if not jeu:
+        return jsonify({"ok": False, "msg": "Jeu obligatoire"}), 400
+    # Anti double-remboursement
+    for r in DB.get("remboursements_tournoi", []):
+        if r.get("code_org") == code_org and r.get("jeu") == jeu:
+            return jsonify({"ok": False, "msg": "Ce jeu a deja ete rembourse"}), 400
+    # Rassembler les mises a rembourser (validees + en_attente)
+    remb_joueuses = {}
+    mises_validees = 0
+    cmds_concernees = []
+    for c in DB.get("commandes_tickets_pions", []):
+        if c.get("code_org") != code_org or c.get("jeu") != jeu:
+            continue
+        statut = c.get("statut", "")
+        if statut not in ("validee", "en_attente"):
+            continue
+        code_j = (c.get("code_joueur") or "").upper()
+        montant = c.get("total_pions", 0)
+        remb_joueuses[code_j] = remb_joueuses.get(code_j, 0) + montant
+        if statut == "validee":
+            mises_validees += montant
+        cmds_concernees.append(c)
+    if not remb_joueuses:
+        return jsonify({"ok": False, "msg": "Aucune mise a rembourser pour ce jeu"}), 404
+    # 1. Crediter chaque joueuse (poche joueuse), en pions 100/50/20/10
+    DB.setdefault("pions_joueurs", {})
+    total_rembourse = 0
+    detail = []
+    for code_j, montant in remb_joueuses.items():
+        DB["pions_joueurs"].setdefault(code_j, {})
+        reste = montant
+        n100 = reste // 100; reste -= n100 * 100
+        n50 = reste // 50; reste -= n50 * 50
+        n20 = reste // 20; reste -= n20 * 20
+        n10 = reste // 10; reste -= n10 * 10
+        if n100 > 0: DB["pions_joueurs"][code_j]["100"] = DB["pions_joueurs"][code_j].get("100", 0) + n100
+        if n50 > 0: DB["pions_joueurs"][code_j]["50"] = DB["pions_joueurs"][code_j].get("50", 0) + n50
+        if n20 > 0: DB["pions_joueurs"][code_j]["20"] = DB["pions_joueurs"][code_j].get("20", 0) + n20
+        if n10 > 0: DB["pions_joueurs"][code_j]["10"] = DB["pions_joueurs"][code_j].get("10", 0) + n10
+        total_rembourse += montant
+        detail.append({"code_joueur": code_j, "montant": montant})
+    # 2. Retirer les mises validees de la poche org (elle ne garde pas un jeu rembourse)
+    DB.setdefault("pions_org", {})
+    DB["pions_org"].setdefault(code_org, {})
+    poche = DB["pions_org"][code_org]
+    a_retirer = mises_validees
+    for val in ["100", "50", "20", "10"]:
+        vi = int(val)
+        if a_retirer <= 0:
+            break
+        dispo = poche.get(val, 0)
+        use = min(dispo, a_retirer // vi)
+        poche[val] = dispo - use
+        a_retirer -= use * vi
+    # 3. Marquer les commandes comme remboursees
+    for c in cmds_concernees:
+        c["statut"] = "rembourse"
+    # 4. Tracer le remboursement
+    DB.setdefault("remboursements_tournoi", [])
+    DB["remboursements_tournoi"].insert(0, {
+        "id": secrets.token_hex(4).upper(),
+        "code_org": code_org,
+        "nom_org": s.get("nom", code_org),
+        "jeu": jeu,
+        "total_rembourse": total_rembourse,
+        "mises_retirees_poche_org": mises_validees,
+        "nb_joueuses": len(remb_joueuses),
+        "detail": detail,
+        "par": code_org,
+        "ip": _get_client_ip(),
+        "date": datetime.datetime.now().isoformat()
+    })
+    save_data()
+    return jsonify({
+        "ok": True,
+        "jeu": jeu,
+        "total_rembourse": total_rembourse,
+        "nb_joueuses": len(remb_joueuses),
+        "mises_retirees_poche_org": mises_validees
+    })
+
 @app.route("/api/pions/soldes")
 def get_soldes_pions():
     global DB
