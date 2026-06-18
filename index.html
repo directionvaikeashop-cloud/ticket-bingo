@@ -654,6 +654,19 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div id="recred-result" style="margin-top:8px"></div>
       </div>
 
+      <!-- CORRECTION : retirer des pions (anomalie) -->
+      <div style="background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(220,38,38,.06));border:1px solid rgba(239,68,68,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:8px">✂️ Retirer des pions (correction)</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px">Retire des pions du solde d'un joueur en cas d'anomalie (pions apparus sans raison). Action tracée.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <input id="retire-code" placeholder="Code joueur (ex: 9LSL26)" style="flex:1;min-width:130px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;text-transform:uppercase">
+          <input id="retire-montant" type="number" placeholder="Montant XPF" style="width:120px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+        </div>
+        <input id="retire-motif" placeholder="Motif (ex: Crédit non justifié du 17/06)" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
+        <button onclick="retirerPions()" style="width:100%;padding:10px;background:#dc2626;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">✂️ Retirer les pions</button>
+        <div id="retire-result" style="margin-top:8px"></div>
+      </div>
+
       <!-- REGULARISATION : crediter la POCHE ORGANISATEUR (stock pour payer les gains) -->
       <div style="background:linear-gradient(135deg,rgba(8,145,178,.14),rgba(13,110,160,.08));border:1px solid rgba(8,145,178,.45);border-radius:12px;padding:14px;margin-bottom:14px">
         <div style="font-size:14px;font-weight:700;color:#22d3ee;margin-bottom:8px">🏦 Créditer la poche ORGANISATEUR</div>
@@ -6285,6 +6298,38 @@ async function recrediterJoueur(){
       var s = d.solde || {};
       res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + nb + ' pions à ' + valeur + ' XPF crédités à ' + codeJ + ' — Solde : ' + (s['10']||0) + '×10 / ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
       document.getElementById('recred-nb').value = '';
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau</div>';
+  }
+}
+
+async function retirerPions(){
+  var code = (document.getElementById('retire-code').value || '').trim().toUpperCase();
+  var montant = parseInt(document.getElementById('retire-montant').value);
+  var motif = (document.getElementById('retire-motif').value || '').trim();
+  var res = document.getElementById('retire-result');
+  if(!code || !montant || montant <= 0){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Code joueur et montant obligatoires</div>';
+    return;
+  }
+  if(montant % 10 !== 0){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Le montant doit être un multiple de 10 XPF</div>';
+    return;
+  }
+  if(!confirm('Retirer ' + montant + ' XPF du solde de ' + code + ' ?\n\nCette action est tracée et réversible (on peut recréditer si erreur).')) return;
+  try{
+    const r = await fetch('/api/admin/retirer-pions-joueur', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-Token': TOKEN},
+      body: JSON.stringify({code_joueur: code, montant: montant, motif: motif})
+    });
+    const d = await r.json();
+    if(d.ok){
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + d.montant_retire + ' XPF retirés de ' + d.code_joueur + '. Solde : ' + d.solde_avant + ' → ' + d.solde_apres + ' XPF</div>';
+      document.getElementById('retire-montant').value = '';
+      document.getElementById('retire-motif').value = '';
     } else {
       res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
     }
