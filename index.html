@@ -646,6 +646,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
             <option value="100">Pion 100 XPF</option>
             <option value="50">Pion 50 XPF</option>
             <option value="20">Pion 20 XPF</option>
+            <option value="10">Pion 10 XPF</option>
           </select>
           <input id="recred-nb" type="number" placeholder="Nb pions" style="width:90px;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
         </div>
@@ -752,6 +753,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
             <option value="organisateur">Codes organisateurs</option>
           </select>
           <select id="masse-valeur" style="padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px">
+            <option value="10">Pion 10 XPF</option>
             <option value="20">Pion 20 XPF</option>
             <option value="50">Pion 50 XPF</option>
             <option value="100">Pion 100 XPF</option>
@@ -5899,6 +5901,7 @@ async function loadMesJoueurs(){
     joueurs.forEach(function(j){
       var sp = j.solde_pions || {};
       var soldeTxt = [];
+      if(sp['10']) soldeTxt.push(sp['10'] + '×10');
       if(sp['20']) soldeTxt.push(sp['20'] + '×20');
       if(sp['50']) soldeTxt.push(sp['50'] + '×50');
       if(sp['100']) soldeTxt.push(sp['100'] + '×100');
@@ -6029,7 +6032,7 @@ async function crediterEnMasse(){
       html += '<div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.8;max-height:150px;overflow:auto">';
       (d.resultats || []).forEach(function(x){
         var s = x.solde || {};
-        html += x.code + ' → ' + (s['20']||0) + 'x20 / ' + (s['50']||0) + 'x50 / ' + (s['100']||0) + 'x100<br>';
+        html += x.code + ' → ' + (s['10']||0) + 'x10 / ' + (s['20']||0) + 'x20 / ' + (s['50']||0) + 'x50 / ' + (s['100']||0) + 'x100<br>';
       });
       html += '</div>';
       res.innerHTML = html;
@@ -6054,7 +6057,7 @@ async function chargerPaiementsStripe(){
     var totalAttente = 0;
     d.paiements.forEach(function(p){
       var s = p.solde_actuel || {};
-      var soldeTxt = (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100';
+      var soldeTxt = (s['10']||0) + '×10 / ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100';
       html += '<div style="background:var(--s2);border:1px solid ' + (p.deja_traite ? 'rgba(16,185,129,.3)' : 'rgba(139,92,246,.4)') + ';border-radius:8px;padding:10px;margin-bottom:8px">';
       html += '<div style="font-size:13px;color:#fff;font-weight:600">' + p.date + ' — <span style="color:#a78bfa">' + p.code + '</span> — ' + Number(p.montant).toLocaleString('fr-FR') + ' XPF</div>';
       html += '<div style="font-size:12px;color:rgba(255,255,255,.6);margin:4px 0">' + p.nb_pions + ' pions à ' + p.valeur_pion + ' XPF — Solde actuel du code : ' + soldeTxt + '</div>';
@@ -6084,7 +6087,7 @@ async function crediterPaiementStripe(sessionId, btn){
     const d = await r.json();
     if(d.ok){
       var s = d.solde || {};
-      btn.outerHTML = '<div style="font-size:12px;color:#34d399">✅ ' + d.nb_pions + ' pions à ' + d.valeur + ' XPF crédités — Nouveau solde : ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
+      btn.outerHTML = '<div style="font-size:12px;color:#34d399">✅ ' + d.nb_pions + ' pions à ' + d.valeur + ' XPF crédités — Nouveau solde : ' + (s['10']||0) + '×10 / ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
     } else {
       btn.disabled = false;
       btn.textContent = 'Réessayer';
@@ -6159,7 +6162,7 @@ async function etatDonnees(){
       html += '<br><b>Joueurs avec pions :</b><br>';
       clefs.forEach(function(c){
         var v = pj[c];
-        html += '• ' + c + ' : ' + (v['20']||0) + '×20 / ' + (v['50']||0) + '×50 / ' + (v['100']||0) + '×100 XPF<br>';
+        html += '• ' + c + ' : ' + (v['10']||0) + '×10 / ' + (v['20']||0) + '×20 / ' + (v['50']||0) + '×50 / ' + (v['100']||0) + '×100 XPF<br>';
       });
     } else {
       html += '<br><span style="color:#f87171">Aucun joueur n\'a de pions actuellement</span>';
@@ -6223,7 +6226,7 @@ async function recrediterJoueur(){
     const d = await r.json();
     if(d.ok){
       var s = d.solde || {};
-      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + nb + ' pions à ' + valeur + ' XPF crédités à ' + codeJ + ' — Solde : ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + nb + ' pions à ' + valeur + ' XPF crédités à ' + codeJ + ' — Solde : ' + (s['10']||0) + '×10 / ' + (s['20']||0) + '×20 / ' + (s['50']||0) + '×50 / ' + (s['100']||0) + '×100</div>';
       document.getElementById('recred-nb').value = '';
     } else {
       res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
@@ -6242,8 +6245,8 @@ async function crediterPocheOrg(){
     res.innerHTML = '<div style="color:#f87171;font-size:12px">Code organisateur et montant obligatoires</div>';
     return;
   }
-  if(montant % 20 !== 0){
-    res.innerHTML = '<div style="color:#f87171;font-size:12px">Le montant doit être un multiple de 20 XPF</div>';
+  if(montant % 10 !== 0){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Le montant doit être un multiple de 10 XPF</div>';
     return;
   }
   if(!confirm('Créditer ' + montant + ' XPF dans la POCHE ORGANISATEUR de ' + code + ' ?')) return;
@@ -6254,7 +6257,7 @@ async function crediterPocheOrg(){
     });
     const d = await r.json();
     if(d.ok){
-      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + d.montant_credite + ' XPF crédités dans la poche organisateur de ' + d.code_org + ' (' + d.pions['100'] + '×100 + ' + (d.pions['20']||0) + '×20). Nouveau solde poche org : ' + d.nouveau_solde_poche_org + ' XPF</div>';
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:8px;color:#34d399;font-size:12px">✅ ' + d.montant_credite + ' XPF crédités dans la poche organisateur de ' + d.code_org + ' (' + (d.pions['100']||0) + '×100 + ' + (d.pions['50']||0) + '×50 + ' + (d.pions['20']||0) + '×20 + ' + (d.pions['10']||0) + '×10). Nouveau solde poche org : ' + d.nouveau_solde_poche_org + ' XPF</div>';
       document.getElementById('credorg-montant').value = '';
       document.getElementById('credorg-motif').value = '';
     } else {
