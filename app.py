@@ -5567,6 +5567,22 @@ def releve_financier_org(code):
                     "recette": part
                 })
     
+    # Filtre par dates optionnel : ?du=AAAA-MM-JJ&au=AAAA-MM-JJ
+    du = (request.args.get("du") or "").strip()
+    au = (request.args.get("au") or "").strip()
+    periode_active = bool(du or au)
+    if periode_active:
+        def _dp(dt):
+            j = str(dt)[:10]
+            if not j or j == "?":
+                return False
+            if du and j < du:
+                return False
+            if au and j > au:
+                return False
+            return True
+        lignes = [l for l in lignes if _dp(l["date"])]
+
     lignes.sort(key=lambda x: str(x["date"]), reverse=True)
     
     total_depenses = sum(l["depense"] for l in lignes)
@@ -5585,6 +5601,15 @@ def releve_financier_org(code):
     html += ".btn{padding:12px 24px;background:#58a6ff;color:#0d1117;border:none;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin-top:20px}</style></head><body>"
     html += "<h1>Releve financier</h1>"
     html += "<div class='sub'>" + str(nom) + " (" + code + ")</div>"
+    html += "<form method='get' style='margin:10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center'>"
+    html += "<span style='font-size:12px;color:#8b949e'>Periode :</span>"
+    html += "<input type='date' name='du' value='" + du + "' style='background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px'>"
+    html += "<input type='date' name='au' value='" + au + "' style='background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px'>"
+    html += "<button type='submit' style='background:#58a6ff;color:#0d1117;border:none;border-radius:6px;padding:7px 14px;font-weight:bold;cursor:pointer'>Filtrer</button>"
+    html += "<a href='?' style='color:#8b949e;font-size:12px;text-decoration:underline'>Tout voir</a>"
+    html += "</form>"
+    if periode_active:
+        html += "<div class='sub' style='color:#58a6ff'>Periode du " + (du or "debut") + " au " + (au or "aujourd'hui") + "</div>"
     html += "<div class='totaux'>"
     html += "<div><strong>Depenses</strong><br><span class='m dep'>-" + format(total_depenses, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>achats a l'admin</span></div>"
     html += "<div><strong>Recettes</strong><br><span class='m rec'>+" + format(total_recettes, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>ventes joueuses</span></div>"
@@ -5630,13 +5655,17 @@ def releve_financier_joueur(code):
     # === ENTREE : achats de pions — VALEUR EN PIONS (pas l'argent payé, frais exclus) ===
     for c in DB.get("commandes_pions_joueurs", []):
         if isinstance(c, dict) and c.get("code_joueur") == code and c.get("statut") == "validee":
-            nb = int(c.get("nb_pions", 0) or 0)
+            # Achat carte (Stripe) : champ "pions_credites" ; achat manuel : champ "nb_pions"
+            nb = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0)
             val = int(c.get("valeur_pion", 0) or 0)
+            valeur_pions = nb * val
+            if valeur_pions <= 0:
+                valeur_pions = int(c.get("montant_net", 0) or 0)  # filet de sécurité (Stripe)
             lignes.append({
                 "date": c.get("date", "?"),
                 "type": "Achat pions",
                 "desc": str(nb) + " pions x " + str(val) + " XPF (" + str(c.get("mode_paiement", "?")) + ")",
-                "entree": nb * val,
+                "entree": valeur_pions,
                 "sortie": 0
             })
 
@@ -5738,16 +5767,34 @@ def releve_financier_joueur(code):
         except (ValueError, TypeError):
             pass
 
-    # Régularisation transparente : si un mouvement n'est pas détaillé
-    # (ex : recrédit admin après incident), on l'affiche pour que le relevé
-    # se boucle TOUJOURS exactement : entrées − sorties = solde réel.
-    _ent = sum(l["entree"] for l in lignes)
-    _sor = sum(l["sortie"] for l in lignes)
-    ajustement = solde_pions - (_ent - _sor)
-    if ajustement > 0:
-        lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (gains/recrédits non détaillés)", "entree": ajustement, "sortie": 0})
-    elif ajustement < 0:
-        lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (corrections non détaillées)", "entree": 0, "sortie": -ajustement})
+    # === FILTRE PAR DATES (optionnel) : ?du=AAAA-MM-JJ&au=AAAA-MM-JJ ===
+    du = (request.args.get("du") or "").strip()
+    au = (request.args.get("au") or "").strip()
+    periode_active = bool(du or au)
+
+    def _dans_periode(dt):
+        j = str(dt)[:10]
+        if not j or j == "?":
+            return False  # une ligne sans date n'entre pas dans une période filtrée
+        if du and j < du:
+            return False
+        if au and j > au:
+            return False
+        return True
+
+    if periode_active:
+        # Vue PÉRIODE : seulement les mouvements de la période choisie
+        # (pas de régularisation : elle ne vaut que pour le solde global).
+        lignes = [l for l in lignes if _dans_periode(l["date"])]
+    else:
+        # Vue TOTALE : régularisation pour que entrées − sorties = solde réel.
+        _ent = sum(l["entree"] for l in lignes)
+        _sor = sum(l["sortie"] for l in lignes)
+        ajustement = solde_pions - (_ent - _sor)
+        if ajustement > 0:
+            lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (gains/recrédits non détaillés)", "entree": ajustement, "sortie": 0})
+        elif ajustement < 0:
+            lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (corrections non détaillées)", "entree": 0, "sortie": -ajustement})
 
     lignes.sort(key=lambda x: str(x["date"]), reverse=True)
 
@@ -5765,10 +5812,23 @@ def releve_financier_joueur(code):
     html += ".td-ent{color:#3fb950;text-align:right}.td-sor{color:#f85149;text-align:right}</style></head><body>"
     html += "<h1>Mon releve de pions</h1>"
     html += "<div class='sub'>" + str(nom) + " (" + code + ")</div>"
+    html += "<form method='get' style='margin:10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center'>"
+    html += "<span style='font-size:12px;color:#8b949e'>Periode :</span>"
+    html += "<input type='date' name='du' value='" + du + "' style='background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px'>"
+    html += "<input type='date' name='au' value='" + au + "' style='background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px'>"
+    html += "<button type='submit' style='background:#58a6ff;color:#0d1117;border:none;border-radius:6px;padding:7px 14px;font-weight:bold;cursor:pointer'>Filtrer</button>"
+    html += "<a href='?' style='color:#8b949e;font-size:12px;text-decoration:underline'>Tout voir</a>"
+    html += "</form>"
+    if periode_active:
+        html += "<div class='sub' style='color:#58a6ff'>Periode du " + (du or "debut") + " au " + (au or "aujourd'hui") + "</div>"
     html += "<div class='totaux'>"
     html += "<div><strong>Pions achetes/recus</strong><br><span class='m ent'>+" + format(total_entrees, ",") + " XPF</span></div>"
     html += "<div><strong>Pions depenses</strong><br><span class='m sor'>-" + format(total_sorties, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>tickets, retraits, corrections</span></div>"
-    html += "<div><strong>Solde actuel</strong><br><span class='m sol'>" + format(solde_pions, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>= entrees - sorties</span></div>"
+    if periode_active:
+        net = total_entrees - total_sorties
+        html += "<div><strong>Net periode</strong><br><span class='m sol'>" + ("+" if net >= 0 else "") + format(net, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>solde actuel : " + format(solde_pions, ",") + " XPF</span></div>"
+    else:
+        html += "<div><strong>Solde actuel</strong><br><span class='m sol'>" + format(solde_pions, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>= entrees - sorties</span></div>"
     html += "</div>"
     
     if lignes:
