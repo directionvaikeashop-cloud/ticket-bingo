@@ -4816,7 +4816,7 @@ async function supprimerAnnonce(){
 var derniereAnnonceVue = '';
 function chargerJeuxDisponibles(codeJoueur){
   if(typeof loadTournoisProgrammes === 'function') loadTournoisProgrammes();
-  fetch('/api/annonce/jeux')
+  fetch('/api/annonce/jeux?code=' + encodeURIComponent(codeJoueur || ''))
   .then(function(r){ return r.json(); })
   .then(function(jeux){
     var cards = document.querySelectorAll('.jeux-dispo-card');
