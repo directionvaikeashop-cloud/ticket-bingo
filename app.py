@@ -2294,6 +2294,11 @@ def gerer_annonce_jeu():
         "date": datetime.datetime.now().isoformat()
     }
     DB["annonces_jeux"].insert(0, annonce)
+    # Photo "tout est propre" AUTOMATIQUE juste avant le jeu (aucune action manuelle).
+    try:
+        creer_sauvegarde_horodatee("avant-jeu")
+    except Exception:
+        pass
     save_data()
     return jsonify({"ok": True})
 
