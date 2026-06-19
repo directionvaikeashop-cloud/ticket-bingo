@@ -2321,9 +2321,11 @@ def commander_ticket_pions():
     if solde_total < total:
         return jsonify({"ok": False, "msg": f"Solde insuffisant — vous avez {solde_total} XPF de pions, il faut {total} XPF"}), 400
     
-    # Débiter les pions (priorité aux pions de plus petite valeur)
+    # Débiter les pions intelligemment : petites valeurs d'abord, puis on "casse" un gros pion si besoin
+    # Gère TOUTES les valeurs (10/20/50/100) et rend la monnaie en pions de 10.
     reste = total
-    for valeur in ["20", "50", "100"]:
+    # 1) Payer avec les pions du plus petit au plus grand (pour user les petites coupures)
+    for valeur in ["10", "20", "50", "100"]:
         nb_dispo = pions_joueur.get(valeur, 0)
         if nb_dispo > 0 and reste > 0:
             val_int = int(valeur)
@@ -2331,6 +2333,18 @@ def commander_ticket_pions():
             if nb_utilise > 0:
                 pions_joueur[valeur] = nb_dispo - nb_utilise
                 reste -= nb_utilise * val_int
+    # 2) S'il reste un résidu (ex: il faut 20 mais il ne reste que des pions de 100),
+    #    on casse le plus petit pion suffisant et on rend la monnaie en pions de 10.
+    if reste > 0:
+        for valeur in ["20", "50", "100"]:
+            val_int = int(valeur)
+            if pions_joueur.get(valeur, 0) > 0 and val_int >= reste:
+                pions_joueur[valeur] -= 1
+                rendu = val_int - reste
+                if rendu > 0:
+                    pions_joueur["10"] = pions_joueur.get("10", 0) + (rendu // 10)
+                reste = 0
+                break
     
     if reste > 0:
         return jsonify({"ok": False, "msg": "Solde insuffisant en pions"}), 400
@@ -5392,9 +5406,9 @@ def valider_retrait():
             if montant > solde_total:
                 return jsonify({"ok": False, "msg": "Solde de pions insuffisant maintenant"}), 400
             
-            # Debiter les pions (priorite aux plus petites valeurs)
+            # Debiter les pions (gere 10/20/50/100 + monnaie)
             reste = montant
-            for valeur in ["20", "50", "100"]:
+            for valeur in ["10", "20", "50", "100"]:
                 nb_dispo = pions.get(valeur, 0)
                 if nb_dispo > 0 and reste > 0:
                     val_int = int(valeur)
@@ -5402,6 +5416,16 @@ def valider_retrait():
                     if nb_utilise > 0:
                         pions[valeur] = nb_dispo - nb_utilise
                         reste -= nb_utilise * val_int
+            if reste > 0:
+                for valeur in ["20", "50", "100"]:
+                    val_int = int(valeur)
+                    if pions.get(valeur, 0) > 0 and val_int >= reste:
+                        pions[valeur] -= 1
+                        rendu = val_int - reste
+                        if rendu > 0:
+                            pions["10"] = pions.get("10", 0) + (rendu // 10)
+                        reste = 0
+                        break
             if reste > 0:
                 return jsonify({"ok": False, "msg": "Impossible de couvrir le montant avec les pions disponibles"}), 400
             
