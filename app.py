@@ -7265,6 +7265,59 @@ def activite_joueurs():
                 "jeu": a.get("jeu", ""),
                 "en_train_de_jouer": (secs <= 35),
                 "secondes_inactif": int(secs) if secs < 99999 else None,
+                "signal": a.get("signal", ""),
+                "signal_label": a.get("signal_label", ""),
+                "signal_ts": a.get("signal_ts", ""),
             })
-    out.sort(key=lambda x: (x["secondes_inactif"] if x["secondes_inactif"] is not None else 99999))
+
+    def _priorite(x):
+        sig = x.get("signal", "")
+        if sig.startswith("souci"):
+            rang = 0  # les soucis tout en haut
+        elif sig == "prete":
+            rang = 1
+        else:
+            rang = 2
+        return (rang, x["secondes_inactif"] if x["secondes_inactif"] is not None else 99999)
+    out.sort(key=_priorite)
     return jsonify(out)
+
+
+# ============================================================
+# 🙋 LÈVE-LA-MAIN — signaux des joueuses avant le jeu
+# (réutilise le stock mémoire ACTIVITE_JOUEURS, rien sur disque)
+# ============================================================
+@app.route("/api/activite/signal", methods=["POST"])
+def activite_signal():
+    """JOUEUSE — Envoie un signal a l'organisateur (prête / souci PDF / souci connexion)."""
+    d = request.get_json(silent=True) or {}
+    code = (d.get("code_joueur", "") or "").upper().strip()
+    if not code:
+        return jsonify({"ok": False}), 400
+    maintenant = datetime.datetime.now().isoformat()
+    with _VERROU_ACTIVITE:
+        a = ACTIVITE_JOUEURS.get(code, {})
+        a["derniere_activite"] = maintenant
+        a["signal"] = (d.get("signal", "") or "")[:40]
+        a["signal_label"] = (d.get("label", "") or "")[:80]
+        a["signal_ts"] = maintenant
+        ACTIVITE_JOUEURS[code] = a
+    return jsonify({"ok": True})
+
+
+@app.route("/api/activite/signal/effacer", methods=["POST"])
+def activite_signal_effacer():
+    """ORGANISATEUR — Marque un signal comme traité (l'efface du panneau)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False}), 403
+    code = ((request.get_json(silent=True) or {}).get("code", "") or "").upper().strip()
+    with _VERROU_ACTIVITE:
+        if code in ACTIVITE_JOUEURS:
+            ACTIVITE_JOUEURS[code].pop("signal", None)
+            ACTIVITE_JOUEURS[code].pop("signal_label", None)
+            ACTIVITE_JOUEURS[code].pop("signal_ts", None)
+    return jsonify({"ok": True})
