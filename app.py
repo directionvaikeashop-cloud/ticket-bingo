@@ -2306,7 +2306,34 @@ def gerer_annonce_jeu():
 def get_annonces_jeux():
     global DB
     DB = load_data()
-    return jsonify(DB.get("annonces_jeux", []))
+    annonces = DB.get("annonces_jeux", [])
+    codes = DB.get("codes", {})
+
+    # 1) SECURITE : ne garder que les annonces d'organisateurs ACTIFS.
+    #    Quand un ancien organisateur est desactive, son annonce disparait
+    #    automatiquement de tous les espaces (plus de jeu fantome a rembourser).
+    def _org_actif(a):
+        info = codes.get(a.get("code_org"))
+        return bool(info and info.get("actif"))
+    annonces = [a for a in annonces if _org_actif(a)]
+
+    # 2) SECURITE : si un code joueuse est fourni, elle ne voit QUE les jeux
+    #    de SON propre organisateur (jamais ceux d'un autre organisateur).
+    code_joueur = (request.args.get("code", "") or "").strip().upper()
+    if code_joueur:
+        mes_orgs = set()
+        for t in DB.get("tickets", []):
+            if (t.get("code_acheteur", "") or "").upper() == code_joueur:
+                o = t.get("code_org")
+                if o:
+                    mes_orgs.add(o)
+        if mes_orgs:
+            annonces = [a for a in annonces if a.get("code_org") in mes_orgs]
+        else:
+            # Joueuse sans organisateur connu : par prudence on ne montre rien,
+            # plutot que de risquer une commande chez le mauvais organisateur.
+            annonces = []
+    return jsonify(annonces)
 
 @app.route("/api/commande/ticket-pions", methods=["POST"])
 def commander_ticket_pions():
