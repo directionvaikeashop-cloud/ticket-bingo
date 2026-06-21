@@ -7191,11 +7191,11 @@ def _landing_html(campagne, accent, titre, jackpot, jeu, bonus_titre, bonus_sous
 <meta property="og:type" content="website">
 <meta property="og:title" content="@@OG_TITLE@@">
 <meta property="og:description" content="@@OG_DESC@@">
-<meta property="og:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og.png">
+<meta property="og:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og-@@CAMPAGNE@@.png">
 <meta property="og:url" content="https://ticket-bingo-production.up.railway.app/@@CAMPAGNE@@">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="@@OG_TITLE@@">
-<meta name="twitter:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og.png"></head>
+<meta name="twitter:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og-@@CAMPAGNE@@.png"></head>
 <body style="margin:0;font-family:system-ui,sans-serif;background:linear-gradient(180deg,#1a1033,#0d0b1f 55%,#050410);color:#fff;min-height:100vh">
 <div style="max-width:480px;margin:0 auto;padding:24px 18px 40px">
   <div style="text-align:center;color:#fbbf24;font-weight:800;letter-spacing:3px;font-size:20px">TICKET BINGO</div>
