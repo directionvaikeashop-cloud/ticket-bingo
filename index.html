@@ -2624,7 +2624,7 @@ async function loadDocs(){
     const [rV,rT]=await Promise.all([fetch("/api/ventes",{headers:{"X-Token":TOKEN}}),fetch("/api/tickets",{headers:{"X-Token":TOKEN}})]);
     const vs=await rV.json();
     const ts=await rT.json();
-    const docsVentes=vs.filter(v=>(v.photo_url||v.pdf_url)&&v.paiement_statut==='valide').map(v=>{const q=v.qty||v.quantite||1;const lbl=(v.pack?q+'x'+v.pack+' feuilles':(v.jeu||'Carnet de jeu'))+(v.client?' · Client: '+v.client:'');return {...v,_type:'vente',label:lbl};});
+    const docsVentes=vs.filter(v=>(v.photo_url||v.pdf_url)).map(v=>{const q=v.qty||v.quantite||1;const lbl=(v.pack?q+'x'+v.pack+' feuilles':(v.jeu||'Carnet de jeu'))+(v.client?' · Client: '+v.client:'');return {...v,_type:'vente',label:lbl};});
     const docsTickets=ts.filter(t=>t.photo_url||t.pdf_url).map(t=>({...t,_type:'ticket',label:`Acheteur: ${t.acheteur}`}));
     const docs=[...docsVentes,...docsTickets];
     const el=document.getElementById("docs-liste");
@@ -3058,7 +3058,7 @@ async function chargerPDFsOrganisateur(){
     
     // Collecter tous les PDFs disponibles (ventes validées uniquement)
     const pdfs = [];
-    vs.filter(v => v.pdf_url && v.paiement_statut === 'valide').forEach(v => {
+    vs.filter(v => v.pdf_url).forEach(v => {
       if(!pdfs.find(p => p.url === v.pdf_url)){
         pdfs.push({url: v.pdf_url, nom: v.jeu + ' — Série ' + v.serie});
       }
