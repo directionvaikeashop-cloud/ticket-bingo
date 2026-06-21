@@ -3186,6 +3186,9 @@ async function regTicket(){
   const pageFin=parseInt(_valVisible("t-page-fin"))||null;
   let codeExist="";document.querySelectorAll('.t-code-existant').forEach(function(ch){ if(ch.offsetParent!==null && ch.value.trim()) codeExist=ch.value.trim(); });
   if(!a){toast("toast-t","Entrez le nom de la joueuse",false);return;}
+  var _usePdf = !!(tPdfUrlExistant || (tDocFile && tDocType==='pdf'));
+  if(_usePdf && (!pageDebut || !pageFin)){ toast("toast-t","📄 Indique la page de début ET la page de fin des feuilles de cette joueuse",false); return; }
+  if(pageDebut && pageFin && (pageDebut < 1 || pageFin < pageDebut)){ toast("toast-t","📄 Plage invalide : la page de fin doit être supérieure ou égale à la page de début",false); return; }
   toast("toast-t","Création du code...");
   let photo_url=null,pdf_url=null;
   if(tPdfUrlExistant){
