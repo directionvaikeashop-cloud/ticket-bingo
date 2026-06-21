@@ -2711,8 +2711,32 @@ def commander_ticket_pions():
         "date": datetime.datetime.now().isoformat()
     }
     DB["commandes_tickets_pions"].insert(0, commande)
+
+    # === BONUS PAR JEU : 5 tickets d'un jeu => bonus de ce jeu (jouable, NON
+    # retirable). 1 fois par jeu et par joueur. P6 -> 500 F, OHANA -> 5000 F. ===
+    try:
+        jeu_up = (jeu or "").upper()
+        bonus_jeu = 0
+        if "P6" in jeu_up:
+            bonus_jeu = 500
+        elif "OHANA" in jeu_up:
+            bonus_jeu = 5000
+        if bonus_jeu > 0:
+            compteur = DB.setdefault("tickets_par_jeu_joueur", {})
+            cle = code_joueur + "|" + (jeu or "")
+            compteur[cle] = int(compteur.get(cle, 0)) + int(nb_tickets)
+            deja = DB.setdefault("bonus_jeu_donne", [])
+            if compteur[cle] >= 5 and cle not in deja:
+                poche_bonus = DB.setdefault("pions_bonus_joueurs", {}).get(code_joueur, {})
+                _crediter_pions_montant(poche_bonus, bonus_jeu)
+                DB["pions_bonus_joueurs"][code_joueur] = poche_bonus
+                deja.append(cle)
+                commande["bonus_jeu"] = bonus_jeu
+    except Exception:
+        pass
+
     save_data(immediat=True)
-    return jsonify({"ok": True, "commande_id": commande["id"]})
+    return jsonify({"ok": True, "commande_id": commande["id"], "bonus_jeu": commande.get("bonus_jeu", 0)})
 
 @app.route("/api/commande/tickets-pions-org")
 def get_commandes_tickets_pions():
@@ -7111,6 +7135,7 @@ def api_rejoindre():
     d = request.json or {}
     nom = (d.get("nom") or "").strip()
     tel = (d.get("telephone") or "").strip()
+    campagne = (d.get("campagne") or "").strip()[:20]
     tel_clean = "".join(c for c in tel if c.isdigit() or c == "+")
     chiffres = "".join(c for c in tel if c.isdigit())
     if not nom or len(nom) < 2:
@@ -7146,48 +7171,44 @@ def api_rejoindre():
         "acheteur": nom, "jeu": "", "serie": "", "prix": 0,
         "photo_url": None, "pdf_url": None, "page_debut": None, "page_fin": None,
         "code_acheteur": code, "email": "", "telephone": tel_clean,
-        "code_org": "PUB", "source": "publicite", "date": maintenant.isoformat()
+        "code_org": "PUB", "source": "publicite", "campagne": campagne, "date": maintenant.isoformat()
     }
     DB.setdefault("tickets", []).insert(0, ticket)
     DB.setdefault("tickets_acheteurs", {})[code] = ticket["id"]
     index_tel[tel_clean] = code
 
-    BONUS = 500
-    poche_bonus = DB.setdefault("pions_bonus_joueurs", {}).get(code, {})
-    _crediter_pions_montant(poche_bonus, BONUS)
-    DB["pions_bonus_joueurs"][code] = poche_bonus
-
-    DB["rejoindre_log"].insert(0, {"ip": ip, "tel": tel_clean, "code": code, "nom": nom, "date": maintenant.isoformat()})
+    # Pas de pions gratuits à l'inscription : le bonus (5000 F) se gagne en
+    # achetant 5 tickets. L'inscription crée juste le compte.
+    DB["rejoindre_log"].insert(0, {"ip": ip, "tel": tel_clean, "code": code, "nom": nom, "campagne": campagne, "date": maintenant.isoformat()})
     save_data(immediat=True)
-    return jsonify({"ok": True, "code": code, "deja": False, "bonus": BONUS})
+    return jsonify({"ok": True, "code": code, "deja": False, "bonus": 0})
 
 
-@app.route("/rejoindre")
-def page_rejoindre():
-    """Page publique d'arrivée (destination de la pub Facebook / TikTok)."""
-    return '''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+def _landing_html(campagne, accent, titre, jackpot, jeu, bonus_titre, bonus_sous, succes_bonus, og_title, og_desc):
+    T = '''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ticket Bingo — Joue et gagne</title>
 <meta property="og:type" content="website">
-<meta property="og:title" content="Mini Jackpot 50 000 F — 500 XPF offerts pour jouer !">
-<meta property="og:description" content="Inscris-toi en 10 secondes, recois ton code et 500 XPF de pions offerts. Petits jeux tous les jours sur Ticket Bingo.">
+<meta property="og:title" content="@@OG_TITLE@@">
+<meta property="og:description" content="@@OG_DESC@@">
 <meta property="og:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og.png">
-<meta property="og:url" content="https://ticket-bingo-production.up.railway.app/rejoindre">
+<meta property="og:url" content="https://ticket-bingo-production.up.railway.app/@@CAMPAGNE@@">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Mini Jackpot 50 000 F — 500 XPF offerts !">
+<meta name="twitter:title" content="@@OG_TITLE@@">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/directionvaikeashop-cloud/ticket-bingo/main/og.png"></head>
 <body style="margin:0;font-family:system-ui,sans-serif;background:linear-gradient(180deg,#1a1033,#0d0b1f 55%,#050410);color:#fff;min-height:100vh">
 <div style="max-width:480px;margin:0 auto;padding:24px 18px 40px">
   <div style="text-align:center;color:#fbbf24;font-weight:800;letter-spacing:3px;font-size:20px">TICKET BINGO</div>
-  <div style="height:3px;width:120px;background:#a855f7;margin:10px auto 22px;border-radius:2px"></div>
+  <div style="height:3px;width:120px;background:@@ACCENT@@;margin:10px auto 22px;border-radius:2px"></div>
 
-  <div style="text-align:center;font-size:22px;font-weight:700;color:#fff">MINI JACKPOT</div>
-  <div style="text-align:center;font-size:64px;font-weight:800;color:#fbbf24;line-height:1.1;margin:4px 0">50 000</div>
-  <div style="text-align:center;font-size:20px;font-weight:700;letter-spacing:4px;color:#fff;margin-bottom:18px">FRANCS</div>
+  <div style="text-align:center;font-size:20px;font-weight:700;color:#fff">@@TITRE@@</div>
+  <div style="text-align:center;font-size:56px;font-weight:800;color:#fbbf24;line-height:1.1;margin:4px 0">@@JACKPOT@@</div>
+  <div style="text-align:center;font-size:20px;font-weight:700;letter-spacing:4px;color:#fff;margin-bottom:6px">FRANCS</div>
+  <div style="text-align:center;font-size:14px;color:#c4b5fd;margin-bottom:18px">@@JEU@@</div>
 
-  <div style="background:rgba(124,58,237,.25);border:1px solid #a855f7;border-radius:14px;padding:14px;text-align:center;margin-bottom:14px">
-    <div style="font-size:26px;font-weight:800;color:#34d399">500 XPF OFFERTS 🎁</div>
-    <div style="font-size:13px;color:#e9d5ff;margin-top:4px">de pions gratuits pour venir jouer — petits jeux tous les jours !</div>
+  <div style="background:rgba(255,255,255,.06);border:1px solid @@ACCENT@@;border-radius:14px;padding:14px;text-align:center;margin-bottom:14px">
+    <div style="font-size:22px;font-weight:800;color:#34d399">@@BONUS_TITRE@@</div>
+    <div style="font-size:13px;color:#e9d5ff;margin-top:4px">@@BONUS_SOUS@@</div>
   </div>
 
   <div id="form-zone" style="background:rgba(255,255,255,.06);border-radius:14px;padding:18px">
@@ -7219,13 +7240,13 @@ async function rejoindre(){
   if(tel.replace(/[^0-9]/g,'').length<6){ msg.style.color='#f87171'; msg.textContent='Entre un numéro valide.'; return; }
   btn.disabled=true; btn.style.opacity=.6; msg.style.color='#cbd5e1'; msg.textContent='Création de ton compte…';
   try{
-    var r=await fetch('/api/rejoindre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,telephone:tel})});
+    var r=await fetch('/api/rejoindre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,telephone:tel,campagne:'@@CAMPAGNE@@'})});
     var d=await r.json();
     if(d.ok){
       document.getElementById('form-zone').style.display='none';
       document.getElementById('s-nom').textContent=nom;
       document.getElementById('s-code').textContent=d.code;
-      document.getElementById('s-bonus').textContent = d.bonus>0 ? ('🎁 '+d.bonus+' XPF de pions offerts ajoutés !') : 'Content de te revoir — tu retrouves ton code et tes pions.';
+      document.getElementById('s-bonus').innerHTML = d.deja ? 'Content de te revoir — tu retrouves ton code et tes pions.' : '🎁 @@SUCCES_BONUS@@';
       document.getElementById('succes-zone').style.display='block';
     } else {
       btn.disabled=false; btn.style.opacity=1; msg.style.color='#f87171'; msg.textContent=d.msg||'Erreur, réessaie.';
@@ -7234,7 +7255,63 @@ async function rejoindre(){
 }
 </script>
 </body></html>'''
+    for k, v in [("@@CAMPAGNE@@", campagne), ("@@ACCENT@@", accent), ("@@TITRE@@", titre),
+                 ("@@JACKPOT@@", jackpot), ("@@JEU@@", jeu), ("@@BONUS_TITRE@@", bonus_titre),
+                 ("@@BONUS_SOUS@@", bonus_sous), ("@@SUCCES_BONUS@@", succes_bonus),
+                 ("@@OG_TITLE@@", og_title), ("@@OG_DESC@@", og_desc)]:
+        T = T.replace(k, v)
+    return T
 
+@app.route("/mini")
+def page_mini():
+    return _landing_html("mini", "#14b8a6", "MINI JACKPOT", "50 000",
+        "P6 · 1 languette de 3 tickets · 250 F",
+        "500 F DE PIONS BONUS 🎁", "offerts dès 5 tickets P6 achetés — pour jouer (non retirable)",
+        "Achète 5 tickets P6 et reçois <b>500 F de pions bonus</b> pour jouer !",
+        "Mini Jackpot 50 000 F — P6, 500 F de pions bonus !",
+        "Inscris-toi, achète 5 tickets P6 et reçois 500 F de pions bonus. Mini jackpot 50 000 F, petits jeux tous les jours !")
+
+@app.route("/premier")
+def page_premier():
+    return _landing_html("premier", "#a855f7", "LE PREMIER JACKPOT", "500 000",
+        "OHANA 75 · 1000 F la feuille",
+        "5000 F DE PIONS BONUS 🎁", "offerts dès 5 tickets OHANA 75 achetés — pour jouer (non retirable)",
+        "Achète 5 tickets OHANA 75 et reçois <b>5000 F de pions bonus</b> pour jouer !",
+        "Le Premier Jackpot 500 000 F — OHANA 75, 5000 F de pions bonus !",
+        "Inscris-toi, achète 5 tickets OHANA 75 et reçois 5000 F de pions bonus. Jackpot 500 000 F, petits jeux tous les jours !")
+
+@app.route("/rejoindre")
+def page_rejoindre():
+    return page_premier()
+
+
+@app.route("/diag-campagnes")
+def diag_campagnes():
+    """Combien d'inscrits par affiche (mini vs premier). ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    log = DB.get("rejoindre_log", [])
+    par = {}
+    for x in log:
+        c = (x.get("campagne") or "(inconnu)")
+        par[c] = par.get(c, 0) + 1
+    total = len(log)
+    lignes = ""
+    for c, n in sorted(par.items(), key=lambda x: -x[1]):
+        pct = round(100 * n / total) if total else 0
+        lignes += f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)"><td style="padding:10px;font-weight:600;color:#a78bfa">{c}</td><td style="padding:10px;color:#34d399">{n} inscrit(s)</td><td style="padding:10px;color:#94a3b8">{pct}%</td></tr>'
+    return f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campagnes</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:600px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7">📊 D'où viennent tes joueurs</h1>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:14px">Total inscrits par la pub : <b style="color:#fff">{total}</b></div>
+      <table style="width:100%;border-collapse:collapse">{lignes or '<tr><td style="padding:10px;color:#6ee7b7">Aucune inscription pour le moment.</td></tr>'}</table>
+      <div style="margin-top:14px;color:#94a3b8;font-size:12px">« mini » = affiche P6 50 000 · « premier » = affiche OHANA 500 000. Mets ton budget pub sur la meilleure.</div>
+    </div></body></html>'''
 
 @app.route("/diag-pions")
 def diag_pions():
