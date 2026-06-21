@@ -1401,6 +1401,19 @@ function formatDateTournoi(dateHeure){
   }catch(e){ return dateHeure; }
 }
 
+function formatJourTournoiGros(dateHeure){
+  try{
+    var d = new Date(dateHeure);
+    return d.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'}).toUpperCase();
+  }catch(e){ return ''; }
+}
+
+function formatHeureTournoi(dateHeure){
+  try{
+    return new Date(dateHeure).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+  }catch(e){ return ''; }
+}
+
 async function loadTournoisProgrammes(){
   try{
     const r = await fetch('/api/tournois-programmes');
@@ -1430,12 +1443,19 @@ async function loadTournoisProgrammes(){
       if(tournois.length > 0){
         cardJ.style.display = 'block';
         listeJ.innerHTML = tournois.map(function(t){
-          return '<div style="background:rgba(255,255,255,.05);border-radius:8px;padding:10px;margin-bottom:6px">' +
-            '<div style="font-weight:700;color:#fff;font-size:14px">🎯 ' + t.nom + '</div>' +
-            (t.jeu ? '<div style="font-size:12px;color:var(--mu)">' + t.jeu + '</div>' : '') +
-            '<div style="font-size:12px;color:#c084fc;margin-top:2px">' + formatDateTournoi(t.date_heure) + '</div>' +
-            '<div style="font-size:15px;font-weight:800;color:#fbbf24;margin-top:4px">' + formatCompteRebours(t.date_heure) + '</div>' +
-            '<div style="font-size:11px;color:var(--mu)">Organisé par ' + (t.nom_org || t.code_org) + '</div></div>';
+          var heure = formatHeureTournoi(t.date_heure);
+          return '<div style="background:rgba(255,255,255,.05);border-radius:10px;margin-bottom:8px;overflow:hidden;border:1px solid rgba(168,85,247,.35)">' +
+            '<div style="background:linear-gradient(135deg,#7c3aed,#a855f7);padding:8px 10px;text-align:center">' +
+              '<div style="font-size:17px;font-weight:800;color:#fff;letter-spacing:.5px;line-height:1.2">📅 ' + formatJourTournoiGros(t.date_heure) + '</div>' +
+              (heure ? '<div style="font-size:14px;font-weight:700;color:#f3e8ff;margin-top:1px">à ' + heure + '</div>' : '') +
+            '</div>' +
+            '<div style="padding:10px">' +
+              '<div style="font-weight:700;color:#fff;font-size:14px">🎯 ' + t.nom + '</div>' +
+              (t.jeu ? '<div style="font-size:12px;color:var(--mu)">' + t.jeu + '</div>' : '') +
+              '<div style="font-size:15px;font-weight:800;color:#fbbf24;margin-top:4px">' + formatCompteRebours(t.date_heure) + '</div>' +
+              '<div style="font-size:11px;color:var(--mu)">Organisé par ' + (t.nom_org || t.code_org) + '</div>' +
+            '</div>' +
+          '</div>';
         }).join('');
       } else {
         cardJ.style.display = 'none';
