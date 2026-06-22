@@ -7428,6 +7428,8 @@ def _variante_cle(jeu):
         return "B40"
     if "60 BOULE" in ju:
         return "B60"
+    if "COIN" in ju:
+        return "4COIN"
     return ju.split()[0] if ju.strip() else ""
 
 # Jeux "une boule" (1 numéro = 1 case), reproductibles depuis la réparation (graine).
@@ -7452,6 +7454,29 @@ def _regen_plat(cle, serie_start, serial_cible):
     for _ in range((serial_cible - serie_start) + 1):
         nums = sorted(rng.sample(range(lo, hi + 1), count))
     return nums
+
+# 4 COIN : 4 colonnes par plage (1-15, 16-30, 46-60, 61-75), milieu vide, FREE centre.
+# 16 numéros, "une boule", carton plein. Graine 820000 (doit coller au générateur réparé).
+_4COIN_PLAGES = [(1, 15), (16, 30), None, (46, 60), (61, 75)]
+
+def _regen_4coin(serie_start, serial_cible):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(820000 + serie_start)
+    cols = None
+    for _ in range((serial_cible - serie_start) + 1):
+        cols = []
+        for p in _4COIN_PLAGES:
+            if p is None:
+                cols.append(None)
+            else:
+                cols.append(sorted(rng.sample(range(p[0], p[1] + 1), 4)))
+    nums = []
+    for cset in cols:
+        if cset:
+            nums.extend(cset)
+    return nums  # 16 numéros
 
 def _serie_start_pour(jeu, serial):
     """Retrouve la série de départ du lot, en privilégiant la MÊME variante de jeu
@@ -7523,6 +7548,8 @@ def verifier_carton():
         elif cle in _JEUX_PLATS:
             nums = _regen_plat(cle, ss, serial)
             nom = {"DOLLAR": "1 dollar", "F500": "500 francs", "B40": "40 boules", "B60": "60 boules"}.get(cle, jeu)
+        elif cle == "4COIN":
+            nums = _regen_4coin(ss, serial); nom = "4 COIN"
         else:
             resultats.append({"serial": serial, "trouve": False, "msg": "Jeu non encore pris en charge"})
             continue
