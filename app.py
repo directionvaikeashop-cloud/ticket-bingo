@@ -7402,11 +7402,18 @@ def api_rejoindre():
     DB.setdefault("tickets_acheteurs", {})[code] = ticket["id"]
     index_tel[tel_clean] = code
 
-    # Pas de pions gratuits à l'inscription : le bonus (5000 F) se gagne en
-    # achetant 5 tickets. L'inscription crée juste le compte.
+    # Bonus immediat selon la campagne. "semaine" (tournois de la semaine) : 500 F de
+    # pions offerts DES l'inscription. Les autres campagnes (mini/premier) gagnent leur
+    # bonus en achetant 5 tickets, donc 0 a l'inscription.
+    bonus_credite = 0
+    if campagne == "semaine":
+        poche_bonus = DB.setdefault("pions_bonus_joueurs", {}).get(code, {})
+        _crediter_pions_montant(poche_bonus, 500)
+        DB["pions_bonus_joueurs"][code] = poche_bonus
+        bonus_credite = 500
     DB["rejoindre_log"].insert(0, {"ip": ip, "tel": tel_clean, "code": code, "nom": nom, "campagne": campagne, "date": maintenant.isoformat()})
     save_data(immediat=True)
-    return jsonify({"ok": True, "code": code, "deja": False, "bonus": 0})
+    return jsonify({"ok": True, "code": code, "deja": False, "bonus": bonus_credite})
 
 
 def _landing_html(campagne, accent, titre, jackpot, jeu, bonus_titre, bonus_sous, succes_bonus, og_title, og_desc):
@@ -7508,6 +7515,15 @@ def page_premier():
 @app.route("/rejoindre")
 def page_rejoindre():
     return page_premier()
+
+@app.route("/semaine")
+def page_semaine():
+    return _landing_html("semaine", "#22c55e", "🎁 1RE INSCRIPTION OFFERTE", "500",
+        "en pions pour jouer · cadeau de bienvenue",
+        "PETITS JEUX 7J/7 🎲", "Un tournoi chaque jour, du lundi au dimanche !",
+        "500 F de pions crédités — à toi de jouer ! (non retirable)",
+        "Tournois de la semaine — 500 F de pions offerts !",
+        "Inscris-toi et reçois 500 F de pions tout de suite. Petits jeux tous les jours, du lundi au dimanche !")
 
 
 import random as _rnd_verif
