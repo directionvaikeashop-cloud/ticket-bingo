@@ -8092,6 +8092,124 @@ def diag_achats():
       <div style="margin-top:14px;color:#9ca3af;font-size:12px;line-height:1.5">📌 La colonne <b>Client</b> t'aide à distinguer : les lignes sans client (ou avec le nom de l'organisateur) = ce qu'il t'a acheté ; les lignes avec un nom de joueur = ce qu'il a revendu.<br>Astuce : ajoute <b>&org=CODE</b> à l'adresse pour un seul organisateur (ex : <b>&org=CPFRD66H</b> pour HEINI).</div>
     </div></body></html>'''
 
+def _reset_pdfs_vendus():
+    """Efface les PDF vendus : fichiers + compteurs (feuilles_vendues) + historique
+    des ventes (ventes + acces_docs). GARDE les comptes joueurs (codes + pions) et
+    les organisateurs. Nettoie juste les liens PDF morts sur les tickets joueurs."""
+    global DB
+    # 1) Collecter et supprimer les fichiers PDF references (ventes + tickets)
+    paths = set()
+    for v in DB.get("ventes", []):
+        u = v.get("pdf_url") or ""
+        if u:
+            paths.add("/data/pdfs/" + u.split("/")[-1].replace(".pdf", "") + ".pdf")
+    for t in DB.get("tickets", []):
+        u = t.get("pdf_url") or ""
+        if u:
+            paths.add("/data/pdfs/" + u.split("/")[-1].replace(".pdf", "") + ".pdf")
+    n_fichiers = 0
+    for p in paths:
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+                n_fichiers += 1
+        except Exception:
+            pass
+    n_ventes = len(DB.get("ventes", []))
+    # 2) Effacer historique des ventes + compteurs de feuilles
+    DB["ventes"] = []
+    DB["feuilles_vendues"] = {}
+    DB["acces_docs"] = {}
+    # 3) Nettoyer les liens PDF morts sur les tickets joueurs (on garde code + pions + nom)
+    n_tickets = 0
+    for t in DB.get("tickets", []):
+        if t.get("pdf_url") or t.get("page_debut") or t.get("page_fin"):
+            t["pdf_url"] = None
+            t["page_debut"] = None
+            t["page_fin"] = None
+            n_tickets += 1
+    # 4) Journaliser
+    DB.setdefault("historique_resets", []).insert(0, {
+        "date": datetime.datetime.now().isoformat(),
+        "fichiers_supprimes": n_fichiers,
+        "ventes_effacees": n_ventes,
+        "tickets_nettoyes": n_tickets
+    })
+    save_data(immediat=True)
+    return {"fichiers": n_fichiers, "ventes": n_ventes, "tickets_nettoyes": n_tickets}
+
+@app.route("/reset-tournois", methods=["GET", "POST"])
+def reset_tournois():
+    """ADMIN — Remise a zero des PDF vendus (fichiers + compteurs + historique ventes).
+    GET ?cle=ADMIN : page de confirmation. POST {cle, confirm:'OUI'} : execute. IRREVERSIBLE.
+    Garde les comptes joueurs (codes + pions) et les organisateurs."""
+    global DB
+    DB = load_data()
+    if request.method == "POST":
+        d = request.json or {}
+        cle_p = (d.get("cle", "") or "").strip().upper()
+        info_p = DB.get("codes", {}).get(cle_p)
+        if not (info_p and info_p.get("admin")):
+            return jsonify({"ok": False, "msg": "Accès refusé"}), 403
+        if (d.get("confirm", "") or "").strip().upper() != "OUI":
+            return jsonify({"ok": False, "msg": "Confirmation manquante"}), 400
+        res = _reset_pdfs_vendus()
+        return jsonify({"ok": True, **res})
+
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN a l'adresse.", status=403, mimetype="text/plain; charset=utf-8")
+    n_ventes = len(DB.get("ventes", []))
+    fv = DB.get("feuilles_vendues", {})
+    n_feuilles = sum(len(p) for org in fv.values() for p in org.values())
+    paths = set()
+    for v in DB.get("ventes", []):
+        u = v.get("pdf_url") or ""
+        if u:
+            paths.add(u.split("/")[-1])
+    for t in DB.get("tickets", []):
+        u = t.get("pdf_url") or ""
+        if u:
+            paths.add(u.split("/")[-1])
+    n_pdf = len(paths)
+
+    PAGE = '''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Repartir a zero</title></head>
+<body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+<div style="max-width:560px;margin:0 auto">
+  <h1 style="font-size:20px;color:#f87171">⚠️ Repartir sur de nouvelles bases</h1>
+  <div style="background:#2a1015;border:1px solid #ef4444;border-radius:12px;padding:16px;margin:14px 0">
+    <div style="font-size:14px;color:#fecaca;margin-bottom:10px">Tu es sur le point d'effacer <b>DÉFINITIVEMENT</b> :</div>
+    <div style="font-size:15px;line-height:1.9">
+      🗂️ <b>@@NPDF@@</b> fichier(s) PDF vendus<br>
+      📊 <b>@@NFEUILLES@@</b> feuille(s) dans les compteurs<br>
+      🧾 <b>@@NVENTES@@</b> ligne(s) d'historique de ventes
+    </div>
+  </div>
+  <div style="background:#0d2818;border:1px solid #10b981;border-radius:12px;padding:12px;font-size:13px;color:#a7f3d0;margin-bottom:16px">
+    ✅ Tes <b>joueurs gardent leur code et leurs pions</b>, et tes organisateurs restent. On efface seulement les PDF et leur historique.
+  </div>
+  <button id="btn" onclick="effacer()" style="width:100%;padding:16px;background:#ef4444;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer">EFFACER DÉFINITIVEMENT ET REPARTIR À ZÉRO</button>
+  <div id="res" style="margin-top:16px;font-size:15px;text-align:center"></div>
+  <div style="margin-top:18px;color:#6b7280;font-size:12px;text-align:center">Pense à avoir fait tes remboursements avant (page /diag-achats).</div>
+</div>
+<script>
+async function effacer(){
+  if(!confirm("Es-tu vraiment sûre ? Cette action est IRRÉVERSIBLE.")) return;
+  var btn=document.getElementById('btn'); btn.disabled=true; btn.style.opacity=.6; btn.textContent='Effacement en cours...';
+  try{
+    var r=await fetch('/reset-tournois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cle:'@@CLE@@',confirm:'OUI'})});
+    var d=await r.json();
+    if(d.ok){
+      document.getElementById('res').innerHTML='<div style="background:#0d2818;border:1px solid #10b981;border-radius:10px;padding:14px;color:#34d399">✅ Terminé ! '+d.fichiers+' PDF supprimés · '+d.ventes+' ventes effacées · '+d.tickets_nettoyes+' tickets nettoyés.<br>Tu peux repartir sur de nouvelles bases. 🌿</div>';
+      btn.style.display='none';
+    } else { document.getElementById('res').innerHTML='<span style="color:#f87171">❌ '+(d.msg||'Erreur')+'</span>'; btn.disabled=false; btn.style.opacity=1; btn.textContent='EFFACER DÉFINITIVEMENT ET REPARTIR À ZÉRO'; }
+  }catch(e){ document.getElementById('res').innerHTML='<span style="color:#f87171">❌ Erreur de connexion</span>'; btn.disabled=false; btn.style.opacity=1; }
+}
+</script></body></html>'''
+    PAGE = PAGE.replace("@@NPDF@@", str(n_pdf)).replace("@@NFEUILLES@@", str(n_feuilles)).replace("@@NVENTES@@", str(n_ventes)).replace("@@CLE@@", cle)
+    return PAGE
+
 @app.route("/diag-pions")
 def diag_pions():
     """Diagnostic LECTURE SEULE des pions d'un joueur : solde dépensable réel,
