@@ -3453,21 +3453,25 @@ async function declarerBingo(){
   }
 }
 
-async function verifierBingoAuto(ticketId, cochesList, alerteId){
+async function verifierBingoAuto(jeu, serie, alerteId){
+  const el = document.getElementById("verif-auto-"+alerteId);
+  if(el) el.innerHTML = '<div style="font-size:12px;color:var(--mu);padding:6px;text-align:center">Vérification en cours…</div>';
   try{
-    const r = await fetch("/api/verifier-bingo",{
+    const m = String(serie).match(/\d+/);
+    const r = await fetch("/api/bingo/verifier-carton",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-Token":TOKEN},
-      body: JSON.stringify({ticket_id: ticketId, coches: cochesList})
+      body: JSON.stringify({jeu: jeu, serial: m ? m[0] : serie})
     });
     const d = await r.json();
-    const el = document.getElementById("verif-auto-"+alerteId);
     if(!el) return;
-    if(d.valide){
-      el.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:10px;margin-top:8px;text-align:center"><div style="font-size:15px;font-weight:700;color:#34d399">✅ BINGO VALIDE !</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:4px">'+d.coches+' numéros cochés — tous sortis !</div></div>';
+    if(!d.ok){ el.innerHTML='<div style="background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.4);border-radius:8px;padding:8px;margin-top:8px;font-size:12px;color:var(--mu);text-align:center">'+(d.msg||'Erreur')+'</div>'; return; }
+    const x = (d.resultats&&d.resultats[0])||{};
+    if(!x.trouve){ el.innerHTML='<div style="background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.4);border-radius:8px;padding:8px;margin-top:8px;font-size:12px;color:var(--mu);text-align:center">⚠️ '+(x.msg||'Série introuvable')+'</div>'; return; }
+    if(x.complet){
+      el.innerHTML='<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:10px;margin-top:8px;text-align:center"><div style="font-size:15px;font-weight:800;color:#34d399">✅ VÉRIFIÉ GAGNANT</div><div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:2px">'+x.jeu+' · '+x.sortis+'/'+x.total+' · '+d.boules_tirees+' boules</div></div>';
     } else {
-      const invalides = d.details ? d.details.filter(x=>!x.sorti).map(x=>x.numero).join(", ") : "";
-      el.innerHTML = '<div style="background:rgba(239,68,68,.2);border:1px solid #ef4444;border-radius:8px;padding:10px;margin-top:8px;text-align:center"><div style="font-size:15px;font-weight:700;color:#f87171">❌ BINGO INVALIDE</div><div style="font-size:12px;color:rgba(255,255,255,.6);margin-top:4px">Numéros non sortis : '+invalides+'</div></div>';
+      el.innerHTML='<div style="background:rgba(239,68,68,.2);border:1px solid #ef4444;border-radius:8px;padding:10px;margin-top:8px"><div style="font-size:14px;font-weight:800;color:#f87171;text-align:center">❌ PAS ENCORE — '+x.sortis+'/'+x.total+'</div><div style="font-size:12px;color:#fbbf24;margin-top:4px;text-align:center">il manque : '+((x.manquants||[]).join(" · "))+'</div></div>';
     }
   }catch(e){}
 }
@@ -3485,8 +3489,12 @@ async function loadAlertesBingo(){
       </div>
       <div style="font-size:12px;color:var(--mu);margin-bottom:8px">${a.jeu} · Série ${a.serie}</div>
       <div style="font-size:11px;color:var(--mu);margin-bottom:8px">${new Date(a.date).toLocaleString('fr-FR')}</div>
+      ${a.verif ? (a.verif.trouve ? (a.verif.complet
+        ? `<div style="background:rgba(16,185,129,.15);border:1px solid #10b981;border-radius:8px;padding:10px;margin-bottom:8px;text-align:center"><div style="font-size:15px;font-weight:800;color:#34d399">✅ VÉRIFIÉ GAGNANT</div><div style="font-size:11px;color:var(--mu);margin-top:2px">${a.verif.jeu} · ${a.verif.sortis}/${a.verif.total} · ${a.verif.boules} boules tirées</div></div>`
+        : `<div style="background:rgba(239,68,68,.12);border:1px solid #f87171;border-radius:8px;padding:10px;margin-bottom:8px"><div style="font-size:14px;font-weight:800;color:#fca5a5;text-align:center">❌ PAS ENCORE — ${a.verif.sortis}/${a.verif.total}</div><div style="font-size:12px;color:#fbbf24;margin-top:4px;text-align:center">il manque : ${(a.verif.manquants||[]).join(' · ')}</div></div>`)
+        : `<div style="background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.4);border-radius:8px;padding:8px;margin-bottom:8px;font-size:12px;color:var(--mu);text-align:center">⚠️ Série non vérifiable automatiquement — vérifie à la main</div>`) : ''}
       ${a.pdf_url?`<button onclick="ouvrirPDFJoueur('${a.pdf_url}','${a.acheteur}','bingo_${a.id}','${a.page_debut||1}','${a.page_fin||9999}')" style="width:100%;padding:8px;background:rgba(99,102,241,.2);color:#818cf8;border:0.5px solid #6366f1;border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:8px">📄 Voir la feuille du joueur</button>`:''}
-      ${a.statut==='en_attente'?`<button onclick="verifierBingoAuto('${a.ticket_id}',${JSON.stringify(a.coches||[])}, '${a.id}')" style="width:100%;padding:8px;background:rgba(245,158,11,.2);color:#fbbf24;border:0.5px solid rgba(245,158,11,.4);border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:8px">⚡ Vérification automatique</button>`:''}
+      ${a.statut==='en_attente'?`<button onclick="verifierBingoAuto('${a.jeu}','${a.serie}','${a.id}')" style="width:100%;padding:8px;background:rgba(245,158,11,.2);color:#fbbf24;border:0.5px solid rgba(245,158,11,.4);border-radius:6px;cursor:pointer;font-size:13px;margin-bottom:8px">⚡ Re-vérifier en direct</button>`:''}
       <div id="verif-auto-${a.id}"></div>
       ${a.statut==='en_attente'?`<div style="display:flex;gap:8px">
         <button onclick="validerBingo('${a.id}','valide')" style="flex:1;padding:8px;background:rgba(16,185,129,.2);color:#34d399;border:0.5px solid rgba(16,185,129,.4);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">✅ Valider</button>
