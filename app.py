@@ -665,6 +665,351 @@ def icone_512():
     import base64 as _b64
     return Response(_b64.b64decode(ICONE_512_B64), mimetype="image/png")
 
+@app.route("/secours")
+def page_secours():
+    """Page de tirage de secours — fonctionne hors-ligne une fois installee."""
+    html = r'''<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="theme-color" content="#08090d"/>
+<link rel="manifest" href="/secours-manifest.json"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<meta name="apple-mobile-web-app-title" content="Tirage Secours"/>
+<link rel="apple-touch-icon" href="/icone-192.png"/>
+<title>Tirage de secours — Ticket Bingo</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: #08090d; color: #f0f2f8;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  body { padding: 14px 12px 40px; max-width: 640px; margin: 0 auto; }
+  .hdr { text-align: center; margin-bottom: 12px; }
+  .hdr h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: .5px; }
+  .hors-ligne { display: inline-block; font-size: 11px; font-weight: 700; color: #34d399;
+    background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35);
+    border-radius: 20px; padding: 4px 12px; }
+  .modes { display: flex; gap: 8px; margin: 14px 0; }
+  .mode { flex: 1; text-align: center; padding: 12px; border-radius: 10px; cursor: pointer;
+    background: #151821; border: 2px solid #262a36; font-size: 15px; font-weight: 700; color: #f0f2f8; }
+  .mode.on { border-color: #6366f1; background: rgba(99,102,241,.18); color: #fff; }
+  .boule-zone { background: #151821; border: 1px solid #262a36; border-radius: 16px;
+    padding: 20px 16px; text-align: center; margin-bottom: 14px; }
+  .boule-grande { width: 150px; height: 150px; margin: 0 auto 10px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #0d0f15; border: 4px solid #6366f1; }
+  .boule-lettre { font-size: 26px; font-weight: 800; line-height: 1; opacity: .9; }
+  .boule-num { font-size: 62px; font-weight: 800; line-height: 1; }
+  .boule-vide { font-size: 15px; color: #8b8fa3; padding: 50px 0; }
+  .compteur { font-size: 14px; color: #8b8fa3; margin-top: 6px; }
+  .compteur b { color: #818cf8; font-size: 18px; }
+  .btn-tirer { width: 100%; padding: 20px; font-size: 22px; font-weight: 800; color: #fff;
+    background: linear-gradient(135deg,#6366f1,#818cf8); border: none; border-radius: 14px;
+    cursor: pointer; margin-bottom: 10px; letter-spacing: .5px; }
+  .btn-tirer:active { transform: scale(.98); }
+  .btn-tirer:disabled { opacity: .45; }
+  .rangee { display: flex; gap: 8px; margin-bottom: 14px; }
+  .btn-sec { flex: 1; padding: 12px; font-size: 13px; font-weight: 700; color: #f0f2f8;
+    background: #151821; border: 1px solid #2c3140; border-radius: 10px; cursor: pointer; }
+  .btn-sec:active { transform: scale(.98); }
+  .btn-sec.danger { color: #f87171; border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.08); }
+  .voix-ligne { display: flex; align-items: center; justify-content: space-between;
+    background: #151821; border: 1px solid #262a36; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+  .voix-ligne span { font-size: 14px; }
+  .switch { position: relative; width: 50px; height: 28px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #2c3140; border-radius: 28px; transition: .2s; cursor: pointer; }
+  .slider:before { content: ""; position: absolute; height: 22px; width: 22px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .slider { background: #6366f1; }
+  .switch input:checked + .slider:before { transform: translateX(22px); }
+  .historique { font-size: 13px; color: #8b8fa3; text-align: center; margin-bottom: 14px; min-height: 20px; }
+  .historique b { color: #f0f2f8; }
+  .grille-titre { font-size: 13px; color: #8b8fa3; margin: 4px 0 8px; }
+  .grille { display: grid; gap: 5px; }
+  .cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; border-radius: 7px; background: #151821; color: #555a6b;
+    border: 1px solid #20242f; cursor: pointer; user-select: none; }
+  .cell.out { color: #fff; }
+  .footer { text-align: center; font-size: 11px; color: #555a6b; margin-top: 22px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <h1>🎱 Tirage de secours</h1>
+    <div class="hors-ligne">✓ Fonctionne SANS internet</div>
+  </div>
+
+  <div class="modes">
+    <div class="mode on" id="mode-75" onclick="changerMode(75)">75 boules</div>
+    <div class="mode" id="mode-90" onclick="changerMode(90)">90 boules</div>
+  </div>
+
+  <div class="boule-zone">
+    <div id="boule-affichage"><div class="boule-vide">Appuie sur « Tirer une boule »</div></div>
+    <div class="compteur"><b id="nb-tirees">0</b> / <span id="nb-total">75</span> boules sorties</div>
+  </div>
+
+  <button class="btn-tirer" id="btn-tirer" onclick="tirer()">🎲 TIRER UNE BOULE</button>
+
+  <div class="rangee">
+    <button class="btn-sec" onclick="reannoncer()">🔊 Répéter</button>
+    <button class="btn-sec" onclick="annulerDernier()">↩️ Annuler la dernière</button>
+  </div>
+
+  <div class="voix-ligne">
+    <span>🎤 Annonce vocale</span>
+    <label class="switch"><input type="checkbox" id="voix-toggle" checked onchange="majVoix()"/><span class="slider"></span></label>
+  </div>
+
+  <div class="historique" id="historique"></div>
+
+  <div class="grille-titre">Boules déjà sorties (touche une case pour corriger à la main) :</div>
+  <div class="grille" id="grille"></div>
+
+  <div class="rangee" style="margin-top:16px">
+    <button class="btn-sec danger" onclick="recommencer()">🗑️ Recommencer à zéro</button>
+  </div>
+
+  <div class="footer">
+    Garde cette page sur ton téléphone.<br>
+    Pendant une coupure : tu tires ici, tu notes les achats sur papier,<br>
+    et tu réenregistres tout dans l'appli quand internet revient. 💙
+  </div>
+
+<script>
+  var mode = 75;
+  var tirees = [];
+  var voixActive = true;
+  var voixFr = null;
+
+  // ---- Sauvegarde locale (pour ne rien perdre si la page se ferme) ----
+  function sauver(){
+    try { localStorage.setItem('tirage_secours', JSON.stringify({mode: mode, tirees: tirees, voix: voixActive})); } catch(e){}
+  }
+  function charger(){
+    try {
+      var d = JSON.parse(localStorage.getItem('tirage_secours') || '{}');
+      if(d && (d.mode === 75 || d.mode === 90)){ mode = d.mode; tirees = Array.isArray(d.tirees) ? d.tirees : []; }
+      if(typeof d.voix === 'boolean'){ voixActive = d.voix; }
+    } catch(e){}
+  }
+
+  // ---- Lettre de colonne (75 boules) ----
+  function lettre(n){
+    if(mode !== 75) return '';
+    if(n <= 15) return 'B';
+    if(n <= 30) return 'I';
+    if(n <= 45) return 'N';
+    if(n <= 60) return 'G';
+    return 'O';
+  }
+  function couleur(n){
+    var L = lettre(n);
+    if(L === 'B') return '#3b82f6';
+    if(L === 'I') return '#ef4444';
+    if(L === 'N') return '#f59e0b';
+    if(L === 'G') return '#22c55e';
+    if(L === 'O') return '#a855f7';
+    return '#6366f1';
+  }
+
+  // ---- Voix ----
+  function chargerVoix(){
+    try {
+      var voix = window.speechSynthesis.getVoices() || [];
+      voixFr = voix.find(function(v){ return /fr(-|_)?/i.test(v.lang); }) || voix[0] || null;
+    } catch(e){}
+  }
+  if('speechSynthesis' in window){
+    chargerVoix();
+    window.speechSynthesis.onvoiceschanged = chargerVoix;
+  }
+  function parler(n){
+    if(!voixActive || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      var L = lettre(n);
+      var txt = (L ? L + ', ' : '') + n + ', ' + n;
+      var u = new SpeechSynthesisUtterance(txt);
+      u.lang = 'fr-FR'; u.rate = 0.85; u.pitch = 1;
+      if(voixFr) u.voice = voixFr;
+      window.speechSynthesis.speak(u);
+    } catch(e){}
+  }
+
+  // ---- Affichage de la boule ----
+  function afficherBoule(n){
+    var zone = document.getElementById('boule-affichage');
+    if(!n){ zone.innerHTML = '<div class="boule-vide">Appuie sur « Tirer une boule »</div>'; return; }
+    var L = lettre(n);
+    zone.innerHTML = '<div class="boule-grande" style="border-color:' + couleur(n) + '">' +
+      (L ? '<div class="boule-lettre" style="color:' + couleur(n) + '">' + L + '</div>' : '') +
+      '<div class="boule-num">' + n + '</div></div>';
+  }
+
+  // ---- Grille ----
+  function construireGrille(){
+    var g = document.getElementById('grille');
+    var parRangee = (mode === 75) ? 5 : 10;
+    g.style.gridTemplateColumns = 'repeat(' + parRangee + ', 1fr)';
+    var html = '';
+    if(mode === 75){
+      // 5 colonnes B I N G O, 15 lignes
+      for(var ligne = 0; ligne < 15; ligne++){
+        for(var col = 0; col < 5; col++){
+          var n = col * 15 + ligne + 1;
+          html += cellHtml(n);
+        }
+      }
+    } else {
+      for(var i = 1; i <= 90; i++){ html += cellHtml(i); }
+    }
+    g.innerHTML = html;
+  }
+  function cellHtml(n){
+    var sortie = tirees.indexOf(n) !== -1;
+    var style = sortie ? ('background:' + couleur(n) + ';border-color:' + couleur(n)) : '';
+    return '<div class="cell ' + (sortie ? 'out' : '') + '" style="' + style + '" onclick="basculer(' + n + ')">' + n + '</div>';
+  }
+
+  // ---- Historique ----
+  function majHistorique(){
+    var h = document.getElementById('historique');
+    if(tirees.length === 0){ h.innerHTML = ''; return; }
+    var derns = tirees.slice(-6).reverse().map(function(n){ return (lettre(n) ? lettre(n) + ' ' : '') + n; });
+    h.innerHTML = 'Dernières : <b>' + derns.join('</b> &nbsp;·&nbsp; <b>') + '</b>';
+  }
+
+  function majTout(){
+    document.getElementById('nb-tirees').textContent = tirees.length;
+    document.getElementById('nb-total').textContent = mode;
+    document.getElementById('btn-tirer').disabled = (tirees.length >= mode);
+    construireGrille();
+    majHistorique();
+    sauver();
+  }
+
+  // ---- Actions ----
+  function tirer(){
+    if(tirees.length >= mode) return;
+    var restantes = [];
+    for(var i = 1; i <= mode; i++){ if(tirees.indexOf(i) === -1) restantes.push(i); }
+    var n = restantes[Math.floor(Math.random() * restantes.length)];
+    tirees.push(n);
+    afficherBoule(n);
+    parler(n);
+    majTout();
+  }
+  function basculer(n){
+    var i = tirees.indexOf(n);
+    if(i === -1){ tirees.push(n); afficherBoule(n); parler(n); }
+    else { tirees.splice(i, 1); }
+    majTout();
+  }
+  function annulerDernier(){
+    if(tirees.length === 0) return;
+    tirees.pop();
+    afficherBoule(tirees.length ? tirees[tirees.length - 1] : null);
+    majTout();
+  }
+  function reannoncer(){
+    if(tirees.length === 0) return;
+    parler(tirees[tirees.length - 1]);
+  }
+  function recommencer(){
+    if(tirees.length > 0 && !confirm('Effacer toutes les boules sorties et recommencer ?')) return;
+    tirees = [];
+    afficherBoule(null);
+    majTout();
+  }
+  function changerMode(m){
+    if(m === mode) return;
+    if(tirees.length > 0 && !confirm('Changer de mode efface le tirage en cours. Continuer ?')) return;
+    mode = m;
+    tirees = [];
+    document.getElementById('mode-75').classList.toggle('on', m === 75);
+    document.getElementById('mode-90').classList.toggle('on', m === 90);
+    afficherBoule(null);
+    majTout();
+  }
+  function majVoix(){
+    voixActive = document.getElementById('voix-toggle').checked;
+    if(voixActive){ try { var u = new SpeechSynthesisUtterance('Voix activée'); u.lang = 'fr-FR'; if(voixFr) u.voice = voixFr; window.speechSynthesis.speak(u); } catch(e){} }
+    sauver();
+  }
+
+  // ---- Démarrage ----
+  charger();
+  document.getElementById('mode-75').classList.toggle('on', mode === 75);
+  document.getElementById('mode-90').classList.toggle('on', mode === 90);
+  document.getElementById('voix-toggle').checked = voixActive;
+  afficherBoule(tirees.length ? tirees[tirees.length - 1] : null);
+  majTout();
+</script>
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/secours-sw.js', {scope: '/secours'}).catch(function(){});
+}
+</script>
+</body>
+</html>
+'''
+    resp = Response(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+@app.route("/secours-manifest.json")
+def secours_manifest():
+    import json as _json
+    base = "https://ticket-bingo-production.up.railway.app"
+    data = {
+        "name": "Tirage de secours — Ticket Bingo",
+        "short_name": "Tirage Secours",
+        "description": "Tirage de boules hors-ligne pour continuer un tournoi sans internet.",
+        "start_url": "/secours",
+        "scope": "/secours",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#08090d",
+        "theme_color": "#08090d",
+        "lang": "fr",
+        "icons": [
+            {"src": base + "/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": base + "/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": base + "/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": base + "/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+        ]
+    }
+    return Response(_json.dumps(data), mimetype="application/manifest+json")
+
+@app.route("/secours-sw.js")
+def secours_sw():
+    sw = """var CACHE = 'secours-v2';
+self.addEventListener('install', function(e){
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(function(c){ return c.add('/secours'); }).catch(function(){}));
+});
+self.addEventListener('activate', function(e){ e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', function(e){
+  var url = new URL(e.request.url);
+  if(url.pathname === '/secours'){
+    e.respondWith(
+      fetch(e.request).then(function(resp){
+        var copie = resp.clone();
+        caches.open(CACHE).then(function(c){ c.put('/secours', copie); });
+        return resp;
+      }).catch(function(){ return caches.match('/secours'); })
+    );
+  }
+});
+"""
+    resp = Response(sw, mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 @app.route("/sw.js")
 def service_worker():
     """Service worker minimal — installable mais n'intercepte aucune connexion"""
@@ -676,7 +1021,7 @@ self.addEventListener('install', function(event) {
 self.addEventListener('activate', function(event) {
   event.waitUntil(
     caches.keys().then(function(noms) {
-      return Promise.all(noms.map(function(nom) { return caches.delete(nom); }));
+      return Promise.all(noms.filter(function(nom) { return nom.indexOf('secours') === -1; }).map(function(nom) { return caches.delete(nom); }));
     }).then(function() {
       return self.clients.claim();
     })
