@@ -7328,17 +7328,65 @@ def _p6_numeros(serie_start, serial_cible):
         produits += 1
     return None
 
+_OHANA_COLS = [("B", 1, 15), ("I", 16, 30), ("N", 31, 45), ("G", 46, 60), ("O", 61, 75)]
+
+def _ohana_gen_carte(rng):
+    carte = {}
+    for lettre, a, b in _OHANA_COLS:
+        nb = 8 if lettre == "N" else 10
+        nums = rng.sample(range(a, b + 1), nb)
+        carte[lettre] = tuple((nums[2 * i], nums[2 * i + 1]) for i in range(nb // 2))
+    return carte
+
+def _ohana_signature(carte):
+    return tuple(carte[l] for l, _, _ in _OHANA_COLS)
+
+def _ohana_cellules(serie_start, serial_cible):
+    """Recalcule les 24 cases (paires de 2 numéros) d'une carte OHANA 75 ORIGINAL."""
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(750100 + serie_start)
+    vus = set()
+    produits = 0
+    cible = serial_cible - serie_start
+    garde = 0
+    while garde < 6000:
+        garde += 1
+        carte = _ohana_gen_carte(rng)
+        sig = _ohana_signature(carte)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if produits == cible:
+            cellules = []
+            for l, _, _ in _OHANA_COLS:
+                for paire in carte[l]:
+                    cellules.append((l, paire[0], paire[1]))
+            return cellules  # 24 cases (B5 + I5 + N4 + G5 + O5)
+        produits += 1
+    return None
+
 def _serie_start_pour(jeu, serial):
-    """Retrouve la série de départ du lot d'où vient ce ticket (via DB['commandes'])."""
+    """Retrouve la série de départ du lot d'où vient ce ticket (via DB['commandes']).
+    Privilégie la bonne famille de jeu (et, pour OHANA, la variante ORIGINAL)."""
     serial = int(serial)
-    jeu_h = (jeu or "").upper()
+    ju = (jeu or "").upper()
+    fam = "OHANA" if "OHANA" in ju else ("P6" if "P6" in ju else (ju.split()[0] if ju else ""))
+    candidats = []
     for c in DB.get("commandes", []):
         cj = (c.get("jeu") or "").upper()
-        if jeu_h and jeu_h.split()[0] not in cj:
-            continue
         if int(c.get("serie_start", 0)) <= serial <= int(c.get("serie_end", 0)):
-            return int(c.get("serie_start"))
-    return None
+            candidats.append((cj, int(c.get("serie_start"))))
+    if not candidats:
+        return None
+    for cj, ss in candidats:  # 1) famille + variante OHANA ORIGINAL
+        if fam and fam in cj and ("OHANA" not in ju or "ORIGINAL" in cj or "NORMAL" in cj):
+            return ss
+    for cj, ss in candidats:  # 2) même famille
+        if fam and fam in cj:
+            return ss
+    return candidats[0][1]    # 3) à défaut, le premier lot couvrant ce numéro
 
 @app.route("/api/bingo/verifier-carton", methods=["POST"])
 def verifier_carton():
@@ -7374,28 +7422,42 @@ def verifier_carton():
             pass
 
     resultats = []
+    ju = jeu.upper()
     for serial in serials:
         ss = _serie_start_pour(jeu, serial)
         if ss is None:
             resultats.append({"serial": serial, "trouve": False, "msg": "Lot introuvable pour ce numéro"})
             continue
-        if "P6" in jeu.upper():
+        if "OHANA" in ju:
+            cellules = _ohana_cellules(ss, serial)
+            if not cellules:
+                resultats.append({"serial": serial, "trouve": False, "msg": "Recalcul impossible"})
+                continue
+            # Une case est cochée si AU MOINS UN de ses 2 numéros est sorti
+            manquants = [f"{l}:{n1}/{n2}" for (l, n1, n2) in cellules
+                         if (n1 not in tirage and n2 not in tirage)]
+            total = len(cellules)
+            resultats.append({
+                "serial": serial, "trouve": True, "jeu": "OHANA 75",
+                "complet": len(manquants) == 0,
+                "sortis": total - len(manquants), "total": total,
+                "manquants": manquants,
+            })
+        elif "P6" in ju:
             nums = _p6_numeros(ss, serial)
+            if not nums:
+                resultats.append({"serial": serial, "trouve": False, "msg": "Recalcul impossible"})
+                continue
+            manquants_n = sorted([n for n in nums if n not in tirage])
+            resultats.append({
+                "serial": serial, "trouve": True, "jeu": "P6",
+                "complet": len(manquants_n) == 0,
+                "sortis": len(nums) - len(manquants_n), "total": len(nums),
+                "manquants": [str(n) for n in manquants_n],
+                "numeros": sorted(nums),
+            })
         else:
-            nums = None
-        if not nums:
             resultats.append({"serial": serial, "trouve": False, "msg": "Jeu non encore pris en charge"})
-            continue
-        manquants = sorted([n for n in nums if n not in tirage])
-        resultats.append({
-            "serial": serial,
-            "trouve": True,
-            "complet": len(manquants) == 0,
-            "sortis": len(nums) - len(manquants),
-            "total": len(nums),
-            "manquants": manquants,
-            "numeros": sorted(nums),
-        })
     gagnant = any(r.get("complet") for r in resultats)
     return jsonify({"ok": True, "gagnant": gagnant, "boules_tirees": len(tirage), "resultats": resultats})
 
@@ -7406,7 +7468,7 @@ def page_verif_bingo():
 <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:18px;color:#fff">
 <div style="max-width:480px;margin:0 auto">
   <h1 style="font-size:20px;color:#a855f7">🤖 Vérification automatique du carton</h1>
-  <p style="color:#94a3b8;font-size:13px">Entre ton code organisateur et le numéro de série du ticket. Le serveur recalcule ses 24 numéros et dit s'il a le carton plein.</p>
+  <p style="color:#94a3b8;font-size:13px">Entre ton code organisateur, le jeu (P6 ou OHANA 75) et le numéro de série du ticket. Le serveur recalcule les cases du ticket et dit s'il a le carton plein.</p>
   <input id="tok" placeholder="Ton code organisateur" style="width:100%;padding:12px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:8px;box-sizing:border-box">
   <input id="jeu" value="P6" style="width:100%;padding:12px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:8px;box-sizing:border-box">
   <input id="ser" placeholder="N° de série (ex : 42)" style="width:100%;padding:12px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:10px;box-sizing:border-box">
