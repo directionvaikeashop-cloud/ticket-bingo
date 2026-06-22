@@ -1345,29 +1345,36 @@ def get_alertes_bingo():
 import threading
 
 def effacer_pdfs_apres_tournoi(code_org, delai_secondes=180):
-    """Efface, X secondes apres la validation du gagnant, UNIQUEMENT les PDF
-    du tournoi qui vient de se terminer. La liste des fichiers est FIGEE a
-    l'instant de la validation (avant l'attente) : ainsi un nouveau tournoi
-    dont les cartes seraient generees pendant ces minutes n'est JAMAIS touche.
-    On n'efface plus jamais tout le dossier /data (c'etait l'ancien bug qui
-    supprimait des cartes en plein jeu)."""
+    """Nettoie, X secondes apres la fin d'un tournoi, UNIQUEMENT les PDF de cet
+    organisateur qui sont ENTIEREMENT VENDUS (epuises). Un PDF qui a encore des
+    feuilles invendues est CONSERVE : l'organisateur doit pouvoir vendre le reste
+    sur les tournois suivants. Le registre des feuilles vendues reste intact (les
+    feuilles deja vendues ne pourront jamais etre revendues, meme fichier efface).
+    La liste des fichiers est figee a l'instant de la validation (avant l'attente)."""
     import time
-    # 1) FIGER la liste des PDF a effacer MAINTENANT (avant d'attendre)
+    # 1) FIGER la liste des PDF EPUISES a effacer MAINTENANT (avant d'attendre)
     a_effacer = []
     try:
         d0 = load_data()
+        reg = d0.get("feuilles_vendues", {}).get(code_org, {})
+        # total de feuilles vendues par l'admin a cet org, par pdf_url
+        totaux = {}
+        for v in d0.get("ventes", []):
+            if (v.get("code_org") or "") == code_org and v.get("pdf_url"):
+                totaux[v["pdf_url"]] = totaux.get(v["pdf_url"], 0) + int(v.get("total_feuilles", 0) or 0)
+        # pdf_url utilises par cet org
+        pdfs_org = set()
         for ticket in d0.get("tickets", []):
-            if ticket.get("code_org") == code_org:
-                pdf_url = ticket.get("pdf_url", "") or ""
-                if pdf_url:
-                    pdf_id = pdf_url.split("/")[-1].replace(".pdf", "")
-                    p = f"/data/pdfs/{pdf_id}.pdf"
-                    if p not in a_effacer:
-                        a_effacer.append(p)
-        for commande in d0.get("commandes", []):
-            if commande.get("code_org") == code_org:
-                p = commande.get("pdf_path", "") or ""
-                if p and p not in a_effacer:
+            if ticket.get("code_org") == code_org and (ticket.get("pdf_url") or ""):
+                pdfs_org.add(ticket["pdf_url"])
+        for pdf_url in pdfs_org:
+            vendues = len(reg.get(pdf_url, {}))
+            total = totaux.get(pdf_url, 0)
+            # EPUISE : toutes les feuilles vendues -> on peut nettoyer le fichier
+            if total > 0 and vendues >= total:
+                pdf_id = pdf_url.split("/")[-1].replace(".pdf", "")
+                p = f"/data/pdfs/{pdf_id}.pdf"
+                if p not in a_effacer:
                     a_effacer.append(p)
     except Exception as e:
         print(f"[AUTO-EFFACEMENT] preparation impossible: {e}")
@@ -1399,7 +1406,7 @@ def effacer_pdfs_apres_tournoi(code_org, delai_secondes=180):
             "pdfs": pdfs_supprimes
         })
         save_data()
-        print(f"[AUTO-EFFACEMENT] {len(pdfs_supprimes)} PDF effaces pour {code_org} (liste figee a la validation)")
+        print(f"[AUTO-EFFACEMENT] {len(pdfs_supprimes)} PDF epuises effaces pour {code_org} (feuilles invendues conservees ailleurs)")
     except Exception as e:
         print(f"[AUTO-EFFACEMENT ERR] {e}")
 
@@ -2082,18 +2089,19 @@ def valider_bingo():
     })
     save_data()
     
-    # Effacement automatique SÛR : 3 minutes apres la validation du gagnant.
-    # La liste des cartes a effacer est figee MAINTENANT (dans la fonction, avant
-    # l'attente), donc un nouveau tournoi lance entre-temps n'est jamais touche.
+    # Nettoyage automatique SÛR : ~3 minutes apres la fin du tournoi, on efface
+    # UNIQUEMENT les PDF entierement vendus (epuises). Les PDF avec des feuilles
+    # invendues sont conserves pour les tournois suivants. La liste est figee
+    # maintenant, donc un nouveau tournoi lance entre-temps n'est jamais touche.
     if statut == "valide":
         threading.Thread(
             target=effacer_pdfs_apres_tournoi,
             args=(code_org, 180),
             daemon=True
         ).start()
-        print(f"[INFO] Gagnant validé pour {code_org} — cartes de CE tournoi effacées dans 3 min")
+        print(f"[INFO] Gagnant validé pour {code_org} — nettoyage des PDF épuisés dans 3 min")
     
-    return jsonify({"ok": True, "message": "Gagnant validé ! Les cartes de ce tournoi s'effaceront dans 3 minutes."})
+    return jsonify({"ok": True, "message": "Gagnant validé ! Les PDF entièrement vendus seront nettoyés ; ceux qui ont encore des feuilles invendues sont conservés."})
 
 @app.route("/api/tirage", methods=["POST"])
 def sauvegarder_tirage():
