@@ -481,8 +481,8 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
             <div style="font-size:13px;font-weight:600;color:#fff">🤖 Pointage automatique</div>
             <div style="font-size:11px;color:var(--mu);margin-top:2px">Coche les numéros automatiquement</div>
           </div>
-          <div onclick="togglePointageAuto(this)" id="toggle-pointage" style="width:48px;height:26px;background:rgba(255,255,255,.1);border-radius:13px;cursor:pointer;position:relative;transition:all .3s">
-            <div id="toggle-ball" style="width:22px;height:22px;background:#6b7280;border-radius:50%;position:absolute;top:2px;left:2px;transition:all .3s"></div>
+          <div onclick="togglePointageAuto(this)" id="toggle-pointage" style="width:48px;height:26px;background:#6366f1;border-radius:13px;cursor:pointer;position:relative;transition:all .3s">
+            <div id="toggle-ball" style="width:22px;height:22px;background:#fff;border-radius:50%;position:absolute;top:2px;left:24px;transition:all .3s"></div>
           </div>
         </div>
       </div>
@@ -2680,6 +2680,8 @@ async function loadDocs(){
 
 // === PDF JOUEUR ===
 function ouvrirPDFJoueur(url,nom,venteId,pageDebut,pageFin,jeu,serie){
+  jeuPointage = jeu || '';
+  serieBasePointage = parseInt((String(serie||'').match(/\d+/)||['0'])[0], 10) || 0;
   const cleCoches=`coches_${venteId}`;
   const cochesExistantes=JSON.parse(localStorage.getItem(cleCoches)||'{}');
   const pdDebut=parseInt(pageDebut)||1;
@@ -2726,6 +2728,54 @@ function ouvrirPDFJoueur(url,nom,venteId,pageDebut,pageFin,jeu,serie){
 
 // === CARTE DES POSITIONS NUMEROS ===
 var carteNumeros = {}; // {numero: [{page, x, y}]}
+var groupesParPage = {}; // {page: {numero: [tous les numeros de sa case/groupe]}}
+var jeuPointage = '';    // jeu de la carte ouverte (pour connaitre les cases)
+var serieBasePointage = 0; // numero de serie de la 1ere page ouverte
+
+// Charge la STRUCTURE des cartes (quels numeros forment une meme case) depuis le serveur,
+// pour respecter "1 boule pour 2" (OHANA) et "1 boule pour 3" (TRIPLE ACTION).
+async function chargerGroupesCartes(pDebut, pFin){
+  groupesParPage = {};
+  if(!jeuPointage || !serieBasePointage) return;
+  var serials = [];
+  for(var p = pDebut; p <= pFin; p++){ serials.push(serieBasePointage + (p - pDebut)); }
+  try{
+    var r = await fetch('/api/bingo/structure-carton', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({jeu: jeuPointage, serials: serials})
+    });
+    var d = await r.json();
+    if(!d || !d.ok || !d.structures) return;
+    for(var p = pDebut; p <= pFin; p++){
+      var s = serieBasePointage + (p - pDebut);
+      var groupes = d.structures[String(s)];
+      if(!groupes) continue;
+      var map = {};
+      groupes.forEach(function(g){ g.forEach(function(n){ map[n] = g; }); });
+      groupesParPage[p] = map;
+    }
+  }catch(e){ console.warn('structure-carton:', e); }
+}
+
+// Quels numeros cocher sur une page, en respectant les cases (1 boule coche toute sa case).
+function numerosACocherSurPage(boulesTirees, page){
+  var T = {}; (boulesTirees||[]).forEach(function(b){ T[b] = true; });
+  var aCocher = {};
+  var map = groupesParPage[page];
+  if(map){
+    // Pour chaque case : si AU MOINS une de ses boules est sortie -> cocher TOUTE la case
+    Object.keys(map).forEach(function(numStr){
+      var groupe = map[numStr];
+      var couvert = groupe.some(function(n){ return T[n]; });
+      if(couvert){ groupe.forEach(function(n){ aCocher[n] = true; }); }
+    });
+  } else {
+    // Pas de structure connue (jeu "1 boule" ou structure indispo) : cocher les boules presentes
+    Object.keys(T).forEach(function(b){ if(carteNumeros[b]) aCocher[b] = true; });
+  }
+  return aCocher;
+}
 
 async function analyserPageNumeroPDF(page, pageNum){
   try{
@@ -2753,19 +2803,22 @@ async function analyserPageNumeroPDF(page, pageNum){
     });
     if(!candidats.length) return;
 
-    // Passe 2 : ne garder que la taille de police DOMINANTE (= numeros des grilles)
-    // Elimine les faux positifs : "75" du titre, telephone, numero de serie...
+    // Passe 2 : garder toutes les tailles FRÉQUENTES (= numéros des grilles, même
+    // s'il y en a 2 par case à des tailles différentes, comme OHANA 16pt + 20pt).
+    // On élimine seulement les tailles RARES (titre "75", téléphone, numéro de série).
     var compteTailles = {};
     candidats.forEach(function(c){
       var clef = Math.round(c.fontH);
       compteTailles[clef] = (compteTailles[clef] || 0) + 1;
     });
-    var tailleDominante = parseInt(Object.keys(compteTailles).sort(function(a,b){
-      return compteTailles[b] - compteTailles[a];
-    })[0], 10);
+    var maxCompte = 0;
+    Object.keys(compteTailles).forEach(function(t){
+      if(compteTailles[t] > maxCompte) maxCompte = compteTailles[t];
+    });
+    var seuilTaille = Math.max(2, maxCompte * 0.25);
 
     candidats.forEach(function(c){
-      if(Math.abs(c.fontH - tailleDominante) > tailleDominante * 0.2) return;
+      if(compteTailles[Math.round(c.fontH)] < seuilTaille) return;
       const xPct = ((c.tx + c.w / 2) / viewport.width) * 100;
       // Centre du chiffre AU-DESSUS de la ligne de base
       // REGLAGE : coche trop basse -> augmenter (0.60, 0.65) / trop haute -> diminuer (0.45, 0.40)
@@ -2929,20 +2982,24 @@ async function comparerToutesBoulesAvecPDF(){
     var d = await r.json();
     var boules = d.boules || [];
     if(!boules.length) return;
-    boules.forEach(function(boule){
-      var positions = carteNumeros[boule];
-      if(!positions || !positions.length) return;
-      positions.forEach(function(pos){
-        var pageKey = 'page_' + pos.page;
-        if(!cochesParPage[pageKey]) cochesParPage[pageKey] = [];
-        var deja = cochesParPage[pageKey].find(function(c){
-          return Math.abs(c.x - pos.x) < 3 && Math.abs(c.y - pos.y) < 3;
+    for(var p = pageDebutActuel; p <= pageFinActuel; p++){
+      var aCocher = numerosACocherSurPage(boules, p);
+      Object.keys(aCocher).forEach(function(numStr){
+        var positions = carteNumeros[numStr];
+        if(!positions || !positions.length) return;
+        positions.forEach(function(pos){
+          if(pos.page !== p) return;
+          var pageKey = 'page_' + pos.page;
+          if(!cochesParPage[pageKey]) cochesParPage[pageKey] = [];
+          var deja = cochesParPage[pageKey].find(function(c){
+            return Math.abs(c.x - pos.x) < 3 && Math.abs(c.y - pos.y) < 3;
+          });
+          if(!deja){
+            cochesParPage[pageKey].push({x: pos.x, y: pos.y, id: Date.now() + Math.random()});
+          }
         });
-        if(!deja){
-          cochesParPage[pageKey].push({x: pos.x, y: pos.y, id: Date.now() + Math.random()});
-        }
       });
-    });
+    }
     try{ if(cleCochesActuel) localStorage.setItem(cleCochesActuel, JSON.stringify(cochesParPage)); }catch(e){}
     // Réafficher la page courante avec les coches mises à jour
     if(typeof renderPageJoueur === 'function' && overlayActuel && cleCochesActuel){
@@ -2972,6 +3029,8 @@ async function chargerPDFJoueur(url,cleCoches,overlay,cochesExistantes,pageDebut
       }catch(e){}
     }
     console.log('Carte numéros:', Object.keys(carteNumeros).length, 'numéros trouvés');
+    // Charger la structure des cases (1 boule pour 2/3) pour cocher la case entière
+    await chargerGroupesCartes(pageDebutActuel, pageFinActuel);
     
     await renderPageJoueur(pageNum,cleCoches,overlay);
     // 🎯 Vérification automatique : comparer les boules tirées avec ce PDF et cocher les numéros sortis
@@ -5857,7 +5916,7 @@ function b64ToBlob(b64, type){
 }
 
 // === POINTAGE AUTOMATIQUE JOUEUR ===
-let pointageAutoActif = false;
+let pointageAutoActif = true;
 let dernieresBoulesCochees = [];
 
 function togglePointageAuto(el){
@@ -5883,43 +5942,34 @@ async function pointageAutomatique(boules){
   var canvas = overlayActuel.querySelector('#pdf-canvas');
   if(!cochesLayer || !canvas) return;
   
-  boules.forEach(function(boule){
-    if(dernieresBoulesCochees.includes(boule)) return;
-    dernieresBoulesCochees.push(boule);
-    
-    // Chercher ce numéro dans la carte
-    var positions = carteNumeros[boule];
-    if(!positions || !positions.length) return;
-    
-    positions.forEach(function(pos){
-      // Vérifier si pas déjà coché
-      var pageKey = 'page_' + pos.page;
-      if(!cochesParPage[pageKey]) cochesParPage[pageKey] = [];
-      
-      var dejaCoché = cochesParPage[pageKey].find(function(c){
-        return Math.abs(c.x - pos.x) < 3 && Math.abs(c.y - pos.y) < 3;
-      });
-      
-      if(!dejaCoché){
-        var id = Date.now() + Math.random();
-        cochesParPage[pageKey].push({x: pos.x, y: pos.y, id: id});
-        
-        // Si c'est la page actuelle → afficher la coche immédiatement
-        if(pos.page === pageNum){
-          afficherCoche(pos.x, pos.y, id, cochesLayer, canvas);
-          // Mettre à jour le compteur
-          var total = Object.values(cochesParPage).flat().length;
-          var nbCoches = overlayActuel.querySelector('#nb-coches');
-          if(nbCoches) nbCoches.textContent = total + ' cochés';
+  (boules||[]).forEach(function(b){ if(!dernieresBoulesCochees.includes(b)) dernieresBoulesCochees.push(b); });
+  for(var p = pageDebutActuel; p <= pageFinActuel; p++){
+    var aCocher = numerosACocherSurPage(boules, p);
+    Object.keys(aCocher).forEach(function(numStr){
+      var positions = carteNumeros[numStr];
+      if(!positions || !positions.length) return;
+      positions.forEach(function(pos){
+        if(pos.page !== p) return;
+        var pageKey = 'page_' + pos.page;
+        if(!cochesParPage[pageKey]) cochesParPage[pageKey] = [];
+        var dejaCoché = cochesParPage[pageKey].find(function(c){
+          return Math.abs(c.x - pos.x) < 3 && Math.abs(c.y - pos.y) < 3;
+        });
+        if(!dejaCoché){
+          var id = Date.now() + Math.random();
+          cochesParPage[pageKey].push({x: pos.x, y: pos.y, id: id});
+          if(pos.page === pageNum){
+            afficherCoche(pos.x, pos.y, id, cochesLayer, canvas);
+            var total = Object.values(cochesParPage).flat().length;
+            var nbCoches = overlayActuel.querySelector('#nb-coches');
+            if(nbCoches) nbCoches.textContent = total + ' cochés';
+          }
+          localStorage.setItem(cleCochesActuel, JSON.stringify(cochesParPage));
         }
-        
-        // Sauvegarder
-        localStorage.setItem(cleCochesActuel, JSON.stringify(cochesParPage));
-      }
+      });
     });
-  });
+  }
   
-  // Vérifier BINGO automatique après cochage
   verifierBingoAutomatique();
 }
 
