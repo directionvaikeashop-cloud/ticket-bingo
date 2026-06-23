@@ -59,9 +59,10 @@ def _signature(cols):
     return tuple(tuple(c) for c in cols)
 
 
-def _draw_ticket(cv, serial, cols, coul):
+def _draw_ticket(cv, serial, cols, accent, couleur=True):
     x0, y0 = MARGIN, MARGIN
     cell_w = CARD_W / 5
+    bord = accent if couleur else GRIS_CLAIR
 
     # zones verticales : en-tête / 2 rangées / pied
     head_h = 14 * mm
@@ -70,8 +71,8 @@ def _draw_ticket(cv, serial, cols, coul):
     row_h = body_h / 2
     top = y0 + CARD_H
 
-    # cadre extérieur ARRONDI, en COULEUR (arc-en-ciel par ticket)
-    cv.setStrokeColor(coul)
+    # cadre extérieur ARRONDI (couleur arc-en-ciel, ou gris en N&B)
+    cv.setStrokeColor(bord)
     cv.setLineWidth(2.2)
     cv.roundRect(x0, y0, CARD_W, CARD_H, 6 * mm, stroke=1, fill=0)
 
@@ -87,34 +88,32 @@ def _draw_ticket(cv, serial, cols, coul):
     for i in range(1, 5):
         cv.line(x0 + i * cell_w, y0 + 5 * mm, x0 + i * cell_w, top - 5 * mm)
 
-    # en-tête A L O H A
+    # en-tête A L O H A (couleurs douces, ou gris en N&B)
     for i, lettre in enumerate(LETTRES):
         cx = x0 + (i + 0.5) * cell_w
-        cv.setFillColor(colors.HexColor(COUL_LETTRES[i]))
+        cv.setFillColor(colors.HexColor(COUL_LETTRES[i]) if couleur else GRIS)
         cv.setFont(POLICE, 18)
         cv.drawCentredString(cx, y_head + (head_h - 18) / 2 + 1, lettre)
 
-    # numéros (2 rangées × 5 colonnes, GROS, gris)
-    cv.setFillColor(GRIS)
+    # numéros (2 rangées × 5 colonnes, GROS, NOIR)
+    cv.setFillColor(colors.black)
     cv.setFont(POLICE, 56)
     for i in range(5):
         cx = x0 + (i + 0.5) * cell_w
         n1, n2 = cols[i]
-        # rangée du haut
         cv.drawCentredString(cx, y_head - row_h / 2 - 19, str(n1))
-        # rangée du bas
         cv.drawCentredString(cx, y_mid - row_h / 2 - 19, str(n2))
 
-    # pied : N° SÉRIE (gauche) + numéro (droite, en couleur du ticket)
+    # pied : N° SÉRIE (gauche) + numéro (droite)
     cv.setFont(POLICE, 8)
     cv.setFillColor(GRIS_CLAIR)
     cv.drawString(x0 + 6 * mm, y0 + foot_h / 2 - 3, "N° SÉRIE")
-    cv.setFillColor(coul)
+    cv.setFillColor(bord)
     cv.drawRightString(x0 + CARD_W - 6 * mm, y0 + foot_h / 2 - 3, "%06d" % serial)
 
 
-def generate_pdf(nb_tickets=500, serie_start=1, output_path="/data/ALOHA_75.pdf"):
-    """Génère nb_tickets tickets ALOHA 75 uniques (1 par page)."""
+def generate_pdf(nb_tickets=500, serie_start=1, output_path="/data/ALOHA_75.pdf", couleur=True):
+    """Génère nb_tickets tickets ALOHA 75 uniques (1 par page). couleur=False => Noir & Blanc."""
     nb_tickets = max(1, min(int(nb_tickets), 1000))
     serie_start = max(1, int(serie_start))
     rng = random.Random(751000 + serie_start)   # déterministe par série de départ
@@ -128,11 +127,16 @@ def generate_pdf(nb_tickets=500, serie_start=1, output_path="/data/ALOHA_75.pdf"
             continue
         vus.add(sig)
         serial = serie_start + produits
-        _draw_ticket(cv, serial, cols, RAINBOW[(serial - 1) % len(RAINBOW)])
+        _draw_ticket(cv, serial, cols, RAINBOW[(serial - 1) % len(RAINBOW)], couleur)
         cv.showPage()
         produits += 1
     cv.save()
     return output_path
+
+
+def generate_pdf_nb(nb_tickets=500, serie_start=1, output_path="/data/ALOHA_75_NB.pdf"):
+    """Version Noir & Blanc (économe en encre)."""
+    return generate_pdf(nb_tickets, serie_start, output_path, couleur=False)
 
 
 if __name__ == "__main__":
