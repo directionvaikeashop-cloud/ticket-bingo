@@ -7831,6 +7831,120 @@ def recherche_joueur():
     </div></body></html>'''
 
 
+@app.route("/trace-pions")
+def trace_pions():
+    """Trace COMPLETE et LECTURE SEULE de tous les mouvements de pions d'un code,
+    transferts inclus. ?cle=CODE_ADMIN requis ; ?code=CODE_JOUEUR."""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info_cle = DB.get("codes", {}).get(cle)
+    if not (info_cle and info_cle.get("admin")):
+        return Response(
+            "Acces reserve. Ajoute ?cle=TON_CODE_ADMIN (ex: /trace-pions?cle=TONCODE&code=CJNRPW).",
+            status=403, mimetype="text/plain; charset=utf-8")
+
+    def _i(x):
+        try:
+            return int(x or 0)
+        except Exception:
+            return 0
+
+    code = (request.args.get("code", "") or "").strip().upper()
+    corps = ""
+    if code:
+        mv = []
+        for c in DB.get("credits_admin", []):
+            if (c.get("code_joueur") or "").upper() == code:
+                mv.append((c.get("date", ""), "Crédit admin",
+                           f"{c.get('nb_pions')}×{c.get('valeur_pion')} (par {c.get('par','?')})",
+                           _i(c.get("valeur_pion")) * _i(c.get("nb_pions"))))
+        for cm in DB.get("credits_masse", []):
+            if code in (cm.get("codes") or []):
+                mv.append((cm.get("date", ""), "Crédit/Dédom.", cm.get("motif", "Dédommagement"),
+                           _i(cm.get("nb_pions")) * _i(cm.get("valeur_pion"))))
+        for c in DB.get("commandes_pions_joueurs", []):
+            if (c.get("code_joueur") or "").upper() == code and c.get("statut") == "validee":
+                nbp = c.get("pions_credites") or c.get("nb_pions") or 0
+                mv.append((c.get("date", ""), "Achat pions",
+                           f"{c.get('nb_pions')}×{c.get('valeur_pion')}",
+                           _i(nbp) * _i(c.get("valeur_pion"))))
+        for g in DB.get("gains_finaux", []):
+            if (g.get("code_gagnant") or "").upper() == code:
+                mv.append((g.get("date", ""), "Gain", f"Gain {g.get('jeu','')}", _i(g.get("montant_gain"))))
+        for c in DB.get("commandes_tickets_pions", []):
+            if (c.get("code_joueur") or "").upper() == code and c.get("statut") == "validee":
+                mv.append((c.get("date", ""), "Tickets",
+                           f"{c.get('jeu','')} ({c.get('nb_tickets',0)} tickets)", -_i(c.get("total_pions"))))
+        for c in DB.get("corrections_pions", []):
+            if (c.get("code_joueur") or "").upper() == code:
+                mv.append((c.get("date", ""), "Correction", c.get("motif", "Correction admin"),
+                           -_i(c.get("montant_retire"))))
+        for t in DB.get("transferts_pions", []):
+            if (t.get("de") or "").upper() == code:
+                mv.append((t.get("date", ""), "Transfert ENVOYÉ", f"→ vers {t.get('vers','?')}", -_i(t.get("montant"))))
+            if (t.get("vers") or "").upper() == code:
+                mv.append((t.get("date", ""), "Transfert REÇU", f"← de {t.get('de','?')}", _i(t.get("montant"))))
+
+        mv.sort(key=lambda x: str(x[0]))
+        pj = DB.get("pions_joueurs", {}).get(code, {})
+        solde_reel = pj.get("100", 0) * 100 + pj.get("50", 0) * 50 + pj.get("20", 0) * 20 + pj.get("10", 0) * 10
+
+        run = 0
+        total_in = 0
+        total_out = 0
+        rows = ""
+        for date, typ, detail, m in mv:
+            run += m
+            if m >= 0:
+                total_in += m
+            else:
+                total_out += -m
+            coul = "#6ee7b7" if m >= 0 else "#fca5a5"
+            mtxt = ("+" if m >= 0 else "") + format(m, ",")
+            rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+                     f'<td style="padding:8px;color:#64748b;font-size:12px">{str(date or "")[:16].replace("T"," ")}</td>'
+                     f'<td style="padding:8px;color:#c4b5fd">{typ}</td>'
+                     f'<td style="padding:8px;color:#cbd5e1">{detail}</td>'
+                     f'<td style="padding:8px;text-align:right;color:{coul};font-weight:700">{mtxt}</td>'
+                     f'<td style="padding:8px;text-align:right;color:#fff">{format(run,",")}</td></tr>')
+        if not rows:
+            rows = '<tr><td colspan="5" style="padding:20px;text-align:center;color:#94a3b8">Aucun mouvement tracé.</td></tr>'
+
+        solde_theorique = run
+        ecart = solde_reel - solde_theorique
+        bloc_ecart = ('<div style="background:#14532d;color:#bbf7d0;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:15px;font-weight:600">✅ Tout est tracé : aucun écart, le solde réel correspond exactement aux mouvements.</div>'
+                      if ecart == 0 else
+                      f'<div style="background:#7f1d1d;color:#fecaca;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:15px;font-weight:600">⚠️ Écart non tracé : <b>{format(ecart, ",")} XPF</b> (solde réel − somme des mouvements tracés). Ces pions ont bougé sans aucun enregistrement.</div>')
+        corps = (
+            '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">'
+            f'<div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Entrées tracées</div><div style="font-size:17px;font-weight:800;color:#3fb950">+{format(total_in, ",")}</div></div>'
+            f'<div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Sorties tracées</div><div style="font-size:17px;font-weight:800;color:#f85149">-{format(total_out, ",")}</div></div>'
+            f'<div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Solde théorique</div><div style="font-size:17px;font-weight:800;color:#58a6ff">{format(solde_theorique, ",")}</div></div>'
+            f'<div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Solde réel</div><div style="font-size:17px;font-weight:800;color:#fff">{format(solde_reel, ",")}</div></div>'
+            '</div>'
+            f'{bloc_ecart}'
+            '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">'
+            '<tr style="border-bottom:2px solid #3730a3"><th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Date</th><th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Type</th><th style="padding:8px;text-align:left;font-size:12px;color:#a78bfa">Détail</th><th style="padding:8px;text-align:right;font-size:12px;color:#a78bfa">Montant</th><th style="padding:8px;text-align:right;font-size:12px;color:#a78bfa">Solde</th></tr>'
+            f'{rows}</table></div>')
+
+    return f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Trace pions</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:880px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7;margin:4px 0 6px">🔎 Trace complète des pions (transferts inclus)</h1>
+      <p style="color:#64748b;font-size:13px;margin:0 0 16px">Lecture seule. Montre chaque mouvement, transferts envoyés/reçus compris.</p>
+      <form method="get" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+        <input type="hidden" name="cle" value="{cle}">
+        <input name="code" value="{code}" placeholder="Code (ex: CJNRPW)" autofocus
+          style="flex:1;min-width:180px;padding:12px 14px;border-radius:10px;border:1px solid #3730a3;background:#1a1830;color:#fff;font-size:16px;text-transform:uppercase">
+        <button type="submit" style="padding:12px 22px;border:0;border-radius:10px;background:#6366f1;color:#fff;font-size:15px;font-weight:700;cursor:pointer">Tracer</button>
+      </form>
+      {corps}
+      <div style="text-align:center;margin-top:20px;font-size:12px;color:#64748b">Page admin · lecture seule</div>
+    </div></body></html>'''
+
+
 @app.route("/api/rejoindre", methods=["POST"])
 def api_rejoindre():
     """Inscription automatique depuis la pub (page /rejoindre).
