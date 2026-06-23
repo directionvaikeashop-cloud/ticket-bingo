@@ -5690,7 +5690,7 @@ def releve_complet_joueur(code):
     # 3. Gains
     total_gains = 0
     for g in DB.get("gains_finaux", []):
-        if g.get("code_gagnant") == code:
+        if g.get("code_gagnant") == code and not g.get("annule"):
             total_gains += g.get("montant_gain", 0)
             lignes.append({
                 "date": g.get("date", "")[:16].replace("T", " "),
@@ -6481,7 +6481,7 @@ def releve_financier_joueur(code):
 
     # === ENTREE : gains à la cagnotte (pions gagnés au tournoi) ===
     for g in DB.get("gains_finaux", []):
-        if isinstance(g, dict) and g.get("code_gagnant") == code:
+        if isinstance(g, dict) and g.get("code_gagnant") == code and not g.get("annule"):
             gain = int(g.get("montant_credite", 0) or 0)
             if gain > 0:
                 lignes.append({
@@ -7871,6 +7871,9 @@ def trace_pions():
                            _i(nbp) * _i(c.get("valeur_pion"))))
         for g in DB.get("gains_finaux", []):
             if (g.get("code_gagnant") or "").upper() == code:
+                if g.get("annule"):
+                    mv.append((g.get("date", ""), "Gain ANNULÉ", f"Gain {g.get('jeu','')} (annulé — ne compte pas)", 0))
+                    continue
                 credite = _i(g.get("montant_credite", g.get("montant_gain", 0)))
                 especes = _i(g.get("montant_gain", 0)) - credite
                 det = f"Gain {g.get('jeu','')}"
@@ -7948,6 +7951,105 @@ def trace_pions():
       {corps}
       <div style="text-align:center;margin-top:20px;font-size:12px;color:#64748b">Page admin · lecture seule</div>
     </div></body></html>'''
+
+
+@app.route("/annuler-gain", methods=["GET", "POST"])
+def annuler_gain_page():
+    """Page admin LECTURE + annulation tracée d'un gain erroné.
+    Marque le gain 'annule' (ne compte plus dans le relevé). NE touche PAS la poche.
+    ?cle=CODE_ADMIN requis ; ?code=CODE_JOUEUR."""
+    global DB
+    DB = load_data()
+    cle = (request.values.get("cle", "") or "").strip().upper()
+    info_cle = DB.get("codes", {}).get(cle)
+    if not (info_cle and info_cle.get("admin")):
+        return Response(
+            "Acces reserve. Ajoute ?cle=TON_CODE_ADMIN (ex: /annuler-gain?cle=TONCODE&code=CJNRPW).",
+            status=403, mimetype="text/plain; charset=utf-8")
+
+    code = (request.values.get("code", "") or "").strip().upper()
+    message = ""
+
+    if request.method == "POST":
+        gid = (request.form.get("gain_id", "") or "").strip()
+        if gid:
+            trouve = False
+            for g in DB.get("gains_finaux", []):
+                if g.get("id") == gid and (g.get("code_gagnant") or "").upper() == code:
+                    g["annule"] = True
+                    g["annule_par"] = cle
+                    g["annule_date"] = datetime.datetime.now().isoformat()
+                    trouve = True
+                    break
+            if trouve:
+                DB.setdefault("gains_annules", []).insert(0, {
+                    "gain_id": gid, "code_joueur": code, "par": cle,
+                    "date": datetime.datetime.now().isoformat()
+                })
+                save_data(immediat=True)
+                message = ('<div style="background:#14532d;color:#bbf7d0;padding:14px 18px;border-radius:10px;'
+                           'margin-bottom:16px;font-size:15px;font-weight:600">✅ Gain annulé. Il ne compte plus dans le relevé. '
+                           'La poche de pions n\'a pas été modifiée.</div>')
+            else:
+                message = ('<div style="background:#7f1d1d;color:#fecaca;padding:14px 18px;border-radius:10px;'
+                           'margin-bottom:16px;font-size:15px">Gain introuvable pour ce code.</div>')
+
+    corps = ""
+    if code:
+        gains = [g for g in DB.get("gains_finaux", []) if (g.get("code_gagnant") or "").upper() == code]
+        if not gains:
+            corps = ('<div style="background:#1a1830;border-radius:10px;padding:16px;color:#94a3b8">'
+                     f'Aucun gain enregistré pour <b>{code}</b>.</div>')
+        else:
+            cartes = ""
+            for g in gains:
+                annule = g.get("annule")
+                mg = format(_safe_int_gain(g.get("montant_gain", 0)), ",")
+                date_c = (g.get("date", "") or "")[:16].replace("T", " ")
+                if annule:
+                    badge = '<span style="color:#fca5a5;font-weight:700">ANNULÉ</span>'
+                    bouton = ('<div style="color:#64748b;font-size:13px">Annulé le '
+                              + (g.get("annule_date", "") or "")[:16].replace("T", " ")
+                              + " par " + str(g.get("annule_par", "?")) + "</div>")
+                else:
+                    badge = '<span style="color:#6ee7b7;font-weight:700">ACTIF</span>'
+                    bouton = (f'<form method="post" onsubmit="return confirm(\'Annuler ce gain de {mg} XPF ? '
+                              f'(la poche de pions ne sera PAS modifiée)\');" style="margin-top:10px">'
+                              f'<input type="hidden" name="cle" value="{cle}">'
+                              f'<input type="hidden" name="code" value="{code}">'
+                              f'<input type="hidden" name="gain_id" value="{g.get("id","")}">'
+                              f'<button type="submit" style="padding:10px 18px;border:0;border-radius:8px;'
+                              f'background:#dc2626;color:#fff;font-weight:700;cursor:pointer">Annuler ce gain</button></form>')
+                cartes += (f'<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px 18px;margin-bottom:12px">'
+                           f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                           f'<div style="font-size:18px;font-weight:800;color:#c4b5fd">Gain {g.get("jeu","?")} — {mg} XPF</div>{badge}</div>'
+                           f'<div style="font-size:13px;color:#64748b;margin-top:4px">Le {date_c} · id {g.get("id","?")}</div>'
+                           f'{bouton}</div>')
+            corps = cartes
+
+    return f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Annuler un gain</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:720px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7;margin:4px 0 6px">🚫 Annuler un gain erroné</h1>
+      <p style="color:#64748b;font-size:13px;margin:0 0 16px">L'annulation retire le gain du relevé mais NE modifie PAS la poche de pions.</p>
+      <form method="get" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+        <input type="hidden" name="cle" value="{cle}">
+        <input name="code" value="{code}" placeholder="Code (ex: CJNRPW)" autofocus
+          style="flex:1;min-width:180px;padding:12px 14px;border-radius:10px;border:1px solid #3730a3;background:#1a1830;color:#fff;font-size:16px;text-transform:uppercase">
+        <button type="submit" style="padding:12px 22px;border:0;border-radius:10px;background:#6366f1;color:#fff;font-size:15px;font-weight:700;cursor:pointer">Voir les gains</button>
+      </form>
+      {message}
+      {corps}
+      <div style="text-align:center;margin-top:20px;font-size:12px;color:#64748b">Page admin · annulation tracée</div>
+    </div></body></html>'''
+
+
+def _safe_int_gain(x):
+    try:
+        return int(x or 0)
+    except Exception:
+        return 0
 
 
 @app.route("/api/rejoindre", methods=["POST"])
