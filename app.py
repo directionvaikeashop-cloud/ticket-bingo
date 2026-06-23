@@ -7871,7 +7871,12 @@ def trace_pions():
                            _i(nbp) * _i(c.get("valeur_pion"))))
         for g in DB.get("gains_finaux", []):
             if (g.get("code_gagnant") or "").upper() == code:
-                mv.append((g.get("date", ""), "Gain", f"Gain {g.get('jeu','')}", _i(g.get("montant_gain"))))
+                credite = _i(g.get("montant_credite", g.get("montant_gain", 0)))
+                especes = _i(g.get("montant_gain", 0)) - credite
+                det = f"Gain {g.get('jeu','')}"
+                if especes > 0:
+                    det += f" — dont {format(especes, ',')} en espèces (hors poche)"
+                mv.append((g.get("date", ""), "Gain", det, credite))
         for c in DB.get("commandes_tickets_pions", []):
             if (c.get("code_joueur") or "").upper() == code and c.get("statut") == "validee":
                 mv.append((c.get("date", ""), "Tickets",
