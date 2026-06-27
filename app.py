@@ -9255,8 +9255,8 @@ def trace_vente():
     if not (info and info.get("admin")):
         return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
 
-    jeu_q = (request.args.get("jeu", "") or "TRIPLE ACTION 75").strip()
-    date_q = (request.args.get("date", "") or "2026-06-27").strip()
+    jeu_q = (request.args.get("jeu", "") or "TRIPLE").strip()
+    date_q = (request.args.get("date", "") or "").strip()
     jeu_up = jeu_q.upper()
 
     def match(j, d):
@@ -9271,6 +9271,23 @@ def trace_vente():
 
     tot_ventes = sum(int(v.get("total", 0) or 0) for v in ventes)
     tot_pions = sum(int(c.get("total_pions", 0) or 0) for c in pions)
+
+    # Diagnostic : tous les jeux achetés en pions (pour repérer le nom EXACT)
+    tous_jeux = {}
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict):
+            j = c.get("jeu", "(sans nom)") or "(sans nom)"
+            e = tous_jeux.setdefault(j, {"n": 0, "last": ""})
+            e["n"] += 1
+            dt = str(c.get("date", ""))[:10]
+            if dt > e["last"]:
+                e["last"] = dt
+    diag_rows = "".join(
+        f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+        f'<td style="padding:6px;color:#cbd5e1">{j}</td>'
+        f'<td style="padding:6px;color:#34d399">{e["n"]}</td>'
+        f'<td style="padding:6px;color:#64748b;font-size:11px">{e["last"]}</td></tr>'
+        for j, e in sorted(tous_jeux.items(), key=lambda kv: -kv[1]["n"]))
 
     def sect(titre, rows, vide):
         return (f'<div style="font-size:13px;color:#8b949e;margin:14px 0 6px">{titre}</div>'
@@ -9304,7 +9321,7 @@ def trace_vente():
     return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trace vente</title></head>
     <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
     <div style="max-width:820px;margin:0 auto">
-      <h1 style="font-size:20px;color:#a855f7">🔎 Ventes « {jeu_q} » du {date_q}</h1>
+      <h1 style="font-size:20px;color:#a855f7">🔎 Ventes « {jeu_q} » {("du " + date_q) if date_q else "(toutes dates)"}</h1>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:12px 0">
         <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Ventes cartons</div><div style="font-size:18px;font-weight:800">{len(ventes)}</div><div style="font-size:11px;color:#fbbf24">{format(tot_ventes, ",")} F</div></div>
         <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Achats en pions</div><div style="font-size:18px;font-weight:800">{len(pions)}</div><div style="font-size:11px;color:#fbbf24">{format(tot_pions, ",")} F</div></div>
@@ -9313,7 +9330,9 @@ def trace_vente():
       {sect("🎫 Ventes de cartons (espèces / virement)", rv, "Aucune vente de cartons ce jour.")}
       {sect("🪙 Achats payés en pions", rp, "Aucun achat en pions ce jour.")}
       {sect("📋 Tickets attribués", rt, "Aucun ticket attribué ce jour.")}
-      <div style="margin-top:14px;color:#94a3b8;font-size:12px">Autre date : ajoute <code style="color:#a78bfa">&date=2026-06-26</code>. Autre jeu : <code style="color:#a78bfa">&jeu=OHANA 75</code>.</div>
+      <div style="font-size:13px;color:#8b949e;margin:18px 0 6px">🧭 Tous les jeux achetés en pions (pour repérer le nom exact)</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:360px"><tr style="border-bottom:2px solid #3730a3"><th style="padding:6px;text-align:left;color:#a78bfa">Jeu</th><th style="padding:6px;text-align:left;color:#a78bfa">Achats</th><th style="padding:6px;text-align:left;color:#a78bfa">Dernier</th></tr>{diag_rows or '<tr><td colspan=3 style="padding:10px;color:#94a3b8">Aucun achat en pions enregistré.</td></tr>'}</table></div>
+      <div style="margin-top:14px;color:#94a3b8;font-size:12px">Filtrer une date : <code style="color:#a78bfa">&date=2026-06-26</code>. Autre jeu : <code style="color:#a78bfa">&jeu=OHANA</code>.</div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
 
 @app.route("/rembourser-jeu")
