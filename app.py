@@ -9244,6 +9244,78 @@ def fusion_codes():
                 f'<p style="color:#94a3b8">Solde de <b>{vers}</b> : <b style="color:#6ee7b7">{solde(vers)} XPF</b> · {deplaces} mouvement(s) rattaché(s).</p>'
                 f'<p style="margin-top:10px"><a href="/diag-ecarts?cle={cle}" style="color:#a78bfa">← Revoir la réconciliation</a></p>')
 
+@app.route("/trace-vente")
+def trace_vente():
+    """ADMIN — Trace TOUTES les ventes d'un jeu à une date, dans toutes les listes :
+    ventes de cartons, achats en pions, tickets attribués. ?cle=ADMIN[&jeu=...][&date=AAAA-MM-JJ]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    jeu_q = (request.args.get("jeu", "") or "TRIPLE ACTION 75").strip()
+    date_q = (request.args.get("date", "") or "2026-06-27").strip()
+    jeu_up = jeu_q.upper()
+
+    def match(j, d):
+        return jeu_up in (j or "").upper() and (not date_q or str(d or "").startswith(date_q))
+
+    # 1) Ventes de cartons (organisatrice)
+    ventes = [v for v in DB.get("ventes", []) if isinstance(v, dict) and match(v.get("jeu"), v.get("date"))]
+    # 2) Achats en pions (self-service joueuse)
+    pions = [c for c in DB.get("commandes_tickets_pions", []) if isinstance(c, dict) and match(c.get("jeu"), c.get("date"))]
+    # 3) Tickets attribués
+    tks = [t for t in DB.get("tickets", []) if isinstance(t, dict) and match(t.get("jeu"), t.get("date"))]
+
+    tot_ventes = sum(int(v.get("total", 0) or 0) for v in ventes)
+    tot_pions = sum(int(c.get("total_pions", 0) or 0) for c in pions)
+
+    def sect(titre, rows, vide):
+        return (f'<div style="font-size:13px;color:#8b949e;margin:14px 0 6px">{titre}</div>'
+                + (f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">{rows}</table></div>'
+                   if rows else f'<div style="color:#6ee7b7;font-size:13px">{vide}</div>'))
+
+    rv = "".join(
+        f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+        f'<td style="padding:8px;color:#fff">{v.get("client","?")}</td>'
+        f'<td style="padding:8px;color:#cbd5e1">{v.get("qty",1)}×{v.get("pack",0)} feuilles</td>'
+        f'<td style="padding:8px;text-align:right;color:#fbbf24">{format(int(v.get("total",0) or 0), ",")} F</td>'
+        f'<td style="padding:8px;color:#a78bfa">{v.get("mode_paiement","?")}</td>'
+        f'<td style="padding:8px;color:#64748b;font-size:11px">{str(v.get("date",""))[:16].replace("T"," ")}</td></tr>'
+        for v in ventes)
+    rp = "".join(
+        f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+        f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{c.get("code_joueur","?")}</td>'
+        f'<td style="padding:8px;color:#cbd5e1">{c.get("nb_tickets","?")} ticket(s)</td>'
+        f'<td style="padding:8px;text-align:right;color:#fbbf24">{format(int(c.get("total_pions",0) or 0), ",")} F pions</td>'
+        f'<td style="padding:8px;color:#94a3b8">{c.get("statut","?")}</td>'
+        f'<td style="padding:8px;color:#64748b;font-size:11px">{str(c.get("date",""))[:16].replace("T"," ")}</td></tr>'
+        for c in pions)
+    rt = "".join(
+        f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+        f'<td style="padding:8px;color:#fff">{t.get("acheteur","?")}</td>'
+        f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{t.get("code_acheteur","?")}</td>'
+        f'<td style="padding:8px;color:#cbd5e1">série {t.get("serie","?")}</td>'
+        f'<td style="padding:8px;color:#64748b;font-size:11px">{str(t.get("date",""))[:16].replace("T"," ")}</td></tr>'
+        for t in tks)
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trace vente</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:820px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7">🔎 Ventes « {jeu_q} » du {date_q}</h1>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:12px 0">
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Ventes cartons</div><div style="font-size:18px;font-weight:800">{len(ventes)}</div><div style="font-size:11px;color:#fbbf24">{format(tot_ventes, ",")} F</div></div>
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Achats en pions</div><div style="font-size:18px;font-weight:800">{len(pions)}</div><div style="font-size:11px;color:#fbbf24">{format(tot_pions, ",")} F</div></div>
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Tickets attribués</div><div style="font-size:18px;font-weight:800">{len(tks)}</div></div>
+      </div>
+      {sect("🎫 Ventes de cartons (espèces / virement)", rv, "Aucune vente de cartons ce jour.")}
+      {sect("🪙 Achats payés en pions", rp, "Aucun achat en pions ce jour.")}
+      {sect("📋 Tickets attribués", rt, "Aucun ticket attribué ce jour.")}
+      <div style="margin-top:14px;color:#94a3b8;font-size:12px">Autre date : ajoute <code style="color:#a78bfa">&date=2026-06-26</code>. Autre jeu : <code style="color:#a78bfa">&jeu=OHANA 75</code>.</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
 @app.route("/rembourser-jeu")
 def rembourser_jeu():
     """ADMIN — Rembourse en pions bonus tous les achats d'un jeu (ex. TRIPLE ACTION 75)
