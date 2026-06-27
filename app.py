@@ -6704,9 +6704,9 @@ def releve_financier_joueur(code):
         _sor = sum(l["sortie"] for l in lignes)
         ajustement = solde_pions - (_ent - _sor)
         if ajustement > 0:
-            lignes.append({"date": "", "type": "Solde antérieur", "desc": "Avant le basculement sur le tournoi de TUKEA", "entree": ajustement, "sortie": 0})
+            lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (à vérifier — ne pas recréditer sans audit)", "entree": ajustement, "sortie": 0})
         elif ajustement < 0:
-            lignes.append({"date": "", "type": "Solde antérieur", "desc": "Avant le basculement sur le tournoi de TUKEA", "entree": 0, "sortie": -ajustement})
+            lignes.append({"date": "", "type": "Régularisation", "desc": "Autres mouvements (à vérifier — ne pas recréditer sans audit)", "entree": 0, "sortie": -ajustement})
 
     lignes.sort(key=lambda x: str(x["date"]), reverse=True)
 
@@ -12967,5 +12967,77 @@ def codes_bloques_page():
       <div style="color:#94a3b8;font-size:12px;margin-bottom:8px">Ces comptes ne peuvent ni se connecter, ni transférer, ni retirer. Débloque seulement si tu confirmes qu'un compte est légitime.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:460px">
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:8px;color:#fca5a5">Code</th><th style="padding:8px;color:#fca5a5">Nom</th><th style="padding:8px;color:#fca5a5;text-align:right">Solde gelé</th><th style="padding:8px;color:#fca5a5;text-align:right">Action</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/audit-credits-admin")
+def audit_credits_admin():
+    """ADMIN — Retrace TOUS les crédits effectués par l'administrateur (recrédits
+    de réconciliation). Montre lesquels sont allés vers des comptes BLOQUÉS
+    (fraude) — ceux qu'il ne fallait pas créditer. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    bloques = set(DB.get("codes_bloques", []))
+
+    items = []
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict):
+            continue
+        code = (c.get("code_joueur") or "").upper()
+        montant = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        items.append({
+            "code": code, "montant": montant, "par": c.get("par", "?"),
+            "date": str(c.get("date", "")), "bloque": code in bloques
+        })
+    # Crédits de masse aussi
+    for c in DB.get("credits_masse", []):
+        if not isinstance(c, dict):
+            continue
+        for code in (c.get("codes") or []):
+            code = (code or "").upper()
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            items.append({"code": code, "montant": m, "par": c.get("par", "masse"),
+                          "date": str(c.get("date", "")), "bloque": code in bloques})
+
+    items.sort(key=lambda x: x["date"], reverse=True)
+    total = sum(i["montant"] for i in items if i["montant"] > 0)
+    total_bloq = sum(i["montant"] for i in items if i["bloque"] and i["montant"] > 0)
+    total_ok = total - total_bloq
+    nb_bloq = len([i for i in items if i["bloque"]])
+
+    rows = ""
+    for i in items:
+        if i["bloque"]:
+            etat = '<span style="color:#f87171;font-weight:700">🔒 FRAUDE</span>'
+            bg = 'background:rgba(239,68,68,.06)'
+        else:
+            etat = '<span style="color:#34d399">✅ légitime</span>'
+            bg = ''
+        signe = "+" if i["montant"] >= 0 else ""
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06);{bg}">'
+                 f'<td style="padding:7px;color:#64748b;font-size:12px;white-space:nowrap">{i["date"][:16].replace("T"," ")}</td>'
+                 f'<td style="padding:7px;font-family:monospace;color:#a78bfa">{i["code"]}</td>'
+                 f'<td style="padding:7px;text-align:right;font-weight:700;color:{"#f87171" if i["bloque"] else "#34d399"}">{signe}{format(i["montant"], ",")} F</td>'
+                 f'<td style="padding:7px;font-family:monospace;color:#94a3b8;font-size:11px">{i["par"]}</td>'
+                 f'<td style="padding:7px">{etat}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#94a3b8">Aucun crédit admin enregistré.</td></tr>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Audit crédits admin</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:860px;margin:0 auto">
+      <h1 style="font-size:21px;color:#a855f7;margin-bottom:10px">🔧 Audit des crédits administrateur</h1>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">Total crédité</div><div style="color:#fff;font-size:18px;font-weight:700">{format(total, ",")} F</div></div>
+        <div style="background:rgba(239,68,68,.12);border:1px solid #f87171;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">🔒 Vers comptes frauduleux</div><div style="color:#f87171;font-size:18px;font-weight:700">{format(total_bloq, ",")} F</div></div>
+        <div style="background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">✅ Vers comptes sains</div><div style="color:#34d399;font-size:18px;font-weight:700">{format(total_ok, ",")} F</div></div>
+      </div>
+      <div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:8px;padding:12px;margin-bottom:14px;color:#fde68a;font-size:13px">⚠️ Les <b>{format(total_bloq, ",")} XPF</b> crédités vers les <b>{nb_bloq}</b> comptes frauduleux (en rouge) n'auraient pas dû l'être. Comme ces comptes sont gelés, ces pions sont neutralisés — mais ça confirme que c'était bien un audit qu'il fallait, pas un recrédit. Tu avais raison.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
+      <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:7px;color:#a78bfa">Date</th><th style="padding:7px;color:#a78bfa">Code crédité</th><th style="padding:7px;color:#a78bfa;text-align:right">Montant</th><th style="padding:7px;color:#a78bfa">Par</th><th style="padding:7px;color:#a78bfa">Verdict</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
