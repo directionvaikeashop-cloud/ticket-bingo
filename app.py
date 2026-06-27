@@ -9247,6 +9247,75 @@ def fusion_codes():
                 f'<p style="color:#94a3b8">Solde de <b>{vers}</b> : <b style="color:#6ee7b7">{solde(vers)} XPF</b> · {deplaces} mouvement(s) rattaché(s).</p>'
                 f'<p style="margin-top:10px"><a href="/diag-ecarts?cle={cle}" style="color:#a78bfa">← Revoir la réconciliation</a></p>')
 
+@app.route("/transfert-pions")
+def transfert_pions_admin():
+    """ADMIN UNIQUEMENT — Transfère des pions réels d'un code vers un autre.
+    Réservé à l'admin (les joueuses ne peuvent plus transférer entre elles).
+    ?cle=ADMIN&de=CODE&vers=CODE&montant=N[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    de = (request.args.get("de", "") or "").strip().upper()
+    vers = (request.args.get("vers", "") or "").strip().upper()
+    try:
+        montant = int(request.args.get("montant", 0) or 0)
+    except Exception:
+        montant = 0
+    confirme = request.args.get("confirme", "") == "1"
+
+    def page(corps):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Transfert admin</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:18px;color:#fff">
+        <div style="max-width:560px;margin:0 auto">{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    if not de or not vers or montant <= 0:
+        return page('<h1 style="color:#a855f7;font-size:20px">🔁 Transfert de pions (admin)</h1>'
+                    '<p style="color:#94a3b8">Complète l\'adresse ainsi :</p>'
+                    '<p style="color:#fde68a;font-family:monospace;font-size:13px;word-break:break-all">…/transfert-pions?cle=TON_CODE&de=CODE_SOURCE&vers=CODE_CIBLE&montant=500</p>'
+                    '<p style="color:#94a3b8;font-size:13px">Le montant doit être un multiple de 10. Seul toi (admin) peux faire ce transfert.</p>')
+
+    if de == vers:
+        return page('<p style="color:#fca5a5">Le code source et le code cible sont identiques.</p>')
+    if montant % 10 != 0:
+        return page('<p style="color:#fca5a5">Le montant doit être un multiple de 10 XPF.</p>')
+
+    pj = DB.setdefault("pions_joueurs", {})
+    solde_de = _xpf_total_pions(pj.get(de, {}))
+    solde_vers = _xpf_total_pions(pj.get(vers, {}))
+
+    if not confirme:
+        manque = '<div style="background:rgba(252,165,165,.12);border:1px solid #ef4444;border-radius:8px;padding:10px;margin:10px 0;color:#fca5a5">⚠️ Solde insuffisant sur le code source.</div>' if solde_de < montant else ''
+        url_ok = f"/transfert-pions?cle={cle}&de={de}&vers={vers}&montant={montant}&confirme=1"
+        return page(f'<h1 style="color:#a855f7;font-size:20px">🔁 Aperçu du transfert</h1>'
+                    f'<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:12px 0;line-height:1.8">'
+                    f'De <code style="color:#fca5a5">{de}</code> ({format(solde_de, ",")} F) <br>'
+                    f'Vers <code style="color:#6ee7b7">{vers}</code> ({format(solde_vers, ",")} F)<br>'
+                    f'Montant : <b style="color:#fbbf24">{format(montant, ",")} F</b></div>{manque}'
+                    + ('' if solde_de < montant else
+                       f'<a href="{url_ok}" style="display:inline-block;background:#059669;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer le transfert</a>')
+                    + '<p style="color:#6b7280;font-size:12px;margin-top:10px">Transfert tracé (admin).</p>')
+
+    # === EXECUTION ===
+    poche_src = pj.get(de, {})
+    if _xpf_total_pions(poche_src) < montant or not _debiter_pions_montant(poche_src, montant):
+        return page(f'<p style="color:#fca5a5">Solde insuffisant sur {de}.</p>')
+    pj[de] = poche_src
+    poche_cib = pj.get(vers, {})
+    _crediter_pions_montant(poche_cib, montant)
+    pj[vers] = poche_cib
+    DB.setdefault("transferts_pions", []).insert(0, {
+        "id": secrets.token_hex(4).upper(), "de": de, "vers": vers, "montant": montant,
+        "par": cle, "admin": True, "date": datetime.datetime.now().isoformat()
+    })
+    save_data(immediat=True)
+    return page(f'<h1 style="color:#34d399;font-size:20px">✅ Transfert effectué</h1>'
+                f'<p style="color:#fff"><b>{format(montant, ",")} F</b> transférés de <code style="color:#fca5a5">{de}</code> vers <code style="color:#6ee7b7">{vers}</code>.</p>'
+                f'<p style="color:#94a3b8">Nouveau solde {de} : {format(_xpf_total_pions(poche_src), ",")} F · {vers} : {format(_xpf_total_pions(poche_cib), ",")} F</p>')
+
 @app.route("/trace-vente")
 def trace_vente():
     """ADMIN — Trace TOUTES les ventes d'un jeu à une date, dans toutes les listes :
