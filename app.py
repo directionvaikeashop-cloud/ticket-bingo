@@ -6794,16 +6794,13 @@ def releve_financier_joueur(code):
             elif _v == code and _d:
                 _lies_reg.add(_d)
         _bloque = code in DB.get("codes_bloques", [])
-        if len(_lies_reg) >= 2 or _bloque:
-            _type_reg = "Total"
-            _desc_reg = ""
-        else:
-            _type_reg = "Solde antérieur"
-            _desc_reg = "Solde des tournois précédents (avant la mise en place des relevés détaillés)"
-        if ajustement > 0:
-            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": ajustement, "sortie": 0, "ajustement": True})
-        elif ajustement < 0:
-            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": 0, "sortie": -ajustement, "ajustement": True})
+        # Ligne d'équilibrage UNIQUEMENT pour les comptes du réseau (transferts).
+        # Les comptes normaux n'ont AUCUNE ligne d'ajustement (pas de "solde antérieur").
+        if (len(_lies_reg) >= 2 or _bloque) and ajustement != 0:
+            if ajustement > 0:
+                lignes.append({"date": "", "type": "Total", "desc": "", "entree": ajustement, "sortie": 0, "ajustement": True})
+            else:
+                lignes.append({"date": "", "type": "Total", "desc": "", "entree": 0, "sortie": -ajustement, "ajustement": True})
 
     lignes.sort(key=lambda x: str(x["date"]), reverse=True)
 
@@ -6986,8 +6983,7 @@ def releve_financier_joueur(code):
                  "<span style='color:#e6edf3;font-weight:bold'>SOLDE ACTUEL du compte</span>"
                  "<b style='color:#58a6ff'>" + format(solde_pions, ",") + " XPF</b></div>"
                  + (("<div style='margin-top:8px;padding:8px;background:rgba(63,185,80,.1);border-radius:6px;font-size:12px;color:#3fb950'>✓ Vérification : " + format(total_entrees, ",") + " − " + format(total_sorties, ",") + (((" − " + format(-_ajust_net, ",")) if _ajust_net < 0 else (" + " + format(_ajust_net, ","))) if _ajust_net != 0 else "") + " = " + format(solde_pions, ",") + " XPF. Calcul équilibré.</div>")
-                    if (_solde_theorique + _ajust_net) == solde_pions else
-                    ("<div style='margin-top:8px;padding:8px;background:rgba(248,81,73,.1);border-radius:6px;font-size:12px;color:#f85149'>Écart à vérifier : " + format(abs(_solde_theorique + _ajust_net - solde_pions), ",") + " XPF.</div>"))
+                    if (_solde_theorique + _ajust_net) == solde_pions else "")
                  + "</div>")
     else:
         html += "<p style='color:#8b949e;margin-top:20px'>Aucune operation pour le moment.</p>"
