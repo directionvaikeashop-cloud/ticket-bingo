@@ -13411,3 +13411,90 @@ def preuve_code():
       <p style="font-size:12px;color:#444;margin-top:16px">Achats réels de pions par ce compte : {format(tot_achat, ',')} XPF. Les journaux techniques horodatés sont conservés et communicables à l'autorité judiciaire sur réquisition.</p>
       <p style="font-size:12px;margin-top:18px">Fait à Papeete, le {maintenant}. Signature : ____________________</p>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/neutraliser-debloquer")
+def neutraliser_debloquer():
+    """ADMIN — En sécurité : (1) rejette les retraits frauduleux en attente,
+    (2) remet à zéro les pions des comptes bloqués, (3) débloque. Aperçu d'abord ;
+    rien sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+    bloques = list(DB.get("codes_bloques", []))
+
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    def bonus(c):
+        p = DB.get("pions_bonus_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+
+    # Ce qui sera fait
+    total_pions = sum(solde(c) + bonus(c) for c in bloques)
+    retr_att = []
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and (r.get("code_joueur") or "").upper() in [b.upper() for b in bloques] and r.get("statut") in (None, "", "en_attente"):
+            retr_att.append(r)
+    total_retr = sum(int(r.get("montant_demande", 0) or 0) for r in retr_att)
+
+    if confirme:
+        # 1. Rejeter les retraits en attente des comptes bloqués
+        for r in DB.get("demandes_retrait", []):
+            if isinstance(r, dict) and (r.get("code_joueur") or "").upper() in [b.upper() for b in bloques] and r.get("statut") in (None, "", "en_attente"):
+                r["statut"] = "rejete_fraude"
+        # 2. Remettre à zéro les pions (réels + bonus)
+        for c in bloques:
+            DB.setdefault("pions_joueurs", {})[c] = {}
+            if c in DB.get("pions_bonus_joueurs", {}):
+                DB["pions_bonus_joueurs"][c] = {}
+        # 3. Débloquer
+        DB["codes_bloques"] = []
+        DB.setdefault("neutralisations_fraude", []).insert(0, {
+            "id": secrets.token_hex(4).upper(), "nb_comptes": len(bloques),
+            "pions_remis_zero": total_pions, "retraits_rejetes": total_retr,
+            "par": cle, "date": datetime.datetime.now().isoformat()
+        })
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:10px;padding:18px;color:#34d399">
+        <h1 style="font-size:20px;margin:0 0 10px">✅ Terminé — en sécurité</h1>
+        <ul style="font-size:14px;line-height:1.8;color:#e6edf3">
+        <li>🚫 <b>{format(total_retr, ",")} XPF</b> de retraits frauduleux <b>rejetés</b></li>
+        <li>🧹 <b>{format(total_pions, ",")} XPF</b> de pions fabriqués <b>remis à zéro</b></li>
+        <li>🔓 <b>{len(bloques)}</b> comptes <b>débloqués</b> (solde 0 → inoffensifs)</li>
+        <li>📄 Ils affichent maintenant « <b>Solde antérieur</b> » comme les bons joueurs</li>
+        </ul>
+        <div style="color:#94a3b8;font-size:13px;margin-top:8px">Les transferts et IP restent visibles sur leurs relevés (traçage conservé). Action tracée.</div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    # APERÇU
+    rows = ""
+    for c in sorted(bloques, key=lambda x: -(solde(x)+bonus(x))):
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:7px;font-family:monospace;color:#a78bfa">{c}</td>'
+                 f'<td style="padding:7px;text-align:right;color:#34d399">{format(solde(c)+bonus(c), ",")} F</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="2" style="padding:14px;color:#94a3b8">Aucun compte bloqué.</td></tr>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Neutraliser puis débloquer</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:760px;margin:0 auto">
+      <h1 style="font-size:21px;color:#a855f7;margin-bottom:10px">🛡️ Neutraliser puis débloquer — APERÇU</h1>
+      <div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="color:#fde68a;font-weight:700;margin-bottom:6px">👁️ Rien n'est encore modifié. Voici ce qui sera fait :</div>
+        <ul style="color:#e6edf3;font-size:14px;line-height:1.8;margin:0">
+          <li>🚫 Rejeter <b>{format(total_retr, ",")} XPF</b> de retraits en attente ({len(retr_att)} demandes)</li>
+          <li>🧹 Remettre à zéro <b>{format(total_pions, ",")} XPF</b> de pions sur <b>{len(bloques)}</b> comptes</li>
+          <li>🔓 Débloquer ces {len(bloques)} comptes (devenus inoffensifs, solde 0)</li>
+        </ul>
+      </div>
+      <a href="/neutraliser-debloquer?cle={cle}&confirme=1" style="display:inline-block;background:#ef4444;color:#fff;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:800;font-size:15px;margin-bottom:14px">✅ Confirmer (neutraliser + débloquer)</a>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:360px">
+      <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:7px;color:#a78bfa">Compte bloqué</th><th style="padding:7px;color:#a78bfa;text-align:right">Pions à remettre à 0</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
