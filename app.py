@@ -12915,3 +12915,57 @@ def dossier_fraude():
       <p style="font-size:12px;color:#444;margin-top:18px">Les journaux techniques (connexions, transferts, horodatages, adresses IP) sont conservés et peuvent être communiqués à l'autorité judiciaire sur réquisition. L'identification des abonnés derrière les adresses IP relève des fournisseurs d'accès, sur réquisition.</p>
       <p style="font-size:12px;margin-top:24px">Fait à Papeete, le {maintenant}.<br>Signature : ______________________________</p>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/codes-bloques")
+def codes_bloques_page():
+    """ADMIN — Liste tous les codes BLOQUÉS avec leur solde gelé. Débloquer en 1 clic.
+    ?cle=ADMIN[&debloquer=CODE]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    DB.setdefault("codes_bloques", [])
+    msg = ""
+    deb = (request.args.get("debloquer", "") or "").strip().upper()
+    if deb:
+        DB["codes_bloques"] = [c for c in DB["codes_bloques"] if c != deb]
+        save_data(immediat=True)
+        msg = f"🔓 {deb} a été débloqué."
+
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    def nom_de(c):
+        return DB.get("codes", {}).get(c, {}).get("nom", "") or ""
+
+    bloques = sorted(DB.get("codes_bloques", []), key=lambda c: -solde(c))
+    total_gele = sum(solde(c) for c in bloques)
+
+    rows = ""
+    for c in bloques:
+        nm = nom_de(c)
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{c}</td>'
+                 f'<td style="padding:8px;color:#94a3b8;font-size:12px">{nm}</td>'
+                 f'<td style="padding:8px;text-align:right;color:#34d399">{format(solde(c), ",")} F</td>'
+                 f'<td style="padding:8px;text-align:right"><a href="/codes-bloques?cle={cle}&debloquer={c}" style="color:#93c5fd;text-decoration:none">🔓 débloquer</a></td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="4" style="padding:16px;text-align:center;color:#34d399">Aucun code bloqué.</td></tr>'
+    msg_html = f'<div style="background:rgba(99,102,241,.15);border:1px solid #6366f1;border-radius:8px;padding:10px;margin-bottom:12px;color:#c7d2fe;font-weight:700">{msg}</div>' if msg else ""
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codes bloqués</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto">
+      <h1 style="font-size:21px;color:#f87171;margin-bottom:8px">🔒 Codes bloqués</h1>
+      {msg_html}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">Comptes bloqués</div><div style="color:#f87171;font-size:20px;font-weight:700">{len(bloques)}</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">Pions gelés</div><div style="color:#34d399;font-size:20px;font-weight:700">{format(total_gele, ",")} F</div></div>
+      </div>
+      <div style="color:#94a3b8;font-size:12px;margin-bottom:8px">Ces comptes ne peuvent ni se connecter, ni transférer, ni retirer. Débloque seulement si tu confirmes qu'un compte est légitime.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:460px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:8px;color:#fca5a5">Code</th><th style="padding:8px;color:#fca5a5">Nom</th><th style="padding:8px;color:#fca5a5;text-align:right">Solde gelé</th><th style="padding:8px;color:#fca5a5;text-align:right">Action</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
