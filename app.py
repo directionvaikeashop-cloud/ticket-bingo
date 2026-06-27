@@ -14593,3 +14593,95 @@ def credits_admin_liste():
         Total général des crédits admin : <b>{format(total_general, ",")} XPF</b> · {len(cles_triees)} lot(s). Repère le lot d'hier soir (sauf Flash Quines) → on l'annulera ensuite.</div>
       {blocs if blocs else '<div style="color:#8b949e">Aucun crédit admin trouvé.</div>'}
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/annuler-credits-periode")
+def annuler_credits_periode():
+    """ADMIN — Annule les crédits admin erronés d'une fenêtre de temps (du/au).
+    Retire les crédits ET déduit le montant du compteur du joueur. Aperçu d'abord ;
+    rien sans &confirme=1. ?cle=ADMIN&du=2026-06-27T03:00&au=2026-06-27T05:00[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    du = (request.args.get("du", "2026-06-27T03:00") or "").strip()
+    au = (request.args.get("au", "2026-06-27T05:00") or "").strip()
+    confirme = request.args.get("confirme", "") == "1"
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def poser_solde(c, montant):
+        montant = max(0, int(montant))
+        DB.setdefault("pions_joueurs", {})[c] = {"100": montant//100, "50": (montant%100)//50, "20": (montant%50)//20, "10": (montant%20)//10}
+
+    # Crédits dans la fenêtre
+    vises = []
+    par_compte = {}
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict):
+            continue
+        d = str(c.get("date", ""))
+        if d and du <= d <= au + "~":
+            cj = (c.get("code_joueur") or "").upper()
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            vises.append((cj, m, d[:16]))
+            par_compte[cj] = par_compte.get(cj, 0) + m
+    total = sum(m for _, m, _ in vises)
+
+    if confirme and vises:
+        DB["credits_admin"] = [c for c in DB.get("credits_admin", [])
+                               if not (isinstance(c, dict) and str(c.get("date","")) and du <= str(c.get("date","")) <= au + "~")]
+        for cj, m in par_compte.items():
+            poser_solde(cj, solde(cj) - m)
+        DB.setdefault("annulations_credits", []).insert(0, {
+            "id": secrets.token_hex(4).upper(), "du": du, "au": au,
+            "nb_credits": len(vises), "total": total, "comptes": len(par_compte),
+            "par": cle, "date": datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+
+    # Tableau par compte (avant/après)
+    rows = ""
+    for cj, m in sorted(par_compte.items(), key=lambda x: -x[1]):
+        if confirme:
+            apres = solde(cj); avant = apres + m
+        else:
+            avant = solde(cj); apres = max(0, avant - m)
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:6px;font-family:monospace;color:#a78bfa">{cj}</td>'
+                 f'<td style="padding:6px;color:#94a3b8;font-size:12px">{noms.get(cj,"")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#f87171;font-weight:700">-{format(m, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#8b949e">{format(avant, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#6ee7b7;font-weight:700">{format(apres, ",")}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#8b949e">Aucun crédit dans cette fenêtre.</td></tr>'
+
+    detail = ""
+    for cj, m, d in sorted(vises, key=lambda x: x[2], reverse=True):
+        detail += f'<div style="font-size:12px;color:#8b949e;padding:2px 0">{d} · {cj} {noms.get(cj,"")} · <span style="color:#f87171">+{format(m, ",")}</span></div>'
+
+    if confirme:
+        banniere = (f'<div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:10px;padding:14px;margin-bottom:14px;color:#34d399;font-weight:800">'
+                    f'✅ FAIT — {len(vises)} crédit(s) erronés annulés ({format(total, ",")} XPF retirés). {len(par_compte)} compte(s) corrigés.</div>')
+    else:
+        banniere = (f'<div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:10px;padding:14px;margin-bottom:14px">'
+                    f'<div style="color:#fde68a;font-weight:700;margin-bottom:6px">👁️ APERÇU — rien n\'est encore modifié</div>'
+                    f'<div style="color:#94a3b8;font-size:13px;margin-bottom:10px">Fenêtre <b>{du}</b> → <b>{au}</b> : <b style="color:#f87171">{len(vises)} crédit(s) à annuler, {format(total, ",")} XPF</b> sur {len(par_compte)} compte(s).</div>'
+                    f'<a href="/annuler-credits-periode?cle={cle}&du={du}&au={au}&confirme=1" style="display:inline-block;background:#ef4444;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer l\'annulation de ce lot</a></div>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Annuler crédits erronés</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:820px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f0883e;margin-bottom:8px">🧹 Annuler le lot de crédits erronés</h1>
+      {banniere}
+      <h2 style="font-size:15px;color:#93c5fd;margin:14px 0 6px">Effet par compte (avant → après)</h2>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:6px;color:#fca5a5">Code</th><th style="padding:6px;color:#fca5a5">Nom</th><th style="padding:6px;color:#fca5a5;text-align:right">Retiré</th><th style="padding:6px;color:#fca5a5;text-align:right">Avant</th><th style="padding:6px;color:#fca5a5;text-align:right">Après</th></tr>
+      {rows}</table></div>
+      <h2 style="font-size:15px;color:#93c5fd;margin:18px 0 6px">Détail des crédits visés</h2>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;max-height:300px;overflow-y:auto">{detail or '<span style="color:#8b949e">—</span>'}</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
