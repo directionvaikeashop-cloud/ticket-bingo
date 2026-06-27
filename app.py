@@ -8702,44 +8702,102 @@ def diag_ecarts():
                 if ret > 0: sor += ret
         return ent - sor
 
-    # Tous les codes concernés : gagnants + tout joueur ayant un solde de pions
-    codes = set()
+    # Codes des ORGANISATEURS / ADMIN / REVENDEURS = clés de DB["codes"].
+    # Ce ne sont PAS des joueuses -> on les exclut de la réconciliation.
+    codes_non_joueurs = set((k or "").upper().strip() for k in DB.get("codes", {}).keys())
+
+    # Codes ayant reçu un GAIN enregistré (signature d'une vraie perte si non reflété)
+    codes_avec_gain = set()
     for g in DB.get("gains_finaux", []):
         cg = (g.get("code_gagnant") or "").upper().strip()
-        if cg: codes.add(cg)
-    for k in pj_all.keys():
-        if k: codes.add(k)
+        if cg:
+            codes_avec_gain.add(cg)
 
-    rows = []
+    # Tous les codes JOUEUSES à analyser : gagnantes + tout solde de pions
+    codes = set()
+    for cg in codes_avec_gain:
+        codes.add(cg)
+    for k in pj_all.keys():
+        if k:
+            codes.add(k.upper().strip() if isinstance(k, str) else k)
+
+    # --- Détection des codes en DOUBLE (O/0, I/1, emoji, espaces) ---
+    def _norm(c):
+        s = "".join(ch for ch in str(c).upper() if ch.isalnum())
+        return s.replace("O", "0").replace("I", "1")
+    groupes = {}
+    for c in codes:
+        groupes.setdefault(_norm(c), []).append(c)
+    doublons = [sorted(v) for v in groupes.values() if len(set(v)) > 1]
+
+    prio = []        # vraie perte de gain (a un gain enregistré, solde en dessous)
+    a_verifier = []  # écart négatif sans gain (peut être un vieux solde)
+    en_trop = 0      # nombre de "en trop" (jamais une dette)
+    impossibles = 0  # attendu < 0 (journal incomplet)
+
     for code in codes:
+        if code in codes_non_joueurs:
+            continue  # organisateur / admin -> ignoré
         attendu = attendu_pour(code)
         reel = solde_reel(code)
         ecart = reel - attendu
-        rows.append((code, reel, attendu, ecart))
-
-    rows.sort(key=lambda r: r[3])  # déficits d'abord
-    corps = ""
-    a_recrediter = 0; total_du = 0
-    for code, reel, attendu, ecart in rows:
-        if ecart < 0:
-            coul = "#fca5a5"; note = f"⚠️ doit {-ecart} XPF → {deco(-ecart)}"
-            a_recrediter += 1; total_du += -ecart
-        elif ecart > 0:
-            coul = "#fde68a"; note = f"+{ecart} XPF (en trop)"
+        if ecart >= 0:
+            if ecart > 0:
+                en_trop += 1
+            continue
+        if attendu < 0:
+            impossibles += 1
+            continue  # cas impossible -> journal incomplet, pas fiable
+        ligne = (code, reel, attendu, -ecart)
+        if code in codes_avec_gain:
+            prio.append(ligne)
         else:
-            continue  # on n'affiche que les écarts
-        corps += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
-                  f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{code}</td>'
-                  f'<td style="padding:8px;color:#94a3b8">a {reel} / devrait {attendu}</td>'
-                  f'<td style="padding:8px;color:{coul};font-weight:600">{note}</td></tr>')
+            a_verifier.append(ligne)
+
+    prio.sort(key=lambda r: -r[3])
+    a_verifier.sort(key=lambda r: -r[3])
+
+    def _tr(r, accent):
+        code, reel, attendu, du = r
+        return (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+                f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{code}</td>'
+                f'<td style="padding:8px;color:#94a3b8">a {reel} / devrait {attendu}</td>'
+                f'<td style="padding:8px;color:{accent};font-weight:600">doit {du} XPF → {deco(du)}</td></tr>')
+
+    corps_prio = "".join(_tr(r, "#fca5a5") for r in prio) or '<tr><td colspan="3" style="padding:10px;color:#6ee7b7">Aucune perte de gain détectée. ✅</td></tr>'
+    corps_verif = "".join(_tr(r, "#fbbf24") for r in a_verifier) or '<tr><td colspan="3" style="padding:10px;color:#6ee7b7">Rien à vérifier. ✅</td></tr>'
+
+    total_prio = sum(r[3] for r in prio)
+    bloc_doublons = ""
+    if doublons:
+        items = "".join(f'<li style="margin:4px 0;font-family:monospace;color:#fde68a">{" = ".join(g)}</li>' for g in doublons)
+        bloc_doublons = (f'<div style="margin-top:18px;background:rgba(251,191,36,.08);border:1px solid #f59e0b;border-radius:10px;padding:12px">'
+                         f'<div style="color:#fbbf24;font-weight:700;margin-bottom:6px">🔁 Codes très similaires — peut-être la MÊME joueuse</div>'
+                         f'<ul style="margin:0;padding-left:18px;font-size:13px">{items}</ul>'
+                         f'<div style="color:#94a3b8;font-size:12px;margin-top:6px">Vérifie : ses pions sont peut-être sur un code et son gain sur l\'autre. Ne la recrédite qu\'UNE fois.</div></div>')
 
     return f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Réconciliation des soldes</title></head>
     <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
-    <div style="max-width:780px;margin:0 auto">
+    <div style="max-width:820px;margin:0 auto">
       <h1 style="font-size:20px;color:#a855f7">🧮 Réconciliation des soldes</h1>
-      <div style="color:#94a3b8;font-size:13px;margin-bottom:14px">{len(rows)} joueur(s) analysé(s) · <b style="color:#fca5a5">{a_recrediter} à recréditer</b> · total dû <b style="color:#fca5a5">{total_du} XPF</b></div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">{corps or '<tr><td style="padding:10px;color:#6ee7b7">✅ Tous les soldes sont justes.</td></tr>'}</table>
-      <div style="margin-top:14px;color:#94a3b8;font-size:12px">« doit X XPF » = la joueuse a des mouvements enregistrés (gain, achat…) qui ne sont pas dans son solde réel → recrédite-la avec l'outil admin « Recréditer joueur » en utilisant la décomposition indiquée. Le mouvement sera tracé (Crédit admin) et la ligne passera au vert.</div>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:16px">Joueuses seulement (organisateurs exclus). Les « soldes en trop » ne sont <b>jamais</b> une dette.</div>
+
+      <div style="background:rgba(252,165,165,.07);border:1px solid #ef4444;border-radius:10px;padding:12px;margin-bottom:16px">
+        <div style="color:#fca5a5;font-weight:700;margin-bottom:8px">🔴 Pertes de gain confirmées — à recréditer en priorité ({len(prio)} · {total_prio} XPF)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">{corps_prio}</table>
+      </div>
+
+      <div style="background:rgba(251,191,36,.06);border:1px solid #f59e0b;border-radius:10px;padding:12px;margin-bottom:16px">
+        <div style="color:#fbbf24;font-weight:700;margin-bottom:8px">🟠 Écarts à vérifier au cas par cas ({len(a_verifier)})</div>
+        <div style="color:#94a3b8;font-size:12px;margin-bottom:8px">Pas de gain enregistré pour ces codes : ça peut être un <b>vieux solde d'avant le journal</b>. Ne recrédite que si la joueuse réclame et que tu confirmes.</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">{corps_verif}</table>
+      </div>
+
+      <div style="color:#6ee7b7;font-size:13px;margin-bottom:6px">🟢 {en_trop} joueuse(s) ont « plus » que le journal ne sait expliquer → <b>aucune dette</b>, rien à faire.</div>
+      <div style="color:#94a3b8;font-size:12px">⚪ {impossibles} cas ignorés (journal incomplet, montant impossible).</div>
+      {bloc_doublons}
+
+      <div style="margin-top:16px;color:#94a3b8;font-size:12px;line-height:1.5">Pour recréditer : outil admin « Recréditer joueur », avec la décomposition indiquée. Le mouvement est tracé (Crédit admin) et la ligne disparaît d'ici.</div>
     </div></body></html>'''
 
 @app.route("/diag-campagnes")
