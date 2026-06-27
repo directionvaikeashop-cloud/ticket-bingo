@@ -9238,6 +9238,100 @@ def fusion_codes():
                 f'<p style="color:#94a3b8">Solde de <b>{vers}</b> : <b style="color:#6ee7b7">{solde(vers)} XPF</b> · {deplaces} mouvement(s) rattaché(s).</p>'
                 f'<p style="margin-top:10px"><a href="/diag-ecarts?cle={cle}" style="color:#a78bfa">← Revoir la réconciliation</a></p>')
 
+@app.route("/bilan-qr")
+def bilan_qr():
+    """ADMIN — Bilan global des joueuses inscrites par le QR (publicité). ?cle=ADMIN."""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    log = DB.get("rejoindre_log", [])
+    deja = set(DB.get("bonus_petitsjeux_donne", []))
+    acces_reg = DB.get("tickets_acheteurs", {})
+
+    def bonus_solde(code):
+        pb = DB.get("pions_bonus_joueurs", {}).get(code, {})
+        return pb.get("100", 0) * 100 + pb.get("50", 0) * 50 + pb.get("20", 0) * 20 + pb.get("10", 0) * 10
+
+    vus = set()
+    inscrits = []
+    par_camp = {}
+    for x in log:
+        code = (x.get("code", "") or "").strip().upper()
+        if not code or code in vus:
+            continue
+        vus.add(code)
+        camp = (x.get("campagne", "") or "(sans)")
+        inscrits.append((code, camp))
+        par_camp[camp] = par_camp.get(camp, 0) + 1
+
+    total = len(inscrits)
+    nb_acces = sum(1 for code, _ in inscrits if code in acces_reg)
+    total_bonus = sum(bonus_solde(code) for code, _ in inscrits)
+    doublons = [code for code, camp in inscrits if code in deja and camp == "semaine"]
+    nb_double = len(doublons)
+    en_trop = nb_double * 500
+    nb_semaine = par_camp.get("semaine", 0)
+    cadeaux_legit = nb_semaine * 500
+
+    # Qui a joué (au moins un achat de tickets en pions, validé)
+    actifs = set()
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and c.get("statut") == "validee":
+            cj = (c.get("code_joueur", "") or "").strip().upper()
+            if cj in vus:
+                actifs.add(cj)
+    nb_joue = len(actifs)
+    nb_jamais = total - nb_joue
+
+    def carte(label, val, coul="#fff"):
+        return (f'<div style="background:#161b22;border-radius:10px;padding:14px;text-align:center">'
+                f'<div style="font-size:12px;color:#8b949e;margin-bottom:4px">{label}</div>'
+                f'<div style="font-size:20px;font-weight:800;color:{coul}">{val}</div></div>')
+
+    camp_rows = ""
+    for c, n in sorted(par_camp.items(), key=lambda kv: -kv[1]):
+        pct = round(100 * n / total) if total else 0
+        camp_rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+                      f'<td style="padding:8px;color:#a78bfa;font-weight:600">{c}</td>'
+                      f'<td style="padding:8px;color:#34d399">{n} inscrite(s)</td>'
+                      f'<td style="padding:8px;color:#94a3b8">{pct}%</td></tr>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bilan QR</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:760px;margin:0 auto">
+      <h1 style="font-size:21px;color:#a855f7;margin-bottom:4px">📊 Bilan des inscrites par QR</h1>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:14px">Vue d'ensemble de toutes les joueuses venues par la publicité.</div>
+
+      <div style="font-size:13px;color:#8b949e;margin:6px 0">Participation</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        {carte("Inscrites au total", total, "#fff")}
+        {carte("Peuvent se connecter", f"{nb_acces} / {total}", "#34d399")}
+        {carte("Ont déjà joué", nb_joue, "#34d399")}
+        {carte("N'ont jamais joué", nb_jamais, "#fbbf24")}
+      </div>
+
+      <div style="font-size:13px;color:#8b949e;margin:6px 0">Pions bonus</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        {carte("Bonus en circulation", format(total_bonus, ",") + " F", "#fbbf24")}
+        {carte("Cadeaux d'inscription", format(cadeaux_legit, ",") + " F", "#94a3b8")}
+        {carte("Doublons « semaine »", nb_double, "#fca5a5")}
+        {carte("Bonus en trop (doublons)", format(en_trop, ",") + " F", "#fca5a5")}
+      </div>
+
+      <div style="font-size:13px;color:#8b949e;margin:6px 0">Par campagne</div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px">{camp_rows or '<tr><td style="padding:10px;color:#6ee7b7">Aucune inscription.</td></tr>'}</table>
+
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;font-size:13px;color:#cbd5e1;line-height:1.7">
+        💡 Les bonus sont <b>non retirables</b> : aucun impact cash, même les doublons.<br>
+        🔧 Détail joueuse par joueuse : <code style="color:#a78bfa">/qr-inscrits?cle={cle}</code><br>
+        🧹 Nettoyer les {nb_double} doublon(s) : <code style="color:#a78bfa">/corriger-double-bonus?cle={cle}</code>
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
 @app.route("/qr-inscrits")
 def qr_inscrits():
     """ADMIN — Liste COMPLÈTE des joueuses inscrites par le QR (publicité) :
