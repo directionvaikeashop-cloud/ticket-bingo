@@ -12038,3 +12038,71 @@ def codes_similaires():
       <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:9px;color:#a78bfa">Code</th><th style="padding:9px;color:#a78bfa">Type</th><th style="padding:9px;color:#a78bfa;text-align:right">Solde</th><th style="padding:9px;color:#a78bfa;text-align:right">Bonus</th><th style="padding:9px;color:#a78bfa;text-align:center">Gains</th><th style="padding:9px;color:#a78bfa;text-align:right">Accès</th><th style="padding:9px;color:#a78bfa">Action</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/trace-transferts")
+def trace_transferts():
+    """ADMIN — Enquête : liste TOUS les transferts impliquant un code (envoyés ou
+    reçus), en montrant COMMENT chacun a été fait (outil admin 'par X' ou ancienne
+    route joueuse 'via IP'). ?cle=ADMIN&code=CODE"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response('<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto"><h1 style="color:#a855f7;font-size:20px">🔎 Trace des transferts</h1><p style="color:#94a3b8">Ajoute <code style="color:#fde68a">&code=LECODE</code> (ex : <code>&code=V2DYIH</code>).</p></div></body></html>', mimetype="text/html; charset=utf-8")
+
+    recs = [t for t in DB.get("transferts_pions", []) if isinstance(t, dict) and (t.get("de") == code or t.get("vers") == code)]
+    recs.sort(key=lambda t: str(t.get("date", "")), reverse=True)
+
+    total_recu = sum(int(t.get("montant", 0) or 0) for t in recs if t.get("vers") == code)
+    total_envoye = sum(int(t.get("montant", 0) or 0) for t in recs if t.get("de") == code)
+    sources = sorted({t.get("de") for t in recs if t.get("vers") == code and t.get("de")})
+    nb_admin = sum(1 for t in recs if t.get("admin"))
+    nb_joueuse = sum(1 for t in recs if not t.get("admin"))
+
+    rows = ""
+    for t in recs:
+        sens = ("⬅️ REÇU" if t.get("vers") == code else "➡️ ENVOYÉ")
+        coul = "#34d399" if t.get("vers") == code else "#fca5a5"
+        autre = t.get("de") if t.get("vers") == code else t.get("vers")
+        if t.get("admin"):
+            origine = f'<span style="color:#fbbf24;font-weight:700">🔑 OUTIL ADMIN · par {t.get("par","?")}</span>'
+        elif t.get("ip"):
+            origine = f'<span style="color:#93c5fd">📱 route joueuse · IP {t.get("ip")}</span>'
+        else:
+            origine = '<span style="color:#94a3b8">— origine non marquée (ancien)</span>'
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:8px;color:#64748b;font-size:12px;white-space:nowrap">{str(t.get("date",""))[:16].replace("T"," ")}</td>'
+                 f'<td style="padding:8px;color:{coul};font-weight:600">{sens}</td>'
+                 f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{autre}</td>'
+                 f'<td style="padding:8px;text-align:right;font-weight:700">{format(int(t.get("montant",0) or 0), ",")} F</td>'
+                 f'<td style="padding:8px">{origine}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="padding:20px;text-align:center;color:#94a3b8">Aucun transfert pour ce code.</td></tr>'
+
+    alerte = ""
+    if nb_admin > 0:
+        alerte = (f'<div style="background:rgba(251,191,36,.12);border:1px solid #fbbf24;border-radius:8px;padding:12px;margin-bottom:12px;color:#fde68a;font-size:13px">'
+                  f'🔑 <b>{nb_admin}</b> transfert(s) fait(s) avec <b>l\'outil admin</b>. Si ce n\'est pas toi qui les as faits, ton code admin a été utilisé par quelqu\'un d\'autre → change-le d\'urgence (variable Railway ADMIN_CODE_SECRET).</div>')
+
+    src_html = ""
+    if sources:
+        src_html = f'<div style="color:#94a3b8;font-size:13px;margin:8px 0">Pions reçus depuis <b style="color:#fff">{len(sources)}</b> code(s) : <span style="font-family:monospace;color:#a78bfa">{", ".join(sources)}</span></div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trace transferts {code}</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:900px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7;margin-bottom:6px">🔎 Transferts du code <span style="font-family:monospace">{code}</span></h1>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">⬅️ Total reçu</div><div style="color:#34d399;font-size:18px;font-weight:700">{format(total_recu, ",")} F</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">➡️ Total envoyé</div><div style="color:#fca5a5;font-size:18px;font-weight:700">{format(total_envoye, ",")} F</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">🔑 via admin / 📱 via joueuse</div><div style="font-size:18px;font-weight:700"><span style="color:#fbbf24">{nb_admin}</span> / <span style="color:#93c5fd">{nb_joueuse}</span></div></div>
+      </div>
+      {alerte}{src_html}
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:660px">
+      <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:8px;color:#a78bfa">Date</th><th style="padding:8px;color:#a78bfa">Sens</th><th style="padding:8px;color:#a78bfa">Autre code</th><th style="padding:8px;color:#a78bfa;text-align:right">Montant</th><th style="padding:8px;color:#a78bfa">Comment</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
