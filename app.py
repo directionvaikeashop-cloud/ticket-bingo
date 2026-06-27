@@ -14521,3 +14521,75 @@ def chaine_fabrique():
       <div style="color:#94a3b8;font-size:12px;margin-bottom:14px">Pour chaque fabricant (a envoyé plus qu'il n'a eu), voici vers QUI sont partis ses pions. « solde X » = ce que le destinataire détient aujourd'hui.</div>
       {blocs if blocs else '<div style="color:#34d399">Aucun fabricant trouvé.</div>'}
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/credits-admin-liste")
+def credits_admin_liste():
+    """ADMIN — Liste TOUS les crédits admin regroupés par lot (date/heure à la
+    minute), pour repérer les crédits erronés. Lecture seule. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    # Regrouper credits_admin par minute
+    lots = {}  # date_minute -> {montant_total, entrees:[(code,montant,par,jeu)]}
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict):
+            continue
+        cj = (c.get("code_joueur") or "").upper()
+        m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        d = str(c.get("date", ""))[:16]  # à la minute
+        jeu = c.get("jeu", c.get("motif", "")) or ""
+        par = c.get("par", "") or ""
+        lots.setdefault(d, {"total": 0, "lignes": [], "source": "credits_admin"})
+        lots[d]["total"] += m
+        lots[d]["lignes"].append((cj, m, par, jeu))
+    # credits_masse (lots de masse)
+    for c in DB.get("credits_masse", []):
+        if not isinstance(c, dict):
+            continue
+        m1 = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        codes = [(x or "").upper() for x in (c.get("codes") or [])]
+        d = str(c.get("date", "(sans date)"))[:16]
+        jeu = c.get("jeu", c.get("motif", "")) or ""
+        par = c.get("par", "") or ""
+        key = d + " [masse]"
+        lots.setdefault(key, {"total": 0, "lignes": [], "source": "credits_masse"})
+        lots[key]["total"] += m1 * len(codes)
+        for cj in codes:
+            lots[key]["lignes"].append((cj, m1, par, jeu))
+
+    cles_triees = sorted(lots.keys(), reverse=True)
+    total_general = sum(l["total"] for l in lots.values())
+
+    blocs = ""
+    for d in cles_triees:
+        L = lots[d]
+        lignes = ""
+        for cj, m, par, jeu in sorted(L["lignes"], key=lambda x: -x[1]):
+            lignes += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.05)">'
+                       f'<td style="padding:3px 8px;font-family:monospace;color:#a78bfa">{cj}</td>'
+                       f'<td style="padding:3px 8px;color:#94a3b8;font-size:12px">{noms.get(cj,"")}</td>'
+                       f'<td style="padding:3px 8px;text-align:right;color:#6ee7b7;font-weight:700">+{format(m, ",")}</td>'
+                       f'<td style="padding:3px 8px;color:#fbbf24;font-size:11px">{jeu}</td>'
+                       f'<td style="padding:3px 8px;color:#6b7280;font-size:11px">{par}</td></tr>')
+        blocs += (f'<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px;margin-bottom:12px">'
+                  f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                  f'<span style="color:#58a6ff;font-weight:700;font-size:15px">📅 {d}</span>'
+                  f'<span style="color:#e6edf3;font-weight:800">{len(L["lignes"])} crédit(s) · {format(L["total"], ",")} XPF</span></div>'
+                  f'<table style="width:100%;border-collapse:collapse;font-size:13px">{lignes}</table></div>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crédits admin par lot</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:880px;margin:0 auto">
+      <h1 style="font-size:20px;color:#58a6ff;margin-bottom:6px">📋 Tous les crédits admin, regroupés par lot (date/heure)</h1>
+      <div style="background:rgba(88,166,255,.1);border:1px solid #1f6feb;border-radius:10px;padding:12px;margin-bottom:14px;color:#93c5fd">
+        Total général des crédits admin : <b>{format(total_general, ",")} XPF</b> · {len(cles_triees)} lot(s). Repère le lot d'hier soir (sauf Flash Quines) → on l'annulera ensuite.</div>
+      {blocs if blocs else '<div style="color:#8b949e">Aucun crédit admin trouvé.</div>'}
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
