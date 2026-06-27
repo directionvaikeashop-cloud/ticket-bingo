@@ -6779,10 +6779,15 @@ def releve_financier_joueur(code):
         _ent = sum(l["entree"] for l in lignes)
         _sor = sum(l["sortie"] for l in lignes)
         ajustement = solde_pions - (_ent - _sor)
+        # Compte signalé = a fait des transferts entre comptes (signal de fraude)
+        _a_transfere = any(
+            isinstance(_t, dict) and ((_t.get("de") or "").upper() == code or (_t.get("vers") or "").upper() == code)
+            for _t in DB.get("transferts_pions", [])
+        )
         _bloque = code in DB.get("codes_bloques", [])
-        if _bloque:
-            _type_reg = "Régularisation"
-            _desc_reg = "Autres mouvements (à vérifier — ne pas recréditer sans audit)"
+        if _a_transfere or _bloque:
+            _type_reg = "Régularisation anti-fraude"
+            _desc_reg = "Pions issus de transferts non justifiés, retirés lors du contrôle anti-fraude (compte remis à zéro)"
         else:
             _type_reg = "Solde antérieur"
             _desc_reg = "Solde des tournois précédents (avant la mise en place des relevés détaillés)"
