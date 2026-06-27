@@ -6558,14 +6558,29 @@ def releve_financier_joueur(code):
                                        "desc": "Jeu annulé : " + str(rb.get("jeu", "?")),
                                        "entree": montant, "sortie": 0})
 
-    # Solde de pions RÉEL actuel
+    # === ENTREE : cadeau d'inscription (campagne "semaine" : 500 F de bonus offerts à l'inscription) ===
+    for x in DB.get("rejoindre_log", []):
+        if (x.get("code", "") or "").upper() == code and (x.get("campagne", "") or "") == "semaine":
+            lignes.append({"date": x.get("date", "?"), "type": "Cadeau inscription",
+                           "desc": "Bonus 500 F offert à l'inscription", "entree": 500, "sortie": 0})
+            break
+
+    # Solde de pions actuel = pions RÉELS + pions BONUS (tous deux jouables)
     pj = DB.get("pions_joueurs", {}).get(code, {})
+    pb = DB.get("pions_bonus_joueurs", {}).get(code, {})
     solde_pions = 0
     for v, nb in pj.items():
         try:
             solde_pions += int(v) * int(nb)
         except (ValueError, TypeError):
             pass
+    solde_bonus = 0
+    for v, nb in pb.items():
+        try:
+            solde_bonus += int(v) * int(nb)
+        except (ValueError, TypeError):
+            pass
+    solde_pions = solde_pions + solde_bonus
 
     # === FILTRE PAR DATES (optionnel) : ?du=AAAA-MM-JJ&au=AAAA-MM-JJ ===
     du = (request.args.get("du") or "").strip()
@@ -6628,7 +6643,8 @@ def releve_financier_joueur(code):
         net = total_entrees - total_sorties
         html += "<div><strong>Net periode</strong><br><span class='m sol'>" + ("+" if net >= 0 else "") + format(net, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>solde actuel : " + format(solde_pions, ",") + " XPF</span></div>"
     else:
-        html += "<div><strong>Solde actuel</strong><br><span class='m sol'>" + format(solde_pions, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>= entrees - sorties</span></div>"
+        _note_bonus = ("dont " + format(solde_bonus, ",") + " F bonus jouable") if solde_bonus > 0 else "= entrees - sorties"
+        html += "<div><strong>Solde actuel</strong><br><span class='m sol'>" + format(solde_pions, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>" + _note_bonus + "</span></div>"
     html += "</div>"
     
     if lignes:
@@ -9221,6 +9237,80 @@ def fusion_codes():
                 f'<p style="color:#fff">Tout a été déplacé de <code style="color:#fca5a5">{de}</code> vers <code style="color:#6ee7b7">{vers}</code>.</p>'
                 f'<p style="color:#94a3b8">Solde de <b>{vers}</b> : <b style="color:#6ee7b7">{solde(vers)} XPF</b> · {deplaces} mouvement(s) rattaché(s).</p>'
                 f'<p style="margin-top:10px"><a href="/diag-ecarts?cle={cle}" style="color:#a78bfa">← Revoir la réconciliation</a></p>')
+
+@app.route("/qr-inscrits")
+def qr_inscrits():
+    """ADMIN — Liste COMPLÈTE des joueuses inscrites par le QR (publicité) :
+    code, campagne, date, solde bonus, doublon éventuel, accès. ?cle=ADMIN[&campagne=X]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    filtre = (request.args.get("campagne", "") or "").strip()
+    log = DB.get("rejoindre_log", [])
+    deja = set(DB.get("bonus_petitsjeux_donne", []))
+    acces = DB.get("tickets_acheteurs", {})
+
+    def bonus_solde(code):
+        pb = DB.get("pions_bonus_joueurs", {}).get(code, {})
+        return pb.get("100", 0) * 100 + pb.get("50", 0) * 50 + pb.get("20", 0) * 20 + pb.get("10", 0) * 10
+
+    # déduplique par code (garde la 1re occurrence = inscription)
+    vus = set()
+    inscrits = []
+    for x in log:
+        code = (x.get("code", "") or "").strip().upper()
+        if not code or code in vus:
+            continue
+        vus.add(code)
+        camp = (x.get("campagne", "") or "(sans)")
+        if filtre and camp != filtre:
+            continue
+        inscrits.append({
+            "code": code, "nom": x.get("nom", "?"), "camp": camp,
+            "date": (x.get("date", "") or "")[:16].replace("T", " "),
+            "bonus": bonus_solde(code),
+            "double": (code in deja and camp == "semaine"),
+            "acces": code in acces,
+        })
+    inscrits.sort(key=lambda r: r["date"], reverse=True)
+
+    total = len(inscrits)
+    nb_double = sum(1 for r in inscrits if r["double"])
+    total_bonus = sum(r["bonus"] for r in inscrits)
+
+    rows = ""
+    for r in inscrits:
+        dbl = '<span style="color:#fca5a5;font-weight:700">⚠️ doublon</span>' if r["double"] else '<span style="color:#6ee7b7">ok</span>'
+        acc = '✅' if r["acces"] else '❌'
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+                 f'<td style="padding:8px;color:#fff">{r["nom"]}</td>'
+                 f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{r["code"]}</td>'
+                 f'<td style="padding:8px;color:#94a3b8">{r["camp"]}</td>'
+                 f'<td style="padding:8px;text-align:right;color:#fbbf24">{format(r["bonus"], ",")}</td>'
+                 f'<td style="padding:8px;text-align:center">{acc}</td>'
+                 f'<td style="padding:8px;text-align:center">{dbl}</td>'
+                 f'<td style="padding:8px;color:#64748b;font-size:11px">{r["date"]}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="7" style="padding:18px;text-align:center;color:#94a3b8">Aucune inscription QR.</td></tr>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Inscrites QR</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff">
+    <div style="max-width:900px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7">📲 Codes générés par le QR{(" · " + filtre) if filtre else ""}</h1>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:12px 0">
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Inscrites</div><div style="font-size:18px;font-weight:800">{total}</div></div>
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Doublons « semaine »</div><div style="font-size:18px;font-weight:800;color:#fca5a5">{nb_double}</div></div>
+        <div style="background:#161b22;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#8b949e">Bonus en circulation</div><div style="font-size:18px;font-weight:800;color:#fbbf24">{format(total_bonus, ",")}</div></div>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:620px">
+      <tr style="border-bottom:2px solid #3730a3"><th style="padding:8px;text-align:left;color:#a78bfa">Nom</th><th style="padding:8px;text-align:left;color:#a78bfa">Code</th><th style="padding:8px;text-align:left;color:#a78bfa">Campagne</th><th style="padding:8px;text-align:right;color:#a78bfa">Bonus</th><th style="padding:8px;text-align:center;color:#a78bfa">Accès</th><th style="padding:8px;text-align:center;color:#a78bfa">État</th><th style="padding:8px;text-align:left;color:#a78bfa">Inscrite le</th></tr>
+      {rows}</table></div>
+      <div style="margin-top:12px;color:#94a3b8;font-size:12px">⚠️ doublon = a reçu 500 F à l'inscription ET par l'outil. Utilise <code style="color:#a78bfa">/corriger-double-bonus</code> pour nettoyer.</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
 
 @app.route("/diag-campagnes")
 def diag_campagnes():
