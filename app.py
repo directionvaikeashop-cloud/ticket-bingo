@@ -8182,6 +8182,49 @@ def _safe_int_gain(x):
         return 0
 
 
+def _hash_pin(code, pin):
+    """Hache le PIN avec le code comme sel (jamais stocké en clair)."""
+    return hashlib.sha256(("PIN|2026|" + str(code) + "|" + str(pin)).encode("utf-8", "ignore")).hexdigest()
+
+@app.route("/api/joueur/pin/etat")
+def joueur_pin_etat():
+    """Indique si un code a déjà un PIN (pour savoir s'il faut le demander)."""
+    global DB
+    DB = load_data()
+    code = (request.args.get("code", "") or "").upper().strip()
+    return jsonify({"ok": True, "a_pin": bool(DB.get("pins_joueurs", {}).get(code))})
+
+@app.route("/api/joueur/pin/definir", methods=["POST"])
+def joueur_pin_definir():
+    """Définit ou change le PIN d'un code. Si un PIN existe déjà, l'ancien est exigé."""
+    global DB
+    DB = load_data()
+    d = request.json or {}
+    code = (d.get("code", "") or "").upper().strip()
+    pin = str(d.get("pin", "") or "").strip()
+    ancien = str(d.get("ancien_pin", "") or "").strip()
+    if not code or not (pin.isdigit() and len(pin) == 4):
+        return jsonify({"ok": False, "msg": "Le PIN doit faire 4 chiffres."}), 400
+    pins = DB.setdefault("pins_joueurs", {})
+    if code in pins and pins[code].get("hash") != _hash_pin(code, ancien):
+        return jsonify({"ok": False, "msg": "Ancien PIN incorrect."}), 403
+    pins[code] = {"hash": _hash_pin(code, pin), "date": datetime.datetime.now().isoformat()}
+    save_data(immediat=True)
+    return jsonify({"ok": True})
+
+@app.route("/api/joueur/pin/verifier", methods=["POST"])
+def joueur_pin_verifier():
+    """Vérifie le PIN d'un code. Si le code n'a pas de PIN, renvoie ok (accès libre)."""
+    global DB
+    DB = load_data()
+    d = request.json or {}
+    code = (d.get("code", "") or "").upper().strip()
+    pin = str(d.get("pin", "") or "").strip()
+    rec = DB.get("pins_joueurs", {}).get(code)
+    if not rec:
+        return jsonify({"ok": True, "a_pin": False})
+    return jsonify({"ok": rec.get("hash") == _hash_pin(code, pin), "a_pin": True})
+
 @app.route("/api/rejoindre", methods=["POST"])
 def api_rejoindre():
     """Inscription automatique depuis la pub (page /rejoindre).
