@@ -8703,7 +8703,46 @@ def diag_ecarts():
                 if ret > 0: sor += ret
         return ent - sor
 
-    # Codes des ORGANISATEURS / ADMIN / REVENDEURS = clés de DB["codes"].
+    # Détail lisible des mouvements d'une joueuse (pour juger un écart)
+    def detail_pour(code):
+        gain = sum(int(g.get("montant_credite", 0) or 0) for g in DB.get("gains_finaux", [])
+                   if isinstance(g, dict) and g.get("code_gagnant") == code and not g.get("annule"))
+        achats = 0
+        for c in DB.get("commandes_pions_joueurs", []):
+            if isinstance(c, dict) and c.get("code_joueur") == code and c.get("statut") == "validee":
+                nb = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0)
+                val = int(c.get("valeur_pion", 0) or 0)
+                v = nb * val
+                if v <= 0:
+                    v = int(c.get("montant_net", 0) or 0)
+                achats += v
+        recus = sum(int(t.get("montant_total", 0) or 0) for t in DB.get("transactions_joueur_org", [])
+                    if isinstance(t, dict) and t.get("code_joueur") == code)
+        remb = sum(int(det.get("montant", 0) or 0) for rb in DB.get("remboursements_tournoi", []) if isinstance(rb, dict)
+                   for det in (rb.get("detail") or []) if isinstance(det, dict) and det.get("code_joueur") == code)
+        tickets = sum(int(c.get("total_pions", 0) or 0) for c in DB.get("commandes_tickets_pions", [])
+                      if isinstance(c, dict) and c.get("code_joueur") == code)
+        retraits = sum(int(r.get("montant_demande", 0) or 0) for r in DB.get("demandes_retrait", [])
+                       if isinstance(r, dict) and r.get("code_joueur") == code and r.get("statut") == "validee")
+        corr = 0
+        for c in DB.get("corrections_pions", []):
+            if isinstance(c, dict) and c.get("code_joueur") == code:
+                ret = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
+                if ret > 0:
+                    corr += ret
+        recred = sum(int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0) for c in DB.get("credits_admin", [])
+                     if isinstance(c, dict) and c.get("code_joueur") == code and (int(c.get("nb_pions", 0) or 0) > 0))
+        bits = []
+        if gain: bits.append(f"gain {gain}")
+        if achats: bits.append(f"achats {achats}")
+        if recus: bits.append(f"reçus org {recus}")
+        if remb: bits.append(f"remb. {remb}")
+        if tickets: bits.append(f"tickets −{tickets}")
+        if retraits: bits.append(f"retraits −{retraits}")
+        if corr: bits.append(f"corrections −{corr}")
+        if recred: bits.append(f"déjà recrédité {recred}")
+        bits.append(f"<b style='color:#cbd5e1'>solde réel {solde_reel(code)}</b>")
+        return " · ".join(bits)
     # Ce ne sont PAS des joueuses -> on les exclut de la réconciliation.
     codes_non_joueurs = set((k or "").upper().strip() for k in DB.get("codes", {}).keys())
 
@@ -8760,10 +8799,10 @@ def diag_ecarts():
 
     def _tr(r, accent):
         code, reel, attendu, du = r
-        return (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
-                f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{code}</td>'
-                f'<td style="padding:8px;color:#94a3b8">a {reel} / devrait {attendu}</td>'
-                f'<td style="padding:8px;color:{accent};font-weight:600">doit {du} XPF → {deco(du)}</td></tr>')
+        return (f'<tr><td style="padding:8px 8px 1px;font-family:monospace;color:#a78bfa">{code}</td>'
+                f'<td style="padding:8px 8px 1px;color:#94a3b8">a {reel} / devrait {attendu}</td>'
+                f'<td style="padding:8px 8px 1px;color:{accent};font-weight:600">doit {du} XPF → {deco(du)}</td></tr>'
+                f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)"><td colspan="3" style="padding:0 8px 8px;color:#6b7280;font-size:11px">détail : {detail_pour(code)}</td></tr>')
 
     corps_prio = "".join(_tr(r, "#fca5a5") for r in prio) or '<tr><td colspan="3" style="padding:10px;color:#6ee7b7">Aucune perte de gain détectée. ✅</td></tr>'
     corps_verif = "".join(_tr(r, "#fbbf24") for r in a_verifier) or '<tr><td colspan="3" style="padding:10px;color:#6ee7b7">Rien à vérifier. ✅</td></tr>'
