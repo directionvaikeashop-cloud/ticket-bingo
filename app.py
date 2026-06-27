@@ -6184,7 +6184,12 @@ def releve_code(code):
 def releves_all():
     global DB
     DB = load_data()
-    
+
+    # Outil admin/staff : code requis (admin, organisatrice ou revendeuse)
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    if cle not in DB.get("codes", {}):
+        return Response("Acces reserve au staff. Ajoute ?cle=TON_CODE.", status=403, mimetype="text/plain; charset=utf-8")
+
     # Lien joueur -> organisateur via les tickets
     joueur_vers_org = {}
     noms_joueurs = {}
@@ -6245,7 +6250,7 @@ def releves_all():
         if data_org["joueurs"]:
             html += "<div class='joueurs-grid'>"
             for cj, nom_j in data_org["joueurs"]:
-                html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "' class='j-link'>Releve</a></div>"
+                html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "?cle=" + cle + "' class='j-link'>Releve</a></div>"
             html += "</div>"
         else:
             html += "<div style='color:#8b949e'>Aucun joueur rattache</div>"
@@ -6257,7 +6262,7 @@ def releves_all():
         html += "<div class='org-titre' style='color:#8b949e'>Joueurs sans organisateur<span class='count'>" + str(len(sans_org)) + "</span></div>"
         html += "<div class='joueurs-grid'>"
         for cj, nom_j in sans_org:
-            html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "' class='j-link'>Releve</a></div>"
+            html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "?cle=" + cle + "' class='j-link'>Releve</a></div>"
         html += "</div></div>"
     
     html += "</body></html>"
@@ -6572,6 +6577,21 @@ def releve_financier_joueur(code):
     global DB
     DB = load_data()
     code = code.upper().strip()
+
+    # === RELEVE PRIVE : seuls l'admin, une organisatrice/staff, ou le joueur lui-meme ===
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _staff = _cle in DB.get("codes", {})          # admin, organisatrice ou revendeuse
+    _is_admin = bool(DB.get("codes", {}).get(_cle, {}).get("admin"))
+    _proprietaire = (_cle == code)                 # le joueur consulte SON propre releve
+    if not (_staff or _proprietaire):
+        return Response('''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:40px;color:#fff;text-align:center">
+        <div style="max-width:420px;margin:0 auto;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:30px">
+        <div style="font-size:42px;margin-bottom:10px">&#128274;</div>
+        <h1 style="font-size:20px;color:#f0883e">Relev&eacute; priv&eacute;</h1>
+        <p style="color:#8b949e;font-size:14px;line-height:1.6">Ce relev&eacute; est confidentiel. Seuls le joueur concern&eacute;, une organisatrice ou l'administration peuvent y acc&eacute;der.</p>
+        <p style="color:#6e7681;font-size:12px">Connectez-vous avec votre code pour consulter votre propre relev&eacute;.</p>
+        </div></body></html>''', status=403, mimetype="text/html; charset=utf-8")
     
     # Nom de la joueuse (depuis les tickets)
     nom = "Joueuse"
@@ -13574,7 +13594,7 @@ def tous_releves():
                  f'<td style="padding:6px;text-align:right;color:#6ee7b7">{format(rc, ",") if rc else "-"}</td>'
                  f'<td style="padding:6px;text-align:right;color:#fca5a5">{format(em, ",") if em else "-"}</td>'
                  f'<td style="padding:6px;text-align:right;color:#fbbf24">{format(cr, ",") if cr else "-"}</td>'
-                 f'<td style="padding:6px"><a href="/releve-financier-joueur/{c}" target="_blank" style="color:#58a6ff;text-decoration:none">relevé →</a></td></tr>')
+                 f'<td style="padding:6px"><a href="/releve-financier-joueur/{c}?cle={cle}" target="_blank" style="color:#58a6ff;text-decoration:none">relevé →</a></td></tr>')
 
     return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tous les relevés</title></head>
     <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:960px;margin:0 auto">
@@ -13585,4 +13605,96 @@ def tous_releves():
       {rows}
       <tr style="border-top:2px solid #3730a3;font-weight:700"><td style="padding:7px" colspan="2">TOTAUX</td><td style="padding:7px;text-align:right;color:#34d399">{format(t_s, ",")}</td><td style="padding:7px;text-align:right;color:#6ee7b7">{format(t_r, ",")}</td><td style="padding:7px;text-align:right;color:#fca5a5">{format(t_e, ",")}</td><td style="padding:7px;text-align:right;color:#fbbf24">{format(t_c, ",")}</td><td></td></tr>
       </table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/codes-relies")
+def codes_relies():
+    """ADMIN — Liste TOUS les codes reliés à un code donné : par transfert (preuve)
+    et par IP partagée (indice). Imprimable pour notes/dossier. ?cle=ADMIN&code=X"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE a verifier.", status=400, mimetype="text/plain; charset=utf-8")
+
+    bloques = set(DB.get("codes_bloques", []))
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    # IP du code
+    mes_ips = set()
+    for x in DB.get("journal_connexions", []):
+        if isinstance(x, dict) and (x.get("code") or "").upper() == code and x.get("ip"):
+            mes_ips.add(x.get("ip"))
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and t.get("ip") and ((t.get("de") or "").upper() == code or (t.get("vers") or "").upper() == code):
+            mes_ips.add(t.get("ip"))
+
+    # Liens par TRANSFERT (preuve solide)
+    liens_transf = {}  # autre_code -> montant total échangé
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de") or "").upper(); vers = (t.get("vers") or "").upper(); m = int(t.get("montant", 0) or 0)
+        if de == code and vers:
+            liens_transf[vers] = liens_transf.get(vers, 0) + m
+        elif vers == code and de:
+            liens_transf[de] = liens_transf.get(de, 0) + m
+
+    # Liens par IP partagée (indice)
+    liens_ip = set()
+    for x in DB.get("journal_connexions", []):
+        if isinstance(x, dict) and x.get("ip") in mes_ips and (x.get("code") or "").upper() not in ("", code):
+            liens_ip.add((x.get("code") or "").upper())
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and t.get("ip") in mes_ips:
+            for cc in [(t.get("de") or "").upper(), (t.get("vers") or "").upper()]:
+                if cc and cc != code:
+                    liens_ip.add(cc)
+
+    tous = set(liens_transf) | liens_ip
+    def lien_type(c):
+        t = c in liens_transf; i = c in liens_ip
+        if t and i: return ("💸🌐", "Transfert + IP")
+        if t: return ("💸", "Transfert")
+        return ("🌐", "IP partagée")
+    # tri : transferts d'abord, puis IP
+    ordre = sorted(tous, key=lambda c: (0 if c in liens_transf else 1, -liens_transf.get(c, 0), c))
+
+    rows = ""
+    for c in ordre:
+        ic, lbl = lien_type(c)
+        mt = liens_transf.get(c, 0)
+        rows += ('<tr>'
+                 f'<td style="border:1px solid #ccc;padding:6px;font-family:monospace"><b>{c}</b>{" 🔒" if c in bloques else ""}</td>'
+                 f'<td style="border:1px solid #ccc;padding:6px">{noms.get(c, "")}</td>'
+                 f'<td style="border:1px solid #ccc;padding:6px">{ic} {lbl}</td>'
+                 f'<td style="border:1px solid #ccc;padding:6px;text-align:right">{format(mt, ",") + " F" if mt else "—"}</td>'
+                 f'<td style="border:1px solid #ccc;padding:6px;text-align:right">{format(solde(c), ",")} F</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="border:1px solid #ccc;padding:8px">Aucun code relié trouvé.</td></tr>'
+
+    import datetime as _dt
+    maintenant = _dt.datetime.now().strftime("%d/%m/%Y à %H:%M")
+    nb_t = len(liens_transf); nb_i = len(liens_ip - set(liens_transf))
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codes reliés à {code}</title>
+    <style>@media print{{.noprint{{display:none}}}} body{{background:#fff;color:#111;font-family:Arial,sans-serif}} table{{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}} th{{border:1px solid #ccc;padding:6px;background:#f0f0f0;text-align:left}}</style></head>
+    <body style="margin:0;padding:22px"><div style="max-width:780px;margin:0 auto">
+      <button onclick="window.print()" class="noprint" style="background:#111;color:#fff;border:0;padding:9px 16px;border-radius:6px;cursor:pointer;margin-bottom:12px">🖨️ Imprimer / PDF</button>
+      <h1 style="font-size:19px">Codes reliés au code <span style="font-family:monospace">{code}</span>{" (TATIE LAHAYNA)" if False else ""}</h1>
+      <p style="font-size:12px;color:#444">Plateforme Ticket Bingo — EI TUKEA IMPORT (N° Tahiti B90121). Généré le {maintenant}.<br>
+      Code analysé : <b>{code}</b>{(" — " + noms.get(code)) if noms.get(code) else ""} · Solde : {format(solde(code), ",")} F · IP : {", ".join(sorted(mes_ips)) if mes_ips else "—"}</p>
+      <p style="font-size:13px"><b>{len(tous)} codes reliés</b> au total : <b>{nb_t}</b> par transfert (preuve), <b>{nb_i}</b> par IP partagée seule (indice).</p>
+      <table><tr><th>Code relié</th><th>Nom</th><th>Type de lien</th><th>Pions échangés</th><th>Solde actuel</th></tr>{rows}</table>
+      <p style="font-size:11px;color:#666;margin-top:10px">💸 Transfert = pions réellement échangés entre les comptes (lien fort). 🌐 IP partagée = même adresse de connexion (indice ; peut aussi être un wifi commun). 🔒 = compte ex-bloqué.</p>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
