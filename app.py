@@ -12106,3 +12106,95 @@ def trace_transferts():
       <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:8px;color:#a78bfa">Date</th><th style="padding:8px;color:#a78bfa">Sens</th><th style="padding:8px;color:#a78bfa">Autre code</th><th style="padding:8px;color:#a78bfa;text-align:right">Montant</th><th style="padding:8px;color:#a78bfa">Comment</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/anti-fraude")
+def anti_fraude():
+    """ADMIN — Réponse anti-fraude : pour une liste de codes suspects, montre
+    solde, retraits (argent réel sorti ?), état bloqué, et permet de BLOQUER en
+    un clic. ?cle=ADMIN&codes=A,B,C[&bloquer=CODE][&debloquer=CODE]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    msg = ""
+    DB.setdefault("codes_bloques", [])
+    blq = (request.args.get("bloquer", "") or "").strip().upper()
+    if blq:
+        if blq not in DB["codes_bloques"]:
+            DB["codes_bloques"].append(blq)
+            save_data(immediat=True)
+        msg = f"🔒 {blq} est maintenant BLOQUÉ (ne peut plus se connecter ni transférer)."
+    deb = (request.args.get("debloquer", "") or "").strip().upper()
+    if deb:
+        DB["codes_bloques"] = [c for c in DB["codes_bloques"] if c != deb]
+        save_data(immediat=True)
+        msg = f"🔓 {deb} a été débloqué."
+
+    codes_str = (request.args.get("codes", "") or "").strip().upper()
+    codes = [c.strip() for c in codes_str.split(",") if c.strip()]
+
+    def solde(code):
+        p = DB.get("pions_joueurs", {}).get(code, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+
+    def retraits(code):
+        valide = 0; attente = 0
+        for r in DB.get("demandes_retrait", []):
+            if isinstance(r, dict) and (r.get("code_joueur") or "").upper() == code:
+                m = int(r.get("montant_demande", 0) or 0)
+                if r.get("statut") == "validee":
+                    valide += m
+                elif r.get("statut") in (None, "", "en_attente"):
+                    attente += m
+        return valide, attente
+
+    if not codes:
+        return Response('<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto"><h1 style="color:#f87171;font-size:20px">🛡️ Anti-fraude</h1><p style="color:#94a3b8">Ajoute <code style="color:#fde68a">&codes=A,B,C</code> (les codes suspects, séparés par des virgules).</p></div></body></html>', mimetype="text/html; charset=utf-8")
+
+    tot_valide = 0; tot_attente = 0; tot_solde = 0
+    rows = ""
+    for code in codes:
+        s = solde(code); v, a = retraits(code)
+        tot_solde += s; tot_valide += v; tot_attente += a
+        bloque = code in DB["codes_bloques"]
+        etat = ('<span style="color:#f87171;font-weight:700">🔒 BLOQUÉ</span>' if bloque
+                else '<span style="color:#34d399">🔓 actif</span>')
+        if bloque:
+            action = f'<a href="/anti-fraude?cle={cle}&codes={codes_str}&debloquer={code}" style="color:#93c5fd;text-decoration:none">débloquer</a>'
+        else:
+            action = f'<a href="/anti-fraude?cle={cle}&codes={codes_str}&bloquer={code}" style="color:#fca5a5;font-weight:700;text-decoration:none">🔒 BLOQUER</a>'
+        ret_txt = f'<span style="color:#f87171;font-weight:700">{format(v, ",")} F payés</span>' if v else '<span style="color:#94a3b8">0</span>'
+        if a:
+            ret_txt += f' <span style="color:#fbbf24">· {format(a, ",")} F en attente</span>'
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:9px;font-family:monospace;color:#a78bfa;font-size:15px">{code}</td>'
+                 f'<td style="padding:9px;text-align:right;color:#34d399">{format(s, ",")} F</td>'
+                 f'<td style="padding:9px">{ret_txt}</td>'
+                 f'<td style="padding:9px">{etat}</td>'
+                 f'<td style="padding:9px;text-align:right">{action}</td></tr>')
+
+    alerte_argent = ""
+    if tot_valide > 0:
+        alerte_argent = (f'<div style="background:rgba(239,68,68,.18);border:1px solid #f87171;border-radius:8px;padding:12px;margin-bottom:10px;color:#fca5a5;font-size:14px;font-weight:700">'
+                         f'🚨 {format(tot_valide, ",")} XPF de retraits DÉJÀ PAYÉS sur ces comptes — de l\'argent réel est peut-être sorti. Vérifie tes virements/espèces.</div>')
+    else:
+        alerte_argent = ('<div style="background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:8px;padding:12px;margin-bottom:10px;color:#34d399;font-size:14px">'
+                         '✅ Aucun retrait payé sur ces comptes — l\'argent collecté est encore en pions (bloque-les pour le geler).</div>')
+    if tot_attente > 0:
+        alerte_argent += (f'<div style="background:rgba(251,191,36,.12);border:1px solid #fbbf24;border-radius:8px;padding:12px;margin-bottom:10px;color:#fde68a;font-size:13px">'
+                          f'⚠️ {format(tot_attente, ",")} XPF de retraits EN ATTENTE — ne les valide PAS, bloque les comptes d\'abord.</div>')
+    msg_html = f'<div style="background:rgba(99,102,241,.15);border:1px solid #6366f1;border-radius:8px;padding:10px;margin-bottom:12px;color:#c7d2fe;font-weight:700">{msg}</div>' if msg else ""
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Anti-fraude</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:860px;margin:0 auto">
+      <h1 style="font-size:21px;color:#f87171;margin-bottom:10px">🛡️ Réponse anti-fraude</h1>
+      {msg_html}{alerte_argent}
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:8px">Solde total gelé sur ces comptes : <b style="color:#fff">{format(tot_solde, ",")} XPF</b>. Bloque un compte = il ne peut plus se connecter, transférer, ni retirer.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px;min-width:560px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:9px;color:#fca5a5">Code</th><th style="padding:9px;color:#fca5a5;text-align:right">Solde pions</th><th style="padding:9px;color:#fca5a5">Retraits</th><th style="padding:9px;color:#fca5a5">État</th><th style="padding:9px;color:#fca5a5;text-align:right">Action</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
