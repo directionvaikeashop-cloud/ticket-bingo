@@ -8500,8 +8500,17 @@ def api_rejoindre():
     if tel_clean in index_tel:
         return jsonify({"ok": True, "code": index_tel[tel_clean], "deja": True, "bonus": 0})
 
-    # Anti-robot : max 3 nouveaux codes/heure/appareil
+    # Anti-abus "pions gratuits" : MAX 2 inscriptions bonus par IP. La 3e est REFUSEE.
+    # (le telephone est deja limite a 1 seul code/bonus plus haut)
     DB.setdefault("rejoindre_log", [])
+    nb_bonus_ip = 0
+    for x in DB["rejoindre_log"]:
+        if x.get("ip") == ip and (x.get("campagne", "") or "") == "semaine":
+            nb_bonus_ip += 1
+    if campagne == "semaine" and nb_bonus_ip >= 2:
+        return jsonify({"ok": False, "msg": "Acces refuse : limite de 2 inscriptions atteinte pour cet appareil/reseau. Le bonus d'inscription n'est disponible que 2 fois."}), 429
+
+    # Anti-robot : max 3 nouveaux codes/heure/appareil (toutes campagnes)
     recent = 0
     for x in DB["rejoindre_log"]:
         try:
