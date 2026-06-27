@@ -13902,3 +13902,53 @@ def demarrage_org():
       {lignes}</table></div>
       <div style="color:#6e7681;font-size:11px;margin-top:10px">La date de démarrage = la toute première activité enregistrée de cette organisatrice, toutes sources confondues.</div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/compte-fraude")
+def compte_fraude():
+    """ADMIN — Compte combien de comptes sont considérés comme fraude (= ayant fait
+    des transferts de pions entre comptes), avec la liste. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    codes_staff = set(DB.get("codes", {}).keys())
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    # Comptes ayant transféré (émis ou reçu)
+    fraude = set()
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict):
+            for c in [(t.get("de") or "").upper(), (t.get("vers") or "").upper()]:
+                if c and c not in codes_staff:
+                    fraude.add(c)
+    bloques = set(DB.get("codes_bloques", []))
+
+    rows = ""
+    for c in sorted(fraude, key=lambda x: -solde(x)):
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:6px;font-family:monospace;color:#a78bfa">{c}{" 🔒" if c in bloques else ""}</td>'
+                 f'<td style="padding:6px;color:#94a3b8;font-size:12px">{noms.get(c, "")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#34d399">{format(solde(c), ",")} F</td></tr>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Comptes fraude</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:680px;margin:0 auto">
+      <h1 style="font-size:21px;color:#f87171;margin-bottom:8px">🚨 Comptes considérés comme fraude</h1>
+      <div style="background:rgba(239,68,68,.12);border:1px solid #f87171;border-radius:10px;padding:16px;margin-bottom:14px;text-align:center">
+        <div style="color:#94a3b8;font-size:13px">Total (comptes ayant fait des transferts entre comptes)</div>
+        <div style="color:#f87171;font-size:32px;font-weight:800">{len(fraude)}</div>
+      </div>
+      <div style="color:#6e7681;font-size:12px;margin-bottom:10px">Critère : compte non-staff ayant émis OU reçu au moins un transfert de pions. 🔒 = encore bloqué.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:380px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:6px;color:#fca5a5">Code</th><th style="padding:6px;color:#fca5a5">Nom</th><th style="padding:6px;color:#fca5a5;text-align:right">Solde</th></tr>
+      {rows or '<tr><td colspan=3 style="padding:14px;color:#34d399">Aucun compte avec transfert.</td></tr>'}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
