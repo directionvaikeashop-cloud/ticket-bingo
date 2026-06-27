@@ -11222,3 +11222,66 @@ def traiter_reclamation():
         return jsonify({"ok": False, "msg": "Réclamation introuvable."}), 404
     save_data()
     return jsonify({"ok": True})
+
+
+# === COMMENTAIRES MICRO (joueuse -> organisatrice) ===
+@app.route("/api/micro/commentaire", methods=["POST"])
+def creer_commentaire_micro():
+    """JOUEUSE — Envoie un commentaire en réponse aux questions micro de l'organisatrice."""
+    global DB
+    DB = load_data()
+    d = request.get_json(silent=True) or {}
+    code = (d.get("code_joueur", "") or "").upper().strip()
+    message = (d.get("message", "") or "").strip()[:500]
+    if not code or not message:
+        return jsonify({"ok": False, "msg": "Message vide."}), 400
+    code_org = ""
+    nom = ""
+    for t in DB.get("tickets", []):
+        if (t.get("code_acheteur", "") or "").upper() == code:
+            code_org = t.get("code_org") or code_org
+            nom = t.get("acheteur", "") or nom
+    DB.setdefault("commentaires_micro", []).insert(0, {
+        "id": secrets.token_hex(4).upper(),
+        "code_joueur": code,
+        "nom": nom,
+        "code_org": code_org,
+        "message": message,
+        "date": datetime.datetime.now().isoformat(),
+        "statut": "ouvert",
+    })
+    DB["commentaires_micro"] = DB["commentaires_micro"][:300]  # garder les 300 derniers
+    save_data()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/micro/commentaires")
+def liste_commentaires_micro():
+    """ORGANISATRICE voit ses commentaires ; ADMIN voit tout."""
+    global DB
+    DB = load_data()
+    s = verif_session(request.headers.get("X-Token", ""))
+    if not s:
+        return jsonify([]), 403
+    is_admin = bool(s.get("admin"))
+    out = [c for c in DB.get("commentaires_micro", []) if is_admin or c.get("code_org") == s["code"]]
+    out.sort(key=lambda c: (0 if c.get("statut") == "ouvert" else 1,))
+    return jsonify(out)
+
+
+@app.route("/api/micro/commentaire/traiter", methods=["POST"])
+def traiter_commentaire_micro():
+    """ORGANISATRICE (ou admin) — Marque un commentaire comme traité."""
+    global DB
+    DB = load_data()
+    s = verif_session(request.headers.get("X-Token", ""))
+    if not s:
+        return jsonify({"ok": False}), 403
+    cid = (request.get_json(silent=True) or {}).get("id", "")
+    for c in DB.get("commentaires_micro", []):
+        if c.get("id") == cid and (s.get("admin") or c.get("code_org") == s["code"]):
+            c["statut"] = "traite"
+            c["traite_le"] = datetime.datetime.now().isoformat()
+            save_data()
+            return jsonify({"ok": True})
+    return jsonify({"ok": False, "msg": "Commentaire introuvable."}), 404
