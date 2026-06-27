@@ -11954,3 +11954,87 @@ def page_securite_admin():
         4. Reviens ici avec <b>?cle=TON_NOUVEAU_CODE</b> pour vérifier que tout est ✅
       </div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/codes-similaires")
+def codes_similaires():
+    """ADMIN — Trouve tous les codes contenant un texte (emoji/caractères bizarres
+    inclus) et propose un lien de fusion DÉJÀ encodé, pour ne rien avoir à taper.
+    ?cle=ADMIN&contient=TEXTE"""
+    global DB
+    DB = load_data()
+    from urllib.parse import quote
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    contient = (request.args.get("contient", "") or "").strip()
+
+    def solde(code):
+        p = DB.get("pions_joueurs", {}).get(code, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+
+    def bonus(code):
+        p = DB.get("pions_bonus_joueurs", {}).get(code, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+
+    def nb_gains(code):
+        return sum(1 for g in DB.get("gains_finaux", []) if isinstance(g, dict) and g.get("code_gagnant") == code)
+
+    if not contient:
+        return Response('<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto"><h1 style="color:#a855f7;font-size:20px">🔎 Codes similaires</h1><p style="color:#94a3b8">Ajoute <code style="color:#fde68a">&contient=DEBUTDUCODE</code> (ex : <code>&contient=OXUZRO</code>).</p></div></body></html>', mimetype="text/html; charset=utf-8")
+
+    # Rassembler tous les codes connus
+    tous = set()
+    for k in ["pions_joueurs", "pions_bonus_joueurs", "tickets_acheteurs", "codes"]:
+        d = DB.get(k, {})
+        if isinstance(d, dict):
+            tous.update(d.keys())
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and g.get("code_gagnant"):
+            tous.add(g["code_gagnant"])
+
+    cible = contient.upper()
+    trouves = sorted([c for c in tous if isinstance(c, str) and cible in c.upper()])
+
+    # Code "propre" = uniquement lettres/chiffres ASCII (candidat destination)
+    propres = [c for c in trouves if c.isascii() and c.isalnum()]
+    code_propre = propres[0] if len(propres) == 1 else None
+
+    rows = ""
+    for c in trouves:
+        propre = c.isascii() and c.isalnum()
+        acces = c in DB.get("tickets_acheteurs", {})
+        etiquette = '<span style="color:#6ee7b7">✅ propre</span>' if propre else '<span style="color:#fca5a5">⚠️ caractère bizarre</span>'
+        acc = '<span style="color:#6ee7b7">✅ accès</span>' if acces else '<span style="color:#94a3b8">— pas d\'accès</span>'
+        action = "—"
+        if code_propre and c != code_propre:
+            # lien de fusion DÉJÀ encodé : ce code (de) -> le code propre (vers)
+            lien = f"/fusion-codes?cle={quote(cle)}&de={quote(c)}&vers={quote(code_propre)}"
+            action = f'<a href="{lien}" style="color:#fde68a;font-weight:700;text-decoration:none">→ Fusionner dans {code_propre}</a>'
+        elif code_propre and c == code_propre:
+            action = '<span style="color:#6ee7b7">⭐ destination</span>'
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:9px;font-family:monospace;color:#a78bfa;font-size:15px">{c}</td>'
+                 f'<td style="padding:9px">{etiquette}</td>'
+                 f'<td style="padding:9px;text-align:right;color:#34d399">{format(solde(c), ",")} F</td>'
+                 f'<td style="padding:9px;text-align:right;color:#fbbf24">{format(bonus(c), ",")} F</td>'
+                 f'<td style="padding:9px;text-align:center;color:#c7d2fe">{nb_gains(c)}</td>'
+                 f'<td style="padding:9px;text-align:right;color:#94a3b8">{acc}</td>'
+                 f'<td style="padding:9px">{action}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#94a3b8">Aucun code trouvé.</td></tr>'
+
+    note = ""
+    if not code_propre:
+        note = '<div style="background:rgba(252,165,165,.1);border:1px solid #ef4444;border-radius:8px;padding:10px;margin:10px 0;color:#fca5a5;font-size:13px">⚠️ Je n\'ai pas pu désigner UN seul code « propre » comme destination. Vérifie la liste et dis-moi lequel est le vrai compte.</div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codes similaires</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:880px;margin:0 auto">
+      <h1 style="font-size:20px;color:#a855f7;margin-bottom:6px">🔎 Codes contenant « {contient} »</h1>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:10px">⭐ destination = le code propre où la joueuse se connecte. Le bouton « → Fusionner » déplace tout vers lui (aperçu d\'abord, rien n\'est validé sans confirmer).</div>
+      {note}
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
+      <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:9px;color:#a78bfa">Code</th><th style="padding:9px;color:#a78bfa">Type</th><th style="padding:9px;color:#a78bfa;text-align:right">Solde</th><th style="padding:9px;color:#a78bfa;text-align:right">Bonus</th><th style="padding:9px;color:#a78bfa;text-align:center">Gains</th><th style="padding:9px;color:#a78bfa;text-align:right">Accès</th><th style="padding:9px;color:#a78bfa">Action</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
