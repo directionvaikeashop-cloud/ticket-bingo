@@ -6795,20 +6795,25 @@ def releve_financier_joueur(code):
                 _lies_reg.add(_d)
         _bloque = code in DB.get("codes_bloques", [])
         if len(_lies_reg) >= 2 or _bloque:
-            _type_reg = "Pions retirés — compte remis à zéro"
-            _desc_reg = "Solde du compte ramené à 0 (le détail des transferts reçus/envoyés figure ci-dessus)"
+            _type_reg = "Total"
+            _desc_reg = ""
         else:
             _type_reg = "Solde antérieur"
             _desc_reg = "Solde des tournois précédents (avant la mise en place des relevés détaillés)"
         if ajustement > 0:
-            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": ajustement, "sortie": 0})
+            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": ajustement, "sortie": 0, "ajustement": True})
         elif ajustement < 0:
-            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": 0, "sortie": -ajustement})
+            lignes.append({"date": "", "type": _type_reg, "desc": _desc_reg, "entree": 0, "sortie": -ajustement, "ajustement": True})
 
     lignes.sort(key=lambda x: str(x["date"]), reverse=True)
 
-    total_entrees = sum(l["entree"] for l in lignes)
-    total_sorties = sum(l["sortie"] for l in lignes)
+    # Totaux RÉELS (hors mise à zéro / solde antérieur) + l'ajustement à part
+    total_entrees = sum(l["entree"] for l in lignes if not l.get("ajustement"))
+    total_sorties = sum(l["sortie"] for l in lignes if not l.get("ajustement"))
+    _ajust_entree = sum(l["entree"] for l in lignes if l.get("ajustement"))
+    _ajust_sortie = sum(l["sortie"] for l in lignes if l.get("ajustement"))
+    _ajust_net = _ajust_entree - _ajust_sortie  # négatif = pions retirés
+    _ajust_label = next((l["type"] for l in lignes if l.get("ajustement")), "")
     
     html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Mon releve</title><style>"
     html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
@@ -6949,7 +6954,7 @@ def releve_financier_joueur(code):
         net = total_entrees - total_sorties
         html += "<div><strong>Net periode</strong><br><span class='m sol'>" + ("+" if net >= 0 else "") + format(net, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>solde actuel : " + format(solde_pions, ",") + " XPF</span></div>"
     else:
-        _note_bonus = ("dont " + format(solde_bonus, ",") + " F bonus jouable") if solde_bonus > 0 else "= entrees - sorties"
+        _note_bonus = ("dont " + format(solde_bonus, ",") + " F bonus jouable") if solde_bonus > 0 else "voir récapitulatif en bas"
         html += "<div><strong>Solde actuel</strong><br><span class='m sol'>" + format(solde_pions, ",") + " XPF</span><br><span style='font-size:11px;color:#8b949e'>" + _note_bonus + "</span></div>"
     html += "</div>"
     
@@ -6964,25 +6969,25 @@ def releve_financier_joueur(code):
             html += "<td class='td-ent'>" + ent + "</td>"
             html += "<td class='td-sor'>" + sor + "</td></tr>"
         html += "</table>"
-        # === RÉCAPITULATIF INCONTESTABLE : décompte étape par étape ===
-        _net_final = total_entrees - total_sorties
+        # === RÉCAPITULATIF VRAI : entrées, sorties RÉELLES, mise à zéro séparée ===
+        _solde_theorique = total_entrees - total_sorties
         html += ("<div style='background:#0d1117;border:2px solid #30363d;border-radius:10px;padding:16px;margin:18px 0;font-size:14px'>"
                  "<div style='font-weight:bold;color:#e6edf3;margin-bottom:10px;font-size:15px'>📋 Récapitulatif du relevé</div>"
                  "<div style='display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)'>"
-                 "<span style='color:#8b949e'>① Total de TOUTES les entrées (pions reçus, achetés, gagnés)</span>"
+                 "<span style='color:#8b949e'>① Total des ENTRÉES (pions reçus, achetés, gagnés)</span>"
                  "<b style='color:#3fb950'>+" + format(total_entrees, ",") + " XPF</b></div>"
                  "<div style='display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)'>"
-                 "<span style='color:#8b949e'>② Total de TOUTES les sorties (tickets, retraits, transferts envoyés)</span>"
+                 "<span style='color:#8b949e'>② Total des SORTIES réelles (tickets, transferts envoyés, retraits)</span>"
                  "<b style='color:#f85149'>-" + format(total_sorties, ",") + " XPF</b></div>"
-                 "<div style='display:flex;justify-content:space-between;padding:10px 0 4px;font-size:16px;border-bottom:2px solid #30363d'>"
-                 "<span style='color:#e6edf3;font-weight:bold'>③ SOLDE = ① − ②</span>"
-                 "<b style='color:#58a6ff'>" + format(_net_final, ",") + " XPF</b></div>"
-                 "<div style='display:flex;justify-content:space-between;padding:10px 0 2px;font-size:15px'>"
-                 "<span style='color:#8b949e'>Solde réel du compte aujourd'hui</span>"
+                 + (("<div style='display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)'>"
+                     "<span style='color:#8b949e'>" + _ajust_label + "</span>"
+                     "<b style='color:" + ("#f85149" if _ajust_net < 0 else "#3fb950") + "'>" + ("+" if _ajust_net >= 0 else "") + format(_ajust_net, ",") + " XPF</b></div>") if _ajust_net != 0 else "")
+                 + "<div style='display:flex;justify-content:space-between;padding:10px 0 2px;font-size:16px'>"
+                 "<span style='color:#e6edf3;font-weight:bold'>SOLDE ACTUEL du compte</span>"
                  "<b style='color:#58a6ff'>" + format(solde_pions, ",") + " XPF</b></div>"
-                 + (("<div style='margin-top:8px;padding:8px;background:rgba(63,185,80,.1);border-radius:6px;font-size:12px;color:#3fb950'>✓ Vérification : " + format(total_entrees, ",") + " − " + format(total_sorties, ",") + " = " + format(_net_final, ",") + " XPF. Le total correspond exactement au solde du compte. Calcul équilibré.</div>")
-                    if _net_final == solde_pions else
-                    ("<div style='margin-top:8px;padding:8px;background:rgba(248,81,73,.1);border-radius:6px;font-size:12px;color:#f85149'>Écart à vérifier : " + format(abs(_net_final - solde_pions), ",") + " XPF.</div>"))
+                 + (("<div style='margin-top:8px;padding:8px;background:rgba(63,185,80,.1);border-radius:6px;font-size:12px;color:#3fb950'>✓ Vérification : " + format(total_entrees, ",") + " − " + format(total_sorties, ",") + (((" − " + format(-_ajust_net, ",")) if _ajust_net < 0 else (" + " + format(_ajust_net, ","))) if _ajust_net != 0 else "") + " = " + format(solde_pions, ",") + " XPF. Calcul équilibré.</div>")
+                    if (_solde_theorique + _ajust_net) == solde_pions else
+                    ("<div style='margin-top:8px;padding:8px;background:rgba(248,81,73,.1);border-radius:6px;font-size:12px;color:#f85149'>Écart à vérifier : " + format(abs(_solde_theorique + _ajust_net - solde_pions), ",") + " XPF.</div>"))
                  + "</div>")
     else:
         html += "<p style='color:#8b949e;margin-top:20px'>Aucune operation pour le moment.</p>"
@@ -14148,5 +14153,87 @@ def verif_codes_sources():
       <div style="color:#94a3b8;font-size:12px;margin-bottom:10px">« Envoyé » = total transféré vers d'autres comptes. « A réellement eu » = achats + gains + recrédits + reçu par transfert. Si Envoyé > A réellement eu → pions fabriqués.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:660px">
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:7px;color:#fca5a5">Code source</th><th style="padding:7px;color:#fca5a5">Nom</th><th style="padding:7px;color:#fca5a5;text-align:right">A envoyé</th><th style="padding:7px;color:#fca5a5;text-align:right">A réellement eu</th><th style="padding:7px;color:#fca5a5">Verdict</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/solde-legitime")
+def solde_legitime():
+    """ADMIN — Calcule le solde LÉGITIME de chaque compte = (vrai argent payé +
+    gains) − (tickets + retraits). Ne compte ni les transferts ni les recrédits
+    (tainted). Montre qui a un vrai solde à rétablir. Ne modifie rien. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    staff = set(DB.get("codes", {}).keys())
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    achats = {}; gains = {}; tickets_dep = {}; retraits = {}; recus = {}
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and c.get("statut") == "validee":
+            cj = (c.get("code_joueur") or "").upper()
+            nbp = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0); vp = int(c.get("valeur_pion", 0) or 0)
+            achats[cj] = achats.get(cj, 0) + ((nbp * vp) or int(c.get("montant_net", 0) or 0))
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict):
+            cj = (g.get("code") or "").upper()
+            gains[cj] = gains.get(cj, 0) + int(g.get("montant_gain", g.get("montant_credite", 0)) or 0)
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict):
+            cj = (c.get("code_joueur") or "").upper()
+            tickets_dep[cj] = tickets_dep.get(cj, 0) + int(c.get("total_pions", 0) or 0)
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and r.get("statut") == "validee":
+            cj = (r.get("code_joueur") or "").upper()
+            retraits[cj] = retraits.get(cj, 0) + int(r.get("montant_demande", 0) or 0)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict):
+            v = (t.get("vers") or "").upper()
+            if v: recus[v] = recus.get(v, 0) + int(t.get("montant", 0) or 0)
+
+    # tous les comptes ayant une activité
+    comptes = set(achats) | set(gains) | set(tickets_dep) | set(retraits) | set(recus)
+    comptes = [c for c in comptes if c and c not in staff]
+
+    lignes = []
+    for c in comptes:
+        vrai_in = achats.get(c, 0) + gains.get(c, 0)
+        depense = tickets_dep.get(c, 0) + retraits.get(c, 0)
+        legitime = max(0, vrai_in - depense)
+        lignes.append((c, achats.get(c, 0), gains.get(c, 0), depense, recus.get(c, 0), legitime, solde(c)))
+    # ceux qui ont un solde légitime > 0 en premier
+    lignes.sort(key=lambda x: -x[5])
+
+    rows = ""; total_legitime = 0; nb_avec = 0
+    for c, a, g, d, rc, leg, sld in lignes:
+        if leg > 0: nb_avec += 1; total_legitime += leg
+        coul = "#3fb950" if leg > 0 else "#6e7681"
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:6px;font-family:monospace;color:#a78bfa">{c}</td>'
+                 f'<td style="padding:6px;color:#94a3b8;font-size:12px">{noms.get(c, "")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#93c5fd">{format(a, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#93c5fd">{format(g, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#fca5a5">{format(d, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:{coul};font-weight:700">{format(leg, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#8b949e">{format(sld, ",")}</td></tr>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Solde légitime</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:920px;margin:0 auto">
+      <h1 style="font-size:20px;color:#3fb950;margin-bottom:8px">💰 Solde légitime de chaque compte</h1>
+      <div style="background:rgba(63,185,80,.1);border:1px solid #3fb950;border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="color:#3fb950;font-size:14px"><b>{nb_avec}</b> compte(s) ont un solde légitime &gt; 0 à rétablir éventuellement (total : <b>{format(total_legitime, ",")} XPF</b> de vrai argent). Les autres sont légitimement à 0.</div>
+      </div>
+      <div style="color:#94a3b8;font-size:12px;margin-bottom:10px">Solde légitime = (vrai argent payé + gains) − (tickets + retraits). Les <b>transferts</b> et <b>recrédits</b> ne sont PAS comptés (pions sans contrepartie réelle sûre). « Solde actuel » = ce qu'il a aujourd'hui.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
+      <tr style="border-bottom:2px solid #1f6feb;text-align:left"><th style="padding:6px;color:#93c5fd">Code</th><th style="padding:6px;color:#93c5fd">Nom</th><th style="padding:6px;color:#93c5fd;text-align:right">Acheté réel</th><th style="padding:6px;color:#93c5fd;text-align:right">Gains</th><th style="padding:6px;color:#93c5fd;text-align:right">Dépensé</th><th style="padding:6px;color:#93c5fd;text-align:right">Solde légitime</th><th style="padding:6px;color:#93c5fd;text-align:right">Solde actuel</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
