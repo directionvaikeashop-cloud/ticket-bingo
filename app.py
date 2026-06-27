@@ -5826,6 +5826,22 @@ def releve_complet_joueur(code):
                 "statut": "correction"
             })
 
+    # 6. Transferts de pions (envoyes / recus) — comme sur un releve bancaire
+    for tr in DB.get("transferts_pions", []):
+        if not isinstance(tr, dict):
+            continue
+        de = (tr.get("de", "") or "").upper()
+        vers = (tr.get("vers", "") or "").upper()
+        mt = int(tr.get("montant", 0) or 0)
+        org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
+        dt = str(tr.get("date", ""))[:16].replace("T", " ")
+        if de == code:
+            lignes.append({"date": dt, "type": "Transfert emis", "montant": -mt,
+                           "detail": "Pions transferes vers le compte " + vers + org, "statut": "transfert"})
+        elif vers == code:
+            lignes.append({"date": dt, "type": "Transfert recu", "montant": mt,
+                           "detail": "Pions recus du compte " + de + org, "statut": "transfert"})
+
     # Trier par date
     lignes.sort(key=lambda x: x.get("date", ""))
 
@@ -6114,7 +6130,24 @@ def releve_code(code):
                 "entree": cpo.get("montant_total_xpf", 0),
                 "sortie": 0
             })
-    
+
+    # Transferts de pions (envoyes / recus) — comme sur un releve bancaire
+    for tr in DB.get("transferts_pions", []):
+        if not isinstance(tr, dict):
+            continue
+        de = (tr.get("de", "") or "").upper()
+        vers = (tr.get("vers", "") or "").upper()
+        mt = int(tr.get("montant", 0) or 0)
+        org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
+        if de == code:
+            transactions.append({"date": tr.get("date", "?"), "type": "Transfert emis",
+                                 "description": "Pions transferes vers le compte " + vers + org,
+                                 "entree": 0, "sortie": mt})
+        elif vers == code:
+            transactions.append({"date": tr.get("date", "?"), "type": "Transfert recu",
+                                 "description": "Pions recus du compte " + de + org,
+                                 "entree": mt, "sortie": 0})
+
     transactions.sort(key=lambda x: str(x["date"]), reverse=True)
     
     total_e = sum(t["entree"] for t in transactions)
