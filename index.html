@@ -3658,7 +3658,7 @@ async function loadAlertesBingo(){
     const alertes=await r.json();
     const el=document.getElementById('bingo-alertes');
     if(!alertes.length){el.innerHTML='<div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Aucune alerte</div>';return;}
-    el.innerHTML=alertes.map(a=>`<div style="background:var(--s2);border-radius:var(--rs);padding:12px;margin-bottom:8px;border:0.5px solid ${a.statut==='en_attente'?'rgba(245,158,11,.4)':a.statut==='valide'?'rgba(16,185,129,.4)':'rgba(239,68,68,.4)'}">
+    el.innerHTML='<button onclick="effacerTicketsNonValides()" style="width:100%;padding:10px;margin-bottom:10px;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🧹 Effacer les tickets non validés</button>'+alertes.map(a=>`<div style="background:var(--s2);border-radius:var(--rs);padding:12px;margin-bottom:8px;border:0.5px solid ${a.statut==='en_attente'?'rgba(245,158,11,.4)':a.statut==='valide'?'rgba(16,185,129,.4)':'rgba(239,68,68,.4)'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div style="font-size:13px;font-weight:600">🎉 ${a.acheteur}</div>
         <span class="badge ${a.statut==='en_attente'?'b-warn':a.statut==='valide'?'b-ok':'b-er'}">${a.statut==='en_attente'?'En attente':a.statut==='valide'?'Validé':'Refusé'}</span>
@@ -3691,6 +3691,18 @@ async function validerBingo(alerteId, statut){
       toast('toast-t','🏆 Gagnant validé ! Les PDF entièrement vendus sont nettoyés ; ceux avec des feuilles invendues sont conservés.');
     }
   }catch(e){}
+}
+
+async function effacerTicketsNonValides(){
+  if(!confirm("Effacer tous les tickets NON validés ?\n\nSeul le ticket validé restera visible (pendant 5 jours).\nCette action est définitive.")) return;
+  try{
+    const r = await fetch('/api/bingo/effacer-non-valides',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN}});
+    const d = await r.json();
+    if(d && d.ok){
+      toast('toast-t','🧹 '+d.effacees+' ticket(s) non validé(s) effacé(s). Le ticket validé reste visible 5 jours.');
+      loadAlertesBingo();
+    } else { alert((d&&d.msg)||'Erreur'); }
+  }catch(e){ alert('Erreur réseau, réessayez.'); }
 }
 
 async function resetTournoi(){
