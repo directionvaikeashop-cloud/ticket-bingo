@@ -7931,6 +7931,12 @@ def trace_pions():
                 mv.append((t.get("date", ""), "Transfert ENVOYÉ", f"→ vers {t.get('vers','?')}", -_i(t.get("montant"))))
             if (t.get("vers") or "").upper() == code:
                 mv.append((t.get("date", ""), "Transfert REÇU", f"← de {t.get('de','?')}", _i(t.get("montant"))))
+        for rb in DB.get("remboursements_tournoi", []):
+            if isinstance(rb, dict):
+                for det in (rb.get("detail") or []):
+                    if isinstance(det, dict) and (det.get("code_joueur", "") or "").upper() == code:
+                        mv.append((rb.get("date", ""), "Remboursement",
+                                   f"Jeu annulé : {rb.get('jeu','')}", _i(det.get("montant"))))
         # Cadeau d'inscription : la campagne "semaine" crédite 500 F de bonus
         # directement à l'inscription (non journalisé ailleurs). On le retrace ici.
         for x in DB.get("rejoindre_log", []):
@@ -9237,6 +9243,92 @@ def fusion_codes():
                 f'<p style="color:#fff">Tout a été déplacé de <code style="color:#fca5a5">{de}</code> vers <code style="color:#6ee7b7">{vers}</code>.</p>'
                 f'<p style="color:#94a3b8">Solde de <b>{vers}</b> : <b style="color:#6ee7b7">{solde(vers)} XPF</b> · {deplaces} mouvement(s) rattaché(s).</p>'
                 f'<p style="margin-top:10px"><a href="/diag-ecarts?cle={cle}" style="color:#a78bfa">← Revoir la réconciliation</a></p>')
+
+@app.route("/rembourser-jeu")
+def rembourser_jeu():
+    """ADMIN — Rembourse en pions bonus tous les achats d'un jeu (ex. TRIPLE ACTION 75)
+    pour une date donnée. Aperçu d'abord, rien sans &confirme=1.
+    ?cle=ADMIN[&jeu=TRIPLE ACTION 75][&date=2026-06-27][&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    jeu_q = (request.args.get("jeu", "") or "TRIPLE ACTION 75").strip()
+    date_q = (request.args.get("date", "") or "").strip()
+    if not date_q:
+        date_q = datetime.datetime.now().date().isoformat()
+    confirme = request.args.get("confirme", "") == "1"
+    jeu_up = jeu_q.upper()
+
+    cibles = []
+    for c in DB.get("commandes_tickets_pions", []):
+        if not isinstance(c, dict):
+            continue
+        if jeu_up not in (c.get("jeu", "") or "").upper():
+            continue
+        if date_q and not str(c.get("date", "")).startswith(date_q):
+            continue
+        if c.get("rembourse"):
+            continue
+        cibles.append(c)
+
+    nb = len(cibles)
+    total_pions = sum(int(c.get("total_pions", 0) or 0) for c in cibles)
+
+    def page(corps):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remboursement</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:18px;color:#fff">
+        <div style="max-width:680px;margin:0 auto">{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    if not confirme:
+        if not cibles:
+            return page(f'<h1 style="color:#34d399;font-size:20px">Rien à rembourser</h1>'
+                        f'<p style="color:#94a3b8">Aucun achat « {jeu_q} » non remboursé pour le {date_q}.</p>'
+                        f'<p style="color:#6b7280;font-size:12px">Autre date ? ajoute <code style="color:#a78bfa">&date=2026-06-27</code>.</p>')
+        lignes = ""
+        for c in cibles:
+            lignes += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.08)">'
+                       f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{c.get("code_joueur","?")}</td>'
+                       f'<td style="padding:8px;color:#cbd5e1">{c.get("nb_tickets","?")} ticket(s)</td>'
+                       f'<td style="padding:8px;text-align:right;color:#fbbf24">{format(int(c.get("total_pions",0) or 0), ",")} F</td>'
+                       f'<td style="padding:8px;color:#64748b;font-size:11px">{str(c.get("date",""))[:16].replace("T"," ")}</td></tr>')
+        url_ok = f"/rembourser-jeu?cle={cle}&jeu={jeu_q}&date={date_q}&confirme=1"
+        return page(f'<h1 style="color:#a855f7;font-size:20px">↩️ Remboursement — {jeu_q}</h1>'
+                    f'<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:12px 0;line-height:1.7">'
+                    f'Date : <b>{date_q}</b><br>Achats à rembourser : <b>{nb}</b><br>'
+                    f'Total à recréditer (pions bonus) : <b style="color:#fbbf24">{format(total_pions, ",")} F</b></div>'
+                    f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:480px">'
+                    f'<tr style="border-bottom:2px solid #3730a3"><th style="padding:8px;text-align:left;color:#a78bfa">Joueuse</th><th style="padding:8px;text-align:left;color:#a78bfa">Tickets</th><th style="padding:8px;text-align:right;color:#a78bfa">Montant</th><th style="padding:8px;text-align:left;color:#a78bfa">Date</th></tr>{lignes}</table></div>'
+                    f'<a href="{url_ok}" style="display:inline-block;margin-top:14px;background:#059669;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:700">✅ Rembourser les {nb}</a>'
+                    f'<p style="color:#6b7280;font-size:12px;margin-top:10px">Remboursement en pions bonus (jouables, non retirables). Apparaît dans le relevé comme « Remboursement — Jeu annulé ».</p>')
+
+    # === EXECUTION ===
+    detail = []
+    faits = 0
+    now = datetime.datetime.now().isoformat()
+    for c in cibles:
+        code = c.get("code_joueur")
+        m = int(c.get("total_pions", 0) or 0)
+        if not code or m <= 0:
+            continue
+        poche = DB.setdefault("pions_bonus_joueurs", {}).get(code, {})
+        _crediter_pions_montant(poche, m)
+        DB["pions_bonus_joueurs"][code] = poche
+        c["rembourse"] = True
+        c["rembourse_date"] = now
+        detail.append({"code_joueur": code, "montant": m})
+        faits += 1
+    DB.setdefault("remboursements_tournoi", []).insert(0, {
+        "jeu": jeu_q, "date": now, "detail": detail, "par": cle, "motif": "Remboursement vente du soir"
+    })
+    save_data(immediat=True)
+    return page(f'<h1 style="color:#34d399;font-size:20px">✅ Remboursement effectué</h1>'
+                f'<p style="color:#fff"><b>{faits}</b> achat(s) « {jeu_q} » remboursé(s) en pions bonus.</p>'
+                f'<p style="color:#94a3b8">Total recrédité : <b style="color:#fbbf24">{format(sum(d["montant"] for d in detail), ",")} F</b>. Chaque joueuse voit « Remboursement — Jeu annulé » dans son relevé.</p>'
+                f'<p style="color:#6b7280;font-size:12px;margin-top:8px">Relancer ce lien ne rembourse pas deux fois (les achats déjà remboursés sont ignorés).</p>')
 
 @app.route("/bilan-qr")
 def bilan_qr():
