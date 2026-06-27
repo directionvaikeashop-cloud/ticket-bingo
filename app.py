@@ -3021,18 +3021,19 @@ def get_annonces_jeux():
     #    de SON propre organisateur (jamais ceux d'un autre organisateur).
     code_joueur = (request.args.get("code", "") or "").strip().upper()
     if code_joueur:
+        # On ne retient que les VRAIS organisateurs actifs (on ignore "PUB" et
+        # autres codes non-organisateurs issus de l'inscription publicitaire).
         mes_orgs = set()
         for t in DB.get("tickets", []):
             if (t.get("code_acheteur", "") or "").upper() == code_joueur:
                 o = t.get("code_org")
-                if o:
+                if o and codes.get(o) and codes.get(o).get("actif"):
                     mes_orgs.add(o)
         if mes_orgs:
+            # Joueuse rattachée à une organisatrice : elle ne voit que SES jeux.
             annonces = [a for a in annonces if a.get("code_org") in mes_orgs]
-        else:
-            # Joueuse sans organisateur connu : par prudence on ne montre rien,
-            # plutot que de risquer une commande chez le mauvais organisateur.
-            annonces = []
+        # Sinon (inscription pub / pas encore d'organisatrice) : elle voit TOUS
+        # les jeux des organisateurs actifs, pour pouvoir commencer à jouer.
     return jsonify(annonces)
 
 @app.route("/api/annonce/ventes", methods=["POST"])
@@ -8847,6 +8848,67 @@ def diag_ecarts():
 
       <div style="margin-top:16px;color:#94a3b8;font-size:12px;line-height:1.5">Pour recréditer : outil admin « Recréditer joueur », avec la décomposition indiquée. Le mouvement est tracé (Crédit admin) et la ligne disparaît d'ici.</div>
     </div></body></html>'''
+
+@app.route("/maj-tournoi-juillet")
+def maj_tournoi_juillet():
+    """ADMIN — Reporte le tournoi au vendredi 3 juillet 2026 ET publie l'annonce
+    aux joueuses, en un clic. ?cle=ADMIN[&heure=HH:MM][&nom=...][&jeu=...]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    heure = (request.args.get("heure", "") or "19:00").strip()
+    if len(heure) == 5 and heure[2] == ":" and heure.replace(":", "").isdigit():
+        pass
+    else:
+        heure = "19:00"
+    nom = (request.args.get("nom", "") or "Grand tournoi TUKEA").strip()
+    jeu = (request.args.get("jeu", "") or "").strip()
+    date_heure = "2026-07-03T" + heure
+
+    # 1) Retirer l'ancien tournoi d'aujourd'hui (26/06/2026) s'il existe
+    avant = DB.get("tournois_programmes", [])
+    DB["tournois_programmes"] = [t for t in avant
+                                 if not str(t.get("date_heure", "")).startswith("2026-06-26")]
+    retires = len(avant) - len(DB["tournois_programmes"])
+
+    # 2) Programmer le tournoi du 3 juillet
+    tournoi = {
+        "id": secrets.token_hex(4).upper(),
+        "code_org": cle,
+        "nom_org": info.get("nom", "TUKEA"),
+        "nom": nom,
+        "jeu": jeu,
+        "date_heure": date_heure,
+        "created": datetime.datetime.now().isoformat()
+    }
+    DB["tournois_programmes"].insert(0, tournoi)
+
+    # 3) Publier l'annonce en bandeau chez toutes les joueuses
+    texte = ("\U0001F3B2 Le tournoi est report\u00e9 \u00e0 vendredi 3 juillet 2026. "
+             "Vos pions et vos tickets restent valables \u2014 rien n'est perdu ! "
+             "Prenez vos tickets d\u00e8s maintenant pour \u00eatre pr\u00eates. \u00c0 tr\u00e8s vite ! \U0001F33A TUKEA")
+    DB["message_joueurs"] = {"actif": True, "texte": texte,
+                             "date": datetime.datetime.now().isoformat(), "par": cle}
+
+    save_data(immediat=True)
+    h_aff = heure.replace(":", "h")
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Report tournoi</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:18px;color:#fff">
+    <div style="max-width:560px;margin:0 auto">
+      <h1 style="color:#34d399;font-size:20px">\u2705 Report effectu\u00e9 !</h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin-top:12px;line-height:1.7">
+        \U0001F4C5 Tournoi programm\u00e9 : <b>{nom}</b><br>
+        \U0001F5D3\uFE0F Date : <b style="color:#fbbf24">vendredi 3 juillet 2026 \u00e0 {h_aff}</b>{(' \u00b7 ' + jeu) if jeu else ''}<br>
+        \U0001F4E2 Annonce publi\u00e9e \u00e0 toutes les joueuses (bandeau)<br>
+        \U0001F9F9 Ancien tournoi d'aujourd'hui retir\u00e9 : <b>{retires}</b>
+      </div>
+      <p style="color:#8b949e;font-size:13px;margin-top:12px">Tes joueuses voient maintenant le compte \u00e0 rebours vers le 3 juillet et le message d'annonce.</p>
+      <p style="color:#8b949e;font-size:12px">Heure diff\u00e9rente ? Rappelle ce lien avec <code style="color:#a78bfa">&heure=20:00</code> par exemple.</p>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
 
 @app.route("/fusion-codes")
 def fusion_codes():
