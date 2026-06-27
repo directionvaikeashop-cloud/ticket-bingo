@@ -7780,6 +7780,26 @@ def recherche_joueur():
 
     code_j = (request.args.get("code", "") or "").strip().upper()
     resultat = ""
+    origine_html = ""
+    if code_j:
+        # --- ORIGINE DU CODE : QR (inscription pub) ou créé par une organisatrice ? ---
+        rj = next((x for x in DB.get("rejoindre_log", [])
+                   if (x.get("code", "") or "").upper() == code_j), None)
+        tks_all = [t for t in DB.get("tickets", [])
+                   if (t.get("code_acheteur", "") or "").upper() == code_j]
+        pub = any((t.get("code_org") == "PUB" or t.get("source") == "publicite") for t in tks_all)
+        if rj or pub:
+            camp = (rj.get("campagne") if rj else "") or "—"
+            dt = ((rj.get("date") if rj else "") or "")[:16].replace("T", " ")
+            origine_html = ('<div style="background:#0c4a6e;color:#bae6fd;padding:16px 18px;border-radius:12px;margin-bottom:16px;font-size:15px">'
+                            '📲 <b>Code généré par le QR</b> (inscription publicité).<br>'
+                            f'<span style="color:#7dd3fc;font-size:13px">Campagne : <b>{camp}</b>{(" · le " + dt) if dt else ""}</span></div>')
+        elif tks_all:
+            org_codes = sorted({t.get("code_org") for t in tks_all if t.get("code_org")})
+            org_noms = ", ".join(DB.get("codes", {}).get(o, {}).get("nom", o) for o in org_codes) or "—"
+            origine_html = ('<div style="background:#3b1d5e;color:#e9d5ff;padding:16px 18px;border-radius:12px;margin-bottom:16px;font-size:15px">'
+                            '✍️ <b>Code créé par une organisatrice</b> (pas le QR).<br>'
+                            f'<span style="color:#c4b5fd;font-size:13px">Organisatrice : <b>{org_noms}</b></span></div>')
     if code_j:
         tks = [t for t in DB.get("tickets", []) if (t.get("code_acheteur", "") or "").upper() == code_j]
         if not tks:
@@ -7827,6 +7847,7 @@ def recherche_joueur():
           style="flex:1;min-width:180px;padding:12px 14px;border-radius:10px;border:1px solid #3730a3;background:#1a1830;color:#fff;font-size:16px;text-transform:uppercase">
         <button type="submit" style="padding:12px 22px;border:0;border-radius:10px;background:#6366f1;color:#fff;font-size:15px;font-weight:700;cursor:pointer">Rechercher</button>
       </form>
+      {origine_html}
       {resultat}
       <div style="text-align:center;margin-top:20px;font-size:12px;color:#64748b">Page admin · lecture seule</div>
     </div></body></html>'''
