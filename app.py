@@ -14051,3 +14051,93 @@ def verif_transferts_zero():
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:7px;color:#fca5a5">Code</th><th style="padding:7px;color:#fca5a5">Nom</th><th style="padding:7px;color:#fca5a5;text-align:right">Reçu transf.</th><th style="padding:7px;color:#fca5a5;text-align:right">Acheté réel</th><th style="padding:7px;color:#fca5a5;text-align:right">Solde restant</th><th style="padding:7px;color:#fca5a5">Type</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/verif-codes-sources")
+def verif_codes_sources():
+    """ADMIN — Contrôle fondamental : pour chaque code ayant ENVOYÉ des pions,
+    vérifie qu'il a réellement EU ces pions (achats + reçus + gains + recrédits).
+    Si envoyé > total entré => pions créés à partir de rien. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    staff = set(DB.get("codes", {}).keys())
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    # Entrées légitimes par code : achats + gains + recrédits + reçu par transfert
+    entre = {}  # toutes les entrées possibles
+    recu_tr = {}; envoye_tr = {}
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and c.get("statut") == "validee":
+            cj = (c.get("code_joueur") or "").upper()
+            nbp = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0); vp = int(c.get("valeur_pion", 0) or 0)
+            entre[cj] = entre.get(cj, 0) + ((nbp * vp) or int(c.get("montant_net", 0) or 0))
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict):
+            cj = (g.get("code") or "").upper()
+            entre[cj] = entre.get(cj, 0) + int(g.get("montant_gain", g.get("montant_credite", 0)) or 0)
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict):
+            cj = (c.get("code_joueur") or "").upper()
+            entre[cj] = entre.get(cj, 0) + int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+    for c in DB.get("credits_masse", []):
+        if isinstance(c, dict):
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            for cj in (c.get("codes") or []):
+                cj = (cj or "").upper(); entre[cj] = entre.get(cj, 0) + m
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict):
+            de = (t.get("de") or "").upper(); vers = (t.get("vers") or "").upper(); m = int(t.get("montant", 0) or 0)
+            if vers: recu_tr[vers] = recu_tr.get(vers, 0) + m
+            if de: envoye_tr[de] = envoye_tr.get(de, 0) + m
+
+    # Pour chaque code SOURCE (qui a envoyé), entrées totales = entre + reçu par transfert
+    rows = ""; nb_anomalies = 0; total_cree = 0
+    for c in sorted(envoye_tr, key=lambda x: -envoye_tr[x]):
+        if c in staff:
+            continue
+        env = envoye_tr.get(c, 0)
+        total_entre = entre.get(c, 0) + recu_tr.get(c, 0)
+        ecart = env - total_entre  # > 0 => a envoyé plus qu'il n'a eu
+        anomalie = ecart > 0
+        if anomalie:
+            nb_anomalies += 1; total_cree += ecart
+        couleur = "#f85149" if anomalie else "#3fb950"
+        verdict = (f"🔴 a envoyé {format(ecart, ',')} de trop") if anomalie else "✅ débit cohérent"
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:7px;font-family:monospace;color:#a78bfa">{c}</td>'
+                 f'<td style="padding:7px;color:#cbd5e1;font-size:12px">{noms.get(c, "")}</td>'
+                 f'<td style="padding:7px;text-align:right;color:#fca5a5">{format(env, ",")}</td>'
+                 f'<td style="padding:7px;text-align:right;color:#6ee7b7">{format(total_entre, ",")}</td>'
+                 f'<td style="padding:7px;text-align:right;color:{couleur};font-weight:700">{verdict}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="padding:14px;color:#94a3b8">Aucun code n\'a envoyé de transfert.</td></tr>'
+
+    if nb_anomalies:
+        _banniere_msg = "🔴 " + str(nb_anomalies) + " code(s) ont envoyé plus de pions qu'ils n'en ont jamais eu — soit " + format(total_cree, ",") + " XPF créés à partir de rien."
+        _bg = "rgba(248,81,73,.12)"; _bd = "#f85149"; _col = "#f85149"
+    else:
+        _banniere_msg = "✅ Tous les codes sources ont été correctement débités. Aucune création de pions détectée."
+        _bg = "rgba(63,185,80,.12)"; _bd = "#3fb950"; _col = "#3fb950"
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vérif codes sources</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:880px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f0883e;margin-bottom:8px">🔍 Contrôle des codes sources (débit des transferts)</h1>
+      <div style="background:{_bg};border:1px solid {_bd};border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="color:{_col};font-size:15px;font-weight:700">{_banniere_msg}</div>
+      </div>
+      <div style="color:#94a3b8;font-size:12px;margin-bottom:10px">« Envoyé » = total transféré vers d'autres comptes. « A réellement eu » = achats + gains + recrédits + reçu par transfert. Si Envoyé > A réellement eu → pions fabriqués.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:660px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:7px;color:#fca5a5">Code source</th><th style="padding:7px;color:#fca5a5">Nom</th><th style="padding:7px;color:#fca5a5;text-align:right">A envoyé</th><th style="padding:7px;color:#fca5a5;text-align:right">A réellement eu</th><th style="padding:7px;color:#fca5a5">Verdict</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
