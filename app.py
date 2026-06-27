@@ -6114,7 +6114,7 @@ def releves_all():
         if data_org["joueurs"]:
             html += "<div class='joueurs-grid'>"
             for cj, nom_j in data_org["joueurs"]:
-                html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve/" + str(cj) + "' class='j-link'>Releve</a></div>"
+                html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "' class='j-link'>Releve</a></div>"
             html += "</div>"
         else:
             html += "<div style='color:#8b949e'>Aucun joueur rattache</div>"
@@ -6126,7 +6126,7 @@ def releves_all():
         html += "<div class='org-titre' style='color:#8b949e'>Joueurs sans organisateur<span class='count'>" + str(len(sans_org)) + "</span></div>"
         html += "<div class='joueurs-grid'>"
         for cj, nom_j in sans_org:
-            html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve/" + str(cj) + "' class='j-link'>Releve</a></div>"
+            html += "<div class='joueur-card'><div class='j-nom'>" + str(nom_j) + "</div><div class='j-code'>" + str(cj) + "</div><a href='/releve-financier-joueur/" + str(cj) + "' class='j-link'>Releve</a></div>"
         html += "</div></div>"
     
     html += "</body></html>"
