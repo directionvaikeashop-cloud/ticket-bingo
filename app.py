@@ -514,6 +514,38 @@ def _get_client_ip():
     except Exception:
         return ""
 
+# === GARDE DE SÉCURITÉ DES TRANSACTIONS JOUEUSES (additif, défensif) ===
+# Refuse tout montant négatif, non numérique ou délirant sur les transactions.
+# 100% additif : en cas de doute, on laisse passer (ne bloque jamais une
+# opération légitime). Couvre /api/pions/*, /api/ticket, /api/gain/*, /api/retrait/*.
+_SECU_PATHS_TX = ("/api/pions/", "/api/ticket", "/api/gain/", "/api/retrait/")
+_SECU_CHAMPS_MONTANT = ("montant", "pions", "nb_pions", "montant_gain", "montant_paye", "prix")
+_SECU_MONTANT_MAX = 5000000
+
+@app.before_request
+def _garde_securite_transactions():
+    try:
+        if request.method != "POST":
+            return None
+        path = request.path or ""
+        if not any(path == p.rstrip("/") or path.startswith(p) for p in _SECU_PATHS_TX):
+            return None
+        d = request.get_json(silent=True)
+        if not isinstance(d, dict):
+            return None
+        for champ in _SECU_CHAMPS_MONTANT:
+            v = d.get(champ)
+            if champ in d and v is not None and v != "":
+                try:
+                    val = int(float(v))
+                except (ValueError, TypeError):
+                    return jsonify({"ok": False, "msg": "Montant invalide."}), 400
+                if val < 0 or val > _SECU_MONTANT_MAX:
+                    return jsonify({"ok": False, "msg": "Montant hors limites."}), 400
+    except Exception:
+        return None
+    return None
+
 def journaliser_connexion(code, resultat, type_compte="organisateur", nom=""):
     """Enregistre chaque tentative de connexion (reussie ou echouee) avec IP pour controle."""
     global DB
