@@ -12198,3 +12198,107 @@ def anti_fraude():
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:9px;color:#fca5a5">Code</th><th style="padding:9px;color:#fca5a5;text-align:right">Solde pions</th><th style="padding:9px;color:#fca5a5">Retraits</th><th style="padding:9px;color:#fca5a5">État</th><th style="padding:9px;color:#fca5a5;text-align:right">Action</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/empreinte")
+def empreinte_fraude():
+    """ADMIN — Empreinte d'un code : ses IP/appareils/noms de connexion, et TOUS
+    les autres codes qui partagent ces IP (réseau du fraudeur). Blocage en 1 clic.
+    ?cle=ADMIN&code=CODE[&bloquer=CODE][&debloquer=CODE]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    DB.setdefault("codes_bloques", [])
+    msg = ""
+    blq = (request.args.get("bloquer", "") or "").strip().upper()
+    if blq:
+        if blq not in DB["codes_bloques"]:
+            DB["codes_bloques"].append(blq); save_data(immediat=True)
+        msg = f"🔒 {blq} BLOQUÉ."
+    deb = (request.args.get("debloquer", "") or "").strip().upper()
+    if deb:
+        DB["codes_bloques"] = [c for c in DB["codes_bloques"] if c != deb]; save_data(immediat=True)
+        msg = f"🔓 {deb} débloqué."
+
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response('<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:720px;margin:0 auto"><h1 style="color:#a855f7;font-size:20px">🔍 Empreinte</h1><p style="color:#94a3b8">Ajoute <code style="color:#fde68a">&code=LECODE</code> (ex : <code>&code=V2DYIH</code>).</p></div></body></html>', mimetype="text/html; charset=utf-8")
+
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    def nom_de(c):
+        return DB.get("codes", {}).get(c, {}).get("nom", "") or ""
+
+    jc = DB.get("journal_connexions", [])
+    cons_code = [x for x in jc if isinstance(x, dict) and (x.get("code") or "").upper() == code]
+    ips = set(x.get("ip") for x in cons_code if x.get("ip"))
+    # ajoute les IP vues dans les transferts de ce code
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de") == code or t.get("vers") == code) and t.get("ip"):
+            ips.add(t.get("ip"))
+    devices = sorted(set(x.get("user_agent", "")[:60] for x in cons_code if x.get("user_agent")))
+    noms_vus = sorted(set(x.get("nom", "") for x in cons_code if x.get("nom")))
+
+    # Réseau : tous les codes connectés depuis ces mêmes IP
+    reseau = {}  # code -> set(ips)
+    for x in jc:
+        if isinstance(x, dict) and x.get("ip") in ips and x.get("code"):
+            reseau.setdefault((x["code"] or "").upper(), set()).add(x.get("ip"))
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and t.get("ip") in ips:
+            for c in (t.get("de"), t.get("vers")):
+                if c:
+                    reseau.setdefault(c.upper(), set()).add(t.get("ip"))
+
+    ip_html = "".join(f'<li style="font-family:monospace;color:#fca5a5">{ip}</li>' for ip in sorted(ips)) or '<li style="color:#94a3b8">aucune IP enregistrée</li>'
+    dev_html = "".join(f'<li style="color:#cbd5e1;font-size:12px">{d}</li>' for d in devices) or '<li style="color:#94a3b8">aucun appareil enregistré</li>'
+    identite = f'<b style="color:#fff">{", ".join(noms_vus)}</b>' if noms_vus else '<span style="color:#94a3b8">aucun nom enregistré (code anonyme)</span>'
+
+    rows = ""
+    tot = 0
+    for c in sorted(reseau.keys(), key=lambda x: -solde(x)):
+        s = solde(c); tot += s
+        bloque = c in DB["codes_bloques"]
+        nb_ip = len(reseau[c])
+        etat = '<span style="color:#f87171;font-weight:700">🔒 BLOQUÉ</span>' if bloque else '<span style="color:#34d399">🔓 actif</span>'
+        moi = ' <span style="color:#818cf8;font-size:11px">(le code cherché)</span>' if c == code else ''
+        if c == cle:
+            action = '<span style="color:#64748b">— toi</span>'
+        elif bloque:
+            action = f'<a href="/empreinte?cle={cle}&code={code}&debloquer={c}" style="color:#93c5fd;text-decoration:none">débloquer</a>'
+        else:
+            action = f'<a href="/empreinte?cle={cle}&code={code}&bloquer={c}" style="color:#fca5a5;font-weight:700;text-decoration:none">🔒 BLOQUER</a>'
+        nm = nom_de(c)
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:8px;font-family:monospace;color:#a78bfa">{c}{moi}</td>'
+                 f'<td style="padding:8px;color:#94a3b8;font-size:12px">{nm}</td>'
+                 f'<td style="padding:8px;text-align:right;color:#34d399">{format(s, ",")} F</td>'
+                 f'<td style="padding:8px;text-align:center;color:#fbbf24">{nb_ip}</td>'
+                 f'<td style="padding:8px">{etat}</td>'
+                 f'<td style="padding:8px;text-align:right">{action}</td></tr>')
+
+    msg_html = f'<div style="background:rgba(99,102,241,.15);border:1px solid #6366f1;border-radius:8px;padding:10px;margin-bottom:12px;color:#c7d2fe;font-weight:700">{msg}</div>' if msg else ""
+    alerte = ""
+    autres = [c for c in reseau if c != code and c != cle]
+    if len(autres) > 0:
+        alerte = f'<div style="background:rgba(251,191,36,.12);border:1px solid #fbbf24;border-radius:8px;padding:12px;margin-bottom:12px;color:#fde68a;font-size:14px;font-weight:700">⚠️ {len(autres)} autre(s) compte(s) se connectent depuis les mêmes IP que {code} → probablement la même personne. Solde total du réseau : {format(tot, ",")} XPF.</div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Empreinte {code}</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:900px;margin:0 auto">
+      <h1 style="font-size:21px;color:#a855f7;margin-bottom:10px">🔍 Empreinte du code <span style="font-family:monospace">{code}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="color:#94a3b8;font-size:13px;margin-bottom:6px">Nom enregistré : {identite}</div>
+        <div style="color:#94a3b8;font-size:13px">Adresses IP utilisées :</div><ul style="margin:4px 0">{ip_html}</ul>
+        <div style="color:#94a3b8;font-size:13px;margin-top:6px">Appareils (navigateurs) :</div><ul style="margin:4px 0">{dev_html}</ul>
+      </div>
+      {msg_html}{alerte}
+      <h2 style="font-size:15px;color:#fff;margin:14px 0 6px">Comptes liés (mêmes IP)</h2>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:620px">
+      <tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:8px;color:#a78bfa">Code</th><th style="padding:8px;color:#a78bfa">Nom</th><th style="padding:8px;color:#a78bfa;text-align:right">Solde</th><th style="padding:8px;color:#a78bfa;text-align:center">Nb IP</th><th style="padding:8px;color:#a78bfa">État</th><th style="padding:8px;color:#a78bfa;text-align:right">Action</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
