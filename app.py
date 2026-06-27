@@ -6662,6 +6662,29 @@ def releve_financier_joueur(code):
                            "desc": "Bonus 500 F offert à l'inscription", "entree": 500, "sortie": 0})
             break
 
+    # === TRANSFERTS DE PIONS (envoyés / reçus) — notés comme sur un relevé bancaire ===
+    # Chaque transfert vers ou depuis un autre code apparaît, avec la date, le code
+    # concerné et l'origine (IP). La transparence montre que tout est tracé.
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper()
+        vers = (t.get("vers", "") or "").upper()
+        montant = int(t.get("montant", 0) or 0)
+        origine = ""
+        if t.get("ip"):
+            origine = " · IP " + str(t.get("ip"))
+        elif t.get("admin"):
+            origine = " · opération administrateur"
+        if de == code:
+            lignes.append({"date": t.get("date", "?"), "type": "Transfert émis",
+                           "desc": "Pions transférés vers le compte " + vers + origine,
+                           "entree": 0, "sortie": montant})
+        elif vers == code:
+            lignes.append({"date": t.get("date", "?"), "type": "Transfert reçu",
+                           "desc": "Pions reçus du compte " + de + origine,
+                           "entree": montant, "sortie": 0})
+
     # Solde de pions actuel = pions RÉELS + pions BONUS (tous deux jouables)
     pj = DB.get("pions_joueurs", {}).get(code, {})
     pb = DB.get("pions_bonus_joueurs", {}).get(code, {})
