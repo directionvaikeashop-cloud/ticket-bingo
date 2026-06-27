@@ -8807,6 +8807,16 @@ def _variante_cle(jeu):
         return "4COIN"
     if "TRIPLE" in ju or "ACTION" in ju or "TA75" in ju:
         return "TA75"
+    if "ALOHA" in ju:
+        return "ALOHA75"
+    if "BINGO BALL" in ju:
+        return "BINGOBALL"
+    if "BROWN" in ju:
+        return "BROWN8"
+    if "FLASH" in ju or "QUINE" in ju:
+        return "FLASHQ"
+    if "KAI" in ju:
+        return "KAIB"
     return ju.split()[0] if ju.strip() else ""
 
 # Jeux "une boule" (1 numéro = 1 case), reproductibles depuis la réparation (graine).
@@ -8872,6 +8882,114 @@ def _ta75_groupes(serie_start, serial_cible):
     labels = ["B", "I", "N", "G", "O"]
     return [(labels[i], grille[i]) for i in range(5)]  # 5 groupes de 3
 
+# === NOUVEAUX JEUX (régénération validée à l'identique des générateurs) ===
+# Chaque fonction reproduit EXACTEMENT la boucle du générateur PDF (graine +
+# saut des doublons via signature) et renvoie la liste PLATE des numéros du carton.
+# Carton plein = tous ces numéros sont sortis.
+_ALOHA_PLAGES = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
+_FLASH_DECADES = [(1, 9)] + [(d, d + 9) for d in range(10, 80, 10)] + [(80, 90)]
+_BROWN_LETTRES = ["B", "R", "O", "W", "N"]
+
+def _regen_aloha75(serie_start, serial_cible, maxiter=8000):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(751000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        cols = [sorted(rng.sample(range(a, b + 1), 2)) for a, b in _ALOHA_PLAGES]
+        sig = tuple(tuple(c) for c in cols)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return [n for c in cols for n in c]   # 10 numéros
+        produits += 1
+    return None
+
+def _regen_bingoball(serie_start, serial_cible, maxiter=8000):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(752000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        centre = sorted(rng.sample(range(31, 46), 3))
+        ligne = [rng.randint(1, 15), rng.randint(16, 30), centre[1], rng.randint(46, 60), rng.randint(61, 75)]
+        sig = (tuple(ligne), tuple(centre))
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return sorted(set(ligne) | set(centre))   # 7 numéros uniques (croix)
+        produits += 1
+    return None
+
+def _regen_brown8(serie_start, serial_cible, maxiter=8000):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(753000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        nums = {
+            "B": sorted(rng.sample(range(1, 16), 2)),
+            "R": [rng.randint(16, 30)],
+            "O": sorted(rng.sample(range(31, 46), 2)),
+            "W": [rng.randint(46, 60)],
+            "N": sorted(rng.sample(range(61, 76), 2)),
+        }
+        sig = tuple((l, tuple(nums[l])) for l in _BROWN_LETTRES)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return [n for l in _BROWN_LETTRES for n in nums[l]]   # 8 numéros
+        produits += 1
+    return None
+
+def _regen_kai(serie_start, serial_cible, maxiter=8000):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(754000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        c0 = sorted(rng.sample(range(1, 11), 2))
+        c1 = sorted(rng.sample(range(11, 21), 3))
+        c2 = sorted(rng.sample(range(21, 31), 2))
+        grille = [[c0[0], c1[0], None], [c0[1], c1[1], c2[0]], [None, c1[2], c2[1]]]
+        sig = tuple(tuple(("X" if v is None else v) for v in row) for row in grille)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return c0 + c1 + c2   # 7 numéros
+        produits += 1
+    return None
+
+def _regen_flashq(serie_start, serial_cible, maxiter=8000):
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(755000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        nums = [rng.randint(a, b) for (a, b) in _FLASH_DECADES]
+        sig = tuple(nums)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return list(nums)   # 9 numéros (1 par dizaine)
+        produits += 1
+    return None
+
 def _serie_start_pour(jeu, serial):
     """Retrouve la série de départ du lot, en privilégiant la MÊME variante de jeu
     (les graines diffèrent : P6/OHANA original/10b/8b)."""
@@ -8913,6 +9031,16 @@ def _verifier_serial(jeu, serial, tirage):
         nom = {"DOLLAR": "1 dollar", "F500": "500 francs", "B40": "40 boules", "B60": "60 boules"}.get(cle, jeu)
     elif cle == "4COIN":
         nums = _regen_4coin(ss, serial); nom = "4 COIN"
+    elif cle == "ALOHA75":
+        nums = _regen_aloha75(ss, serial); nom = "ALOHA 75"
+    elif cle == "BINGOBALL":
+        nums = _regen_bingoball(ss, serial); nom = "BINGO BALL"
+    elif cle == "BROWN8":
+        nums = _regen_brown8(ss, serial); nom = "BROWN 8 BOULES"
+    elif cle == "KAIB":
+        nums = _regen_kai(ss, serial); nom = "KAI"
+    elif cle == "FLASHQ":
+        nums = _regen_flashq(ss, serial); nom = "FLASH QUINES ALLONGER"
     else:
         return {"serial": serial, "trouve": False, "msg": "Jeu non encore pris en charge"}
     if cellules is not None:
@@ -8995,6 +9123,21 @@ def _structure_carton(jeu, serial):
         return [[x] for x in n] if n else None
     if cle == "4COIN":
         n = _regen_4coin(ss, serial)
+        return [[x] for x in n] if n else None
+    if cle == "ALOHA75":
+        n = _regen_aloha75(ss, serial)
+        return [[x] for x in n] if n else None
+    if cle == "BINGOBALL":
+        n = _regen_bingoball(ss, serial)
+        return [[x] for x in n] if n else None
+    if cle == "BROWN8":
+        n = _regen_brown8(ss, serial)
+        return [[x] for x in n] if n else None
+    if cle == "KAIB":
+        n = _regen_kai(ss, serial)
+        return [[x] for x in n] if n else None
+    if cle == "FLASHQ":
+        n = _regen_flashq(ss, serial)
         return [[x] for x in n] if n else None
     return None
 
