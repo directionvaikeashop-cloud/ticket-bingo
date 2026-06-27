@@ -12602,3 +12602,93 @@ def origine_pions_reseau():
         • Si <b style="color:#fbbf24">🏪 crédits orga</b> est gros → une organisatrice les a alimentés : à éclaircir avec elle (complice ou trompée ?).
       </div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/codes-actifs")
+def codes_actifs():
+    """ADMIN — Liste tous les codes ACTIFS (non bloqués) : admins, organisatrices,
+    et joueuses avec leur solde. ?cle=ADMIN[&tout=1 pour inclure les joueuses à 0]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    tout = request.args.get("tout") == "1"
+    bloques = set(DB.get("codes_bloques", []))
+
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    def bonus(c):
+        p = DB.get("pions_bonus_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+
+    # Tous les codes connus
+    tous = set()
+    for k in ["pions_joueurs", "tickets_acheteurs", "codes"]:
+        d = DB.get(k, {})
+        if isinstance(d, dict):
+            tous.update(d.keys())
+
+    admins = []; orgs = []; joueuses = []
+    for c in tous:
+        if not isinstance(c, str) or c in bloques:
+            continue
+        cinfo = DB.get("codes", {}).get(c)
+        if cinfo and cinfo.get("admin"):
+            admins.append(c)
+        elif cinfo:  # dans codes mais pas admin = organisatrice / revendeur
+            orgs.append(c)
+        else:
+            joueuses.append(c)
+
+    joueuses.sort(key=lambda c: -solde(c))
+    joueuses_avec_solde = [c for c in joueuses if solde(c) > 0 or bonus(c) > 0]
+    joueuses_zero = [c for c in joueuses if solde(c) <= 0 and bonus(c) <= 0]
+    liste_joueuses = joueuses if tout else joueuses_avec_solde
+
+    def nom_de(c):
+        return DB.get("codes", {}).get(c, {}).get("nom", "") or ""
+    def role_de(c):
+        ci = DB.get("codes", {}).get(c, {})
+        return ci.get("role", "organisatrice")
+
+    r_admin = "".join(f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;font-family:monospace;color:#f87171">{c}</td><td style="padding:8px;color:#94a3b8">{nom_de(c)}</td></tr>' for c in sorted(admins)) or '<tr><td colspan="2" style="padding:8px;color:#94a3b8">—</td></tr>'
+    r_org = "".join(f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;font-family:monospace;color:#fbbf24">{c}</td><td style="padding:8px;color:#94a3b8">{nom_de(c)}</td><td style="padding:8px;color:#a78bfa;font-size:12px">{role_de(c)}</td></tr>' for c in sorted(orgs, key=lambda x: nom_de(x).lower())) or '<tr><td colspan="3" style="padding:8px;color:#94a3b8">—</td></tr>'
+    r_jou = ""
+    for c in liste_joueuses:
+        b = bonus(c)
+        bt = f' <span style="color:#fbbf24;font-size:11px">+{format(b, ",")} bonus</span>' if b else ''
+        r_jou += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                  f'<td style="padding:7px;font-family:monospace;color:#a78bfa">{c}</td>'
+                  f'<td style="padding:7px;text-align:right;color:#34d399">{format(solde(c), ",")} F{bt}</td></tr>')
+    if not r_jou:
+        r_jou = '<tr><td colspan="2" style="padding:8px;color:#94a3b8">Aucune.</td></tr>'
+
+    note_zero = ""
+    if not tout and joueuses_zero:
+        note_zero = f'<div style="color:#94a3b8;font-size:13px;margin-top:8px">+ <b style="color:#fff">{len(joueuses_zero)}</b> joueuse(s) active(s) à 0 F (non listées). <a href="/codes-actifs?cle={cle}&tout=1" style="color:#818cf8">Tout afficher</a></div>'
+
+    total_actif = len(admins) + len(orgs) + len(joueuses)
+    total_pions = sum(solde(c) for c in joueuses)
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codes actifs</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:760px;margin:0 auto">
+      <h1 style="font-size:21px;color:#a855f7;margin-bottom:6px">✅ Codes actifs (non bloqués)</h1>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 16px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">Codes actifs</div><div style="color:#fff;font-size:18px;font-weight:700">{total_actif}</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">🔒 Bloqués</div><div style="color:#f87171;font-size:18px;font-weight:700">{len(bloques)}</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px"><div style="color:#94a3b8;font-size:12px">Pions joueuses actives</div><div style="color:#34d399;font-size:18px;font-weight:700">{format(total_pions, ",")} F</div></div>
+      </div>
+
+      <h2 style="font-size:15px;color:#f87171;margin:14px 0 4px">🔑 Admins ({len(admins)})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:8px;color:#a78bfa">Code</th><th style="padding:8px;color:#a78bfa">Nom</th></tr>{r_admin}</table>
+
+      <h2 style="font-size:15px;color:#fbbf24;margin:18px 0 4px">🏪 Organisatrices / revendeurs ({len(orgs)})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:8px;color:#a78bfa">Code</th><th style="padding:8px;color:#a78bfa">Nom</th><th style="padding:8px;color:#a78bfa">Rôle</th></tr>{r_org}</table>
+
+      <h2 style="font-size:15px;color:#34d399;margin:18px 0 4px">👤 Joueuses actives {"(toutes)" if tout else "(avec solde)"} — {len(liste_joueuses)}</h2>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="border-bottom:2px solid #3730a3;text-align:left"><th style="padding:7px;color:#a78bfa">Code</th><th style="padding:7px;color:#a78bfa;text-align:right">Solde</th></tr>{r_jou}</table></div>
+      {note_zero}
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
