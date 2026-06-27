@@ -3403,9 +3403,12 @@ def _crediter_pions_montant(poche, montant):
 
 @app.route("/api/pions/transferer", methods=["POST"])
 def transferer_pions():
-    """JOUEUR — Transfere des pions d'un code (source) vers un autre code (cible).
-    Le joueur doit etre sur le code source (il ne deplace que ses propres pions).
-    Operation tracee, ecrite immediatement (anti-ecrasement)."""
+    """JOUEUR — DÉSACTIVÉ : les transferts de pions entre joueuses sont coupés
+    (faille de sécurité). La route refuse tout transfert."""
+    return jsonify({"ok": False, "msg": "Les transferts de pions entre joueuses sont désactivés."}), 403
+
+
+def _transferer_pions_desactive():
     global DB
     DB = load_data()
     d = request.json or {}
