@@ -14229,3 +14229,133 @@ def solde_legitime():
       <tr style="border-bottom:2px solid #1f6feb;text-align:left"><th style="padding:6px;color:#93c5fd">Code</th><th style="padding:6px;color:#93c5fd">Nom</th><th style="padding:6px;color:#93c5fd;text-align:right">Acheté réel</th><th style="padding:6px;color:#93c5fd;text-align:right">Gains</th><th style="padding:6px;color:#93c5fd;text-align:right">Dépensé</th><th style="padding:6px;color:#93c5fd;text-align:right">Solde légitime</th><th style="padding:6px;color:#93c5fd;text-align:right">Solde actuel</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/aligner-soldes")
+def aligner_soldes():
+    """ADMIN — Aligne le COMPTEUR interne de chaque joueur sur son vrai solde
+    (entrées − sorties), détruisant les pions fantômes. Aperçu d'abord ;
+    rien sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+    staff = set(DB.get("codes", {}).keys())
+
+    def solde_stocke(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100", 0)*100 + p.get("50", 0)*50 + p.get("20", 0)*20 + p.get("10", 0)*10
+    def poser_solde(c, montant):
+        montant = max(0, int(montant))
+        DB.setdefault("pions_joueurs", {})[c] = {
+            "100": montant // 100, "50": (montant % 100) // 50,
+            "20": (montant % 50) // 20, "10": (montant % 20) // 10}
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    # Vrai solde = entrées − sorties (mêmes sources que le relevé)
+    ent = {}; sor = {}
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and c.get("code_joueur") and c.get("statut") == "validee":
+            cj = (c.get("code_joueur") or "").upper()
+            nbp = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0); vp = int(c.get("valeur_pion", 0) or 0)
+            ent[cj] = ent.get(cj, 0) + ((nbp * vp) or int(c.get("montant_net", 0) or 0))
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and t.get("code_joueur"):
+            cj = (t.get("code_joueur") or "").upper()
+            ent[cj] = ent.get(cj, 0) + int(t.get("montant", t.get("nb_pions", 0)) or 0)
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and g.get("code"):
+            cj = (g.get("code") or "").upper()
+            ent[cj] = ent.get(cj, 0) + int(g.get("montant_gain", g.get("montant_credite", 0)) or 0)
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and c.get("code_joueur"):
+            cj = (c.get("code_joueur") or "").upper()
+            ent[cj] = ent.get(cj, 0) + int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+    for c in DB.get("credits_masse", []):
+        if isinstance(c, dict):
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            for cj in (c.get("codes") or []):
+                cj = (cj or "").upper(); ent[cj] = ent.get(cj, 0) + m
+    for x in DB.get("rejoindre_log", []):
+        if isinstance(x, dict) and (x.get("campagne", "") == "semaine") and x.get("code"):
+            cj = (x.get("code") or "").upper(); ent[cj] = ent.get(cj, 0) + 500
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and c.get("code_joueur"):
+            cj = (c.get("code_joueur") or "").upper()
+            sor[cj] = sor.get(cj, 0) + int(c.get("total_pions", 0) or 0)
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and r.get("statut") == "validee" and r.get("code_joueur"):
+            cj = (r.get("code_joueur") or "").upper()
+            sor[cj] = sor.get(cj, 0) + int(r.get("montant_demande", 0) or 0)
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict) and c.get("code_joueur"):
+            cj = (c.get("code_joueur") or "").upper()
+            sor[cj] = sor.get(cj, 0) + int(c.get("montant_retire", 0) or 0)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict):
+            de = (t.get("de") or "").upper(); vers = (t.get("vers") or "").upper(); m = int(t.get("montant", 0) or 0)
+            if de: sor[de] = sor.get(de, 0) + m
+            if vers: ent[vers] = ent.get(vers, 0) + m
+
+    # Comparer compteur stocké vs vrai solde
+    codes = set(DB.get("pions_joueurs", {}).keys()) | set(ent) | set(sor)
+    plan = []
+    total_detruit = total_ajoute = 0
+    for c in codes:
+        c = c.upper()
+        if c in staff:
+            continue
+        vrai = max(0, ent.get(c, 0) - sor.get(c, 0))
+        stocke = solde_stocke(c)
+        if vrai != stocke:
+            ecart = vrai - stocke
+            if ecart < 0: total_detruit += -ecart
+            else: total_ajoute += ecart
+            plan.append((c, noms.get(c, ""), stocke, vrai, ecart))
+    plan.sort(key=lambda x: x[4])  # plus gros fantômes (écart négatif) en premier
+
+    if confirme and plan:
+        for c, nom, stocke, vrai, ecart in plan:
+            poser_solde(c, vrai)
+        DB.setdefault("alignements_soldes", []).insert(0, {
+            "id": secrets.token_hex(4).upper(), "nb_comptes": len(plan),
+            "pions_detruits": total_detruit, "pions_ajoutes": total_ajoute,
+            "par": cle, "date": datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+
+    rows = ""
+    for c, nom, stocke, vrai, ecart in plan:
+        coul = "#f85149" if ecart < 0 else "#3fb950"
+        rows += (f'<tr style="border-bottom:1px solid rgba(255,255,255,.06)">'
+                 f'<td style="padding:6px;font-family:monospace;color:#a78bfa">{c}</td>'
+                 f'<td style="padding:6px;color:#94a3b8;font-size:12px">{nom}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#8b949e">{format(stocke, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:#6ee7b7">{format(vrai, ",")}</td>'
+                 f'<td style="padding:6px;text-align:right;color:{coul};font-weight:700">{("+" if ecart>0 else "")}{format(ecart, ",")}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#34d399">✅ Tous les compteurs collent déjà au vrai solde. Rien à corriger.</td></tr>'
+
+    if confirme:
+        banniere = (f'<div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:10px;padding:14px;margin-bottom:14px;color:#34d399;font-weight:800">'
+                    f'✅ FAIT — {format(total_detruit, ",")} XPF de pions fantômes détruits, {format(total_ajoute, ",")} XPF rétablis. {len(plan)} compteur(s) alignés sur le vrai solde.</div>')
+    else:
+        banniere = (f'<div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:10px;padding:14px;margin-bottom:14px">'
+                    f'<div style="color:#fde68a;font-weight:700;margin-bottom:6px">👁️ APERÇU — rien n\'est encore modifié</div>'
+                    f'<div style="color:#94a3b8;font-size:13px;margin-bottom:10px">{len(plan)} compteur(s) à aligner : <b style="color:#f87171">{format(total_detruit, ",")} XPF fantômes à détruire</b>, {format(total_ajoute, ",")} XPF à rétablir. Chaque compteur sera mis à <b>entrées − sorties</b>.</div>'
+                    f'<a href="/aligner-soldes?cle={cle}&confirme=1" style="display:inline-block;background:#ef4444;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer l\'alignement</a></div>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aligner les soldes</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:820px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f0883e;margin-bottom:8px">🧹 Aligner les compteurs sur le vrai solde (entrées − sorties)</h1>
+      {banniere}
+      <div style="color:#94a3b8;font-size:12px;margin-bottom:10px">« Compteur » = ce que l'appli affiche au jeu. « Vrai solde » = entrées − sorties (comme le relevé). 🔴 écart négatif = pions fantômes à détruire.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
+      <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:6px;color:#fca5a5">Code</th><th style="padding:6px;color:#fca5a5">Nom</th><th style="padding:6px;color:#fca5a5;text-align:right">Compteur actuel</th><th style="padding:6px;color:#fca5a5;text-align:right">Vrai solde</th><th style="padding:6px;color:#fca5a5;text-align:right">Écart</th></tr>
+      {rows}</table></div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
