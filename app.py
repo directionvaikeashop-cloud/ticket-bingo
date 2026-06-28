@@ -16647,3 +16647,99 @@ def examiner_credits_suspects():
       <div style="color:#67e8f9;font-weight:800;margin:16px 0 8px">💎 Gros crédits individuels (≥ 1 000)</div>
       {rows_indiv}
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/tracer-admin2024")
+def tracer_admin2024():
+    """ADMIN — Trace l'activité du code ADMIN2024 : crédits créés + IP de connexion,
+    et compare les IP avec celles d'un organisateur suspect (HEINI par défaut).
+    ?cle=ADMIN[&suspect=CPFRD66H]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    suspect = (request.args.get("suspect", "CPFRD66H") or "CPFRD66H").strip().upper()
+
+    def fmt(n): return format(int(n), ",")
+    def nom_de(code):
+        inf = DB.get("codes", {}).get(code, {})
+        if inf.get("nom"): return inf.get("nom")
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+                return t.get("acheteur")
+        return ""
+    bannis = set((c or "").upper() for c in DB.get("codes_bloques", []))
+
+    # 1) Crédits créés par ADMIN2024
+    credits_a24 = []
+    for c in DB.get("credits_masse", []):
+        if isinstance(c, dict) and (c.get("par","") or "").upper()=="ADMIN2024":
+            codes = c.get("codes") or []
+            mc = int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+            credits_a24.append({"date":c.get("date","?"),"type":"groupé","montant":mc*len(codes),"detail":f"{len(codes)} codes × {fmt(mc)} · {c.get('motif','') or '—'}","codes":codes})
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par","") or "").upper()=="ADMIN2024":
+            m = int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+            credits_a24.append({"date":c.get("date","?"),"type":"indiv","montant":m,"detail":f"→ {c.get('code_joueur','?')} {nom_de(c.get('code_joueur','') or '')}","codes":[c.get("code_joueur","")]})
+    credits_a24.sort(key=lambda x:x["date"], reverse=True)
+    total_a24 = sum(c["montant"] for c in credits_a24)
+
+    # bénéficiaires uniques
+    benef = {}
+    for c in credits_a24:
+        for cd in c["codes"]:
+            cd=(cd or "").upper()
+            if cd: benef[cd]=benef.get(cd,0)+ (c["montant"]//max(1,len(c["codes"])))
+
+    # 2) IP de connexion ADMIN2024 et du suspect
+    def ips_de(code):
+        d={}
+        for x in DB.get("journal_connexions", []):
+            if (x.get("code","") or "").upper()==code:
+                ip=x.get("ip","?"); d.setdefault(ip,[]).append(x.get("date","?")[:16].replace("T"," "))
+        return d
+    ip_a24 = ips_de("ADMIN2024")
+    ip_sus = ips_de(suspect)
+    communes = set(ip_a24) & set(ip_sus)
+
+    rows_credits = "".join(
+        f'<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:9px;margin-bottom:5px;font-size:13px">'
+        f'<div style="display:flex;justify-content:space-between"><b style="color:#f0883e">{fmt(c["montant"])} XPF</b><span style="color:#8b949e">{c["date"][:16].replace("T"," ")}</span></div>'
+        f'<div style="color:#cbd5e1;margin-top:2px">{c["detail"]}</div></div>'
+        for c in credits_a24) or '<div style="color:#8b949e">Aucun crédit par ADMIN2024.</div>'
+
+    rows_benef = "".join(
+        f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d;font-size:13px">'
+        f'<span style="font-family:monospace;color:#e6edf3">{cd} <span style="font-family:system-ui;color:#94a3b8">{nom_de(cd)}</span>{" 🚫" if cd in bannis else ""}</span>'
+        f'<b style="color:#67e8f9">{fmt(m)}</b></div>'
+        for cd,m in sorted(benef.items(), key=lambda kv:kv[1], reverse=True)) or '<div style="color:#8b949e">—</div>'
+
+    def bloc_ip(titre, d, coul):
+        if not d: return f'<div style="color:#8b949e;font-size:13px;margin:4px 0">{titre} : aucune connexion enregistrée (journal limité aux 300 dernières)</div>'
+        h=f'<div style="color:{coul};font-weight:700;font-size:13px;margin:8px 0 4px">{titre}</div>'
+        for ip,dates in sorted(d.items()):
+            mark = " 🔴 COMMUNE" if ip in communes else ""
+            h+=f'<div style="font-size:12px;color:#cbd5e1;padding:2px 0"><span style="font-family:monospace;color:{"#f85149" if ip in communes else "#e6edf3"}">{ip}</span>{mark} <span style="color:#8b949e">({len(dates)}× · {dates[0]})</span></div>'
+        return h
+
+    verdict = (f'<div style="background:rgba(248,81,73,.15);border:2px solid #f85149;border-radius:10px;padding:14px;color:#fca5a5;font-weight:700">🔴 INDICE FORT : {len(communes)} IP commune(s) entre ADMIN2024 et {suspect} ({nom_de(suspect)}) → {", ".join(communes)}</div>'
+               if communes else
+               f'<div style="background:rgba(251,191,36,.12);border:1px solid #f59e0b;border-radius:10px;padding:14px;color:#fde68a">🟡 Aucune IP commune trouvée dans le journal (qui ne garde que les 300 dernières connexions). Ça n\'innocente pas : les logs du 12/06 ont pu être effacés. On peut croiser autrement.</div>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tracer ADMIN2024</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:640px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f85149;margin-bottom:6px">🕵️ Traçage d'ADMIN2024</h1>
+      <div style="color:#8b949e;font-size:13px;margin-bottom:12px">Total crédité par ADMIN2024 : <b style="color:#f0883e">{fmt(total_a24)} XPF</b> · suspect comparé : <b style="color:#e6edf3;font-family:monospace">{suspect}</b> {nom_de(suspect)}</div>
+      {verdict}
+      <div style="color:#f0883e;font-weight:800;margin:16px 0 8px">📦 Crédits créés par ADMIN2024</div>
+      {rows_credits}
+      <div style="color:#67e8f9;font-weight:800;margin:16px 0 8px">🎯 Bénéficiaires (🚫 = banni)</div>
+      {rows_benef}
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px;margin-top:16px">
+        <div style="color:#e6edf3;font-weight:800;margin-bottom:4px">🌐 Comparaison des IP de connexion</div>
+        {bloc_ip("ADMIN2024", ip_a24, "#f0883e")}
+        {bloc_ip(f"{suspect} ({nom_de(suspect)})", ip_sus, "#a78bfa")}
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
