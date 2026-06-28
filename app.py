@@ -15383,6 +15383,19 @@ def examiner_codes():
         for g in DB.get("gains_finaux", []):
             if isinstance(g, dict) and (g.get("code") or "").upper()==code:
                 gains+=int(g.get("montant_gain",g.get("montant_credite",0)) or 0)
+        cred=0; cred_det=[]
+        for cc in DB.get("credits_admin", []):
+            if isinstance(cc, dict) and (cc.get("code_joueur") or "").upper()==code:
+                mm=int(cc.get("nb_pions",0) or 0)*int(cc.get("valeur_pion",0) or 0)
+                cred+=mm; cred_det.append((mm, cc.get("motif",""), str(cc.get("date",""))[:16]))
+        for cc in DB.get("credits_masse", []):
+            if isinstance(cc, dict) and code in [(x or "").upper() for x in (cc.get("codes") or [])]:
+                mm=int(cc.get("nb_pions",0) or 0)*int(cc.get("valeur_pion",0) or 0)
+                cred+=mm; cred_det.append((mm, cc.get("motif","crédit groupé"), str(cc.get("date",""))[:16]))
+        bonus_qr=0
+        for x in DB.get("rejoindre_log", []):
+            if isinstance(x, dict) and (x.get("code") or "").upper()==code and x.get("campagne","")=="semaine":
+                bonus_qr+=500
         # transferts
         recus=[]; envois=[]
         for t in DB.get("transferts_pions", []):
@@ -15417,6 +15430,7 @@ def examiner_codes():
                   f'<div style="color:#cbd5e1;font-size:13px;margin-bottom:8px">{" · ".join(raisons) if raisons else "Profil neutre"}</div>'
                   f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">'
                   f'<div><b style="color:#6ee7b7">Achats réels :</b> {format(achats, ",")} ({nbp_ach} paiement) · <b style="color:#93c5fd">Gains :</b> {format(gains, ",")}</div>'
+                  f'<div><b style="color:#fbbf24">Crédits admin :</b> {format(cred, ",")} · <b style="color:#c084fc">Bonus QR :</b> {format(bonus_qr, ",")}{(" — " + " ; ".join(format(m, ",")+" ("+(mo or "?")+")" for m,mo,d in cred_det)) if cred_det else ""}</div>'
                   f'<div><b style="color:#58a6ff">Solde :</b> {format(solde(code), ",")}</div>'
                   f'<div><b style="color:#34d399">Reçus :</b> {format(tot_recu, ",")} → {rec_html}</div>'
                   f'<div><b style="color:#f87171">Envoyés :</b> {format(tot_env, ",")} → {env_html}</div>'
