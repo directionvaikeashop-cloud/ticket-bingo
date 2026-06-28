@@ -15559,3 +15559,105 @@ def vider_soldes_bannis():
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:6px;color:#fca5a5">Code</th><th style="padding:6px;color:#fca5a5">Nom</th><th style="padding:6px;color:#fca5a5;text-align:right">Solde actuel</th><th style="padding:6px;color:#fca5a5">Après</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/visuel-releves")
+def visuel_releves():
+    """ADMIN — Tableau de bord visuel des soldes de pions des joueurs : total en
+    circulation, nb de joueurs, top par solde (barres), répartition par tranche.
+    Lecture seule. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    staff = set((DB.get("codes", {}) or {}).keys())
+    bloques = set(DB.get("codes_bloques", []) or [])
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+    def solde_de(p):
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+
+    soldes = []
+    for c, p in (DB.get("pions_joueurs", {}) or {}).items():
+        c = (c or "").upper()
+        if c in staff: continue
+        s = solde_de(p)
+        if s > 0:
+            soldes.append((c, noms.get(c,""), s, c in bloques))
+    soldes.sort(key=lambda x:-x[2])
+    total = sum(s for _,_,s,_ in soldes)
+    nb = len(soldes)
+    moyenne = (total // nb) if nb else 0
+
+    # vrai argent payé total (Stripe), gains total, crédits total
+    tot_achats = 0
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and c.get("statut")=="validee":
+            nbp=int(c.get("nb_pions",c.get("pions_credites",0)) or 0); vp=int(c.get("valeur_pion",0) or 0)
+            tot_achats += ((nbp*vp) or int(c.get("montant_net",0) or 0))
+    tot_gains = sum(int(g.get("montant_gain",g.get("montant_credite",0)) or 0) for g in DB.get("gains_finaux", []) if isinstance(g, dict))
+
+    # tranches
+    tranches = [("0-500",0),("500-2000",0),("2000-5000",0),("5000+",0)]
+    for _,_,s,_ in soldes:
+        if s<=500: tranches[0]=(tranches[0][0],tranches[0][1]+1)
+        elif s<=2000: tranches[1]=(tranches[1][0],tranches[1][1]+1)
+        elif s<=5000: tranches[2]=(tranches[2][0],tranches[2][1]+1)
+        else: tranches[3]=(tranches[3][0],tranches[3][1]+1)
+
+    maxs = soldes[0][2] if soldes else 1
+    barres = ""
+    for c,nom,s,banni in soldes[:25]:
+        pct = int(s*100/maxs) if maxs else 0
+        coul = "linear-gradient(90deg,#7f1d1d,#ef4444)" if banni else "linear-gradient(90deg,#0e7490,#22d3ee)"
+        tag = ' <span style="color:#f87171;font-size:11px">🚫 banni</span>' if banni else ''
+        label = (nom or c)[:18]
+        barres += (f'<div style="margin-bottom:7px">'
+                   f'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">'
+                   f'<span style="color:#cbd5e1">{label} <span style="color:#6b7280;font-family:monospace">{c}</span>{tag}</span>'
+                   f'<span style="color:#e6edf3;font-weight:700">{format(s, ",")}</span></div>'
+                   f'<div style="background:#161b22;border-radius:5px;height:14px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{coul};border-radius:5px"></div></div>'
+                   f'</div>')
+
+    maxt = max((n for _,n in tranches), default=1) or 1
+    tranche_html = ""
+    for lib,n in tranches:
+        pct = int(n*100/maxt) if maxt else 0
+        tranche_html += (f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">'
+                         f'<span style="color:#94a3b8">{lib} XPF</span><span style="color:#e6edf3;font-weight:700">{n} joueur(s)</span></div>'
+                         f'<div style="background:#161b22;border-radius:5px;height:12px;overflow:hidden"><div style="width:{pct}%;height:100%;background:linear-gradient(90deg,#a16207,#fbbf24);border-radius:5px"></div></div></div>')
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visuel relevés pions</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:820px;margin:0 auto">
+      <h1 style="font-size:22px;color:#22d3ee;margin-bottom:4px">📊 Relevés de pions — vue d'ensemble</h1>
+      <div style="color:#6b7280;font-size:12px;margin-bottom:16px">Soldes en direct · {datetime.datetime.now().strftime("%d/%m/%Y %H:%M")}</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px">
+          <div style="color:#8b949e;font-size:12px">Pions en circulation</div>
+          <div style="color:#22d3ee;font-size:24px;font-weight:800">{format(total, ",")}</div><div style="color:#6b7280;font-size:11px">XPF</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px">
+          <div style="color:#8b949e;font-size:12px">Joueurs avec solde</div>
+          <div style="color:#34d399;font-size:24px;font-weight:800">{nb}</div><div style="color:#6b7280;font-size:11px">comptes actifs</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px">
+          <div style="color:#8b949e;font-size:12px">Solde moyen</div>
+          <div style="color:#fbbf24;font-size:24px;font-weight:800">{format(moyenne, ",")}</div><div style="color:#6b7280;font-size:11px">XPF / joueur</div></div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px">
+          <div style="color:#8b949e;font-size:12px">Vrai argent encaissé</div>
+          <div style="color:#a78bfa;font-size:24px;font-weight:800">{format(tot_achats, ",")}</div><div style="color:#6b7280;font-size:11px">XPF (Stripe) · gains versés {format(tot_gains, ",")}</div></div>
+      </div>
+
+      <div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:16px;margin-bottom:16px">
+        <h2 style="font-size:15px;color:#e6edf3;margin:0 0 12px">🏆 Top 25 des soldes</h2>
+        {barres or '<div style="color:#6b7280">Aucun joueur avec solde positif.</div>'}
+      </div>
+
+      <div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:16px">
+        <h2 style="font-size:15px;color:#e6edf3;margin:0 0 12px">📈 Répartition par tranche de solde</h2>
+        {tranche_html}
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
