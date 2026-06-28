@@ -16327,3 +16327,71 @@ def bloquer_code_simple():
       </div>
       <a href="{lien_conf}" style="display:inline-block;background:{btn_coul};color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">{btn_txt}</a>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/restituer-legitime")
+def restituer_legitime():
+    """ADMIN — Débloque un compte + retire des pions illégitimes (fabriqués) du
+    relevé via une correction tracée + pose le solde légitime. Garde relevé =
+    compteur. Aperçu ; rien sans &confirme=1.
+    ?cle=ADMIN&code=X&legitime=Y&retirer=Z[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try: legitime = max(0, int(request.args.get("legitime", "0") or "0"))
+    except Exception: legitime = 0
+    try: retirer = max(0, int(request.args.get("retirer", "0") or "0"))
+    except Exception: retirer = 0
+    confirme = request.args.get("confirme", "") == "1"
+    if not code or legitime <= 0:
+        return Response("Ajoute &code=LE_CODE&legitime=XXXX[&retirer=YYY]", status=400, mimetype="text/plain; charset=utf-8")
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def poser(c, m):
+        m=max(0,int(m)); r=m
+        n100=r//100; r-=n100*100; n50=r//50; r-=n50*50; n20=r//20; r-=n20*20; n10=r//10
+        DB.setdefault("pions_joueurs", {})[c]={"100":n100,"50":n50,"20":n20,"10":n10}
+    est_banni = code in set(DB.get("codes_bloques", []) or [])
+    actuel = solde(code)
+
+    if confirme:
+        if est_banni:
+            DB["codes_bloques"] = [x for x in DB.get("codes_bloques", []) if (x or "").upper()!=code]
+        if retirer > 0:
+            DB.setdefault("corrections_pions", []).insert(0, {
+                "code_joueur": code, "montant_retire": retirer,
+                "motif": "Pions fabriqués retirés (reçu d'un fabricant)", "par": cle,
+                "date": datetime.datetime.now().isoformat()})
+        poser(code, legitime)
+        DB.setdefault("restitutions_legitimes", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"legitime":legitime,"retire":retirer,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ {code} restituée</div>
+        <div style="color:#cbd5e1;font-size:14px">{code} {nom} est <b>débloquée</b>.<br>Pions fabriqués retirés : −{format(retirer, ",")}<br><b style="color:#6ee7b7">Solde légitime : {format(legitime, ",")} XPF</b><br><br><a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff">voir son relevé</a></div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lien_conf = f"/restituer-legitime?cle={cle}&code={code}&legitime={legitime}&retirer={retirer}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Restituer légitime</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:580px;margin:0 auto">
+      <h1 style="font-size:19px;color:#22d3ee;margin-bottom:10px">⚖️ Restituer le légitime — {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Statut</span><b style="color:{"#f87171" if est_banni else "#34d399"}">{"🚫 bannie → sera débloquée" if est_banni else "✅ active"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Pions fabriqués à retirer</span><b style="color:#fca5a5">−{format(retirer, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #30363d;margin-top:4px"><span style="color:#e6edf3;font-weight:700">Solde légitime final</span><b style="color:#34d399">{format(legitime, ",")} XPF</b></div>
+      </div>
+      <div style="background:rgba(34,211,238,.08);border:1px solid #0891b2;border-radius:10px;padding:14px">
+        <div style="color:#67e8f9;font-weight:700;margin-bottom:8px">👁️ Aperçu : débloquer + retirer {format(retirer, ",")} fabriqués + solde {format(legitime, ",")}</div>
+        <a href="{lien_conf}" style="display:inline-block;background:#0891b2;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer</a>
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
