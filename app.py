@@ -15731,3 +15731,287 @@ def liste_bannis():
       <tr style="border-bottom:2px solid #7f1d1d;text-align:left"><th style="padding:7px;color:#fca5a5">Code</th><th style="padding:7px;color:#fca5a5">Nom</th><th style="padding:7px;color:#fca5a5">Rôle</th><th style="padding:7px;color:#fca5a5;text-align:right">Solde</th></tr>
       {rows}</table></div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/debloquer-joueuse")
+def debloquer_joueuse():
+    """ADMIN — Débloque un compte banni ET restitue son solde LÉGITIME (vrai argent
+    payé + gains − dépenses réelles), jamais les pions de fraude. Affiche un profil
+    de sécurité + alerte si risqué. Aperçu ; rien sans &confirme=1.
+    ?cle=ADMIN&code=X[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    IP_FRAUDE = ("64.140.148.", "103.129.120.55", "92.184.113.175")
+    bloques = set(DB.get("codes_bloques", []) or [])
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def poser_solde(c, montant):
+        montant=max(0,int(montant)); r=montant
+        n100=r//100; r-=n100*100; n50=r//50; r-=n50*50; n20=r//20; r-=n20*20; n10=r//10
+        DB.setdefault("pions_joueurs", {})[c]={"100":n100,"50":n50,"20":n20,"10":n10}
+
+    # Profil
+    achats=0; nbp_ach=0
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and (c.get("code_joueur") or "").upper()==code and c.get("statut")=="validee":
+            nbp=int(c.get("nb_pions",c.get("pions_credites",0)) or 0); vp=int(c.get("valeur_pion",0) or 0)
+            achats+=((nbp*vp) or int(c.get("montant_net",0) or 0)); nbp_ach+=1
+    gains=0
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code") or "").upper()==code:
+            gains+=int(g.get("montant_gain",g.get("montant_credite",0)) or 0)
+    bonus=0
+    for x in DB.get("rejoindre_log", []):
+        if isinstance(x, dict) and (x.get("code") or "").upper()==code and x.get("campagne","")=="semaine":
+            bonus+=500
+    tickets_d=0
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and (c.get("code_joueur") or "").upper()==code and c.get("statut")!="annulee_org":
+            tickets_d+=int(c.get("total_pions",0) or 0)
+    retraits=0
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and (r.get("code_joueur") or "").upper()==code and r.get("statut")=="validee":
+            retraits+=int(r.get("montant_demande",0) or 0)
+    recus=[]; envois=[]
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict): continue
+        de=(t.get("de") or "").upper(); vers=(t.get("vers") or "").upper(); m=int(t.get("montant",0) or 0)
+        if vers==code: recus.append((de,m))
+        if de==code: envois.append((vers,m))
+    env_ailleurs=sum(m for v,m in envois if v not in bloques)
+    tot_recu=sum(m for _,m in recus); tot_env=sum(m for _,m in envois)
+    ips={}
+    for j in DB.get("journal_connexions", []):
+        if isinstance(j, dict) and (j.get("code") or "").upper()==code and j.get("ip"): ips[j.get("ip")]=1
+    for r in DB.get("rejoindre_log", []):
+        if isinstance(r, dict) and (r.get("code") or "").upper()==code and r.get("ip"): ips.setdefault(r.get("ip"),1)
+    ip_fraude=[ip for ip in ips if any(ip.startswith(f) or ip==f for f in IP_FRAUDE)]
+
+    du_legitime = max(0, achats+gains+bonus - tickets_d - retraits - env_ailleurs)
+    actuel = solde(code)
+    a_restituer = max(0, du_legitime - actuel)
+    est_banni = code in bloques
+
+    # Alertes risque
+    risques=[]
+    if ip_fraude: risques.append("🔴 IP du réseau de fraude")
+    if achats==0 and (tot_recu+tot_env)>0: risques.append("aucun vrai achat, que des transferts")
+    if any(v in bloques for v,_ in envois): risques.append("a envoyé à un compte banni")
+
+    if confirme:
+        if est_banni:
+            DB["codes_bloques"] = [x for x in DB.get("codes_bloques", []) if (x or "").upper()!=code]
+        if a_restituer>0:
+            DB.setdefault("credits_admin", []).insert(0, {
+                "code_joueur": code, "nb_pions": a_restituer, "valeur_pion": 1,
+                "motif": "Déblocage + restitution solde légitime", "par": cle,
+                "date": datetime.datetime.now().isoformat()})
+            poser_solde(code, actuel + a_restituer)
+        DB.setdefault("deblocages", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"restitue":a_restituer,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ {code} débloquée</div>
+        <div style="color:#cbd5e1;font-size:14px">{code} {nom} peut de nouveau se connecter.<br>Solde légitime restitué : <b style="color:#6ee7b7">{format(a_restituer, ",")} XPF</b> → nouveau solde {format(actuel+a_restituer, ",")}.<br>Tracé « Déblocage + restitution solde légitime ».</div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    bann_txt = '🚫 Actuellement BANNIE' if est_banni else '✅ Non bannie (déjà active)'
+    risque_html = ''
+    if risques:
+        risque_html = f'<div style="background:rgba(248,81,73,.15);border:1px solid #f85149;border-radius:8px;padding:10px;margin-bottom:10px;color:#fca5a5">⚠️ Signaux de risque : {" · ".join(risques)}. Vérifie bien avant de débloquer.</div>'
+    else:
+        risque_html = '<div style="background:rgba(52,211,153,.1);border:1px solid #10b981;border-radius:8px;padding:10px;margin-bottom:10px;color:#6ee7b7">🟢 Aucun signal de fraude évident.</div>'
+    rec_html = " · ".join(f'{d}{"🚫" if d in bloques else ""} ({format(m, ",")})' for d,m in recus) or "—"
+    env_html = " · ".join(f'{v}{"🚫" if v in bloques else ""} ({format(m, ",")})' for v,m in envois) or "—"
+    lien_conf = f"/debloquer-joueuse?cle={cle}&code={code}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Débloquer</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:620px;margin:0 auto">
+      <h1 style="font-size:19px;color:#22d3ee;margin-bottom:4px">🔓 Débloquer {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="color:#8b949e;font-size:13px;margin-bottom:12px">{bann_txt}</div>
+      {risque_html}
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Achats réels (Stripe)</span><b style="color:#6ee7b7">{format(achats, ",")} ({nbp_ach} paiement)</b></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Gains + bonus</span><b style="color:#93c5fd">{format(gains+bonus, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Dépenses réelles (tickets+retraits+dons)</span><b style="color:#fca5a5">{format(tickets_d+retraits+env_ailleurs, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Reçus par transfert</span><b style="color:#34d399">{format(tot_recu, ",")} → {rec_html}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Envoyés</span><b style="color:#f87171">{format(tot_env, ",")} → {env_html}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #30363d;margin-top:4px"><span style="color:#e6edf3;font-weight:700">Dû légitime (à restituer)</span><b style="color:#34d399">{format(du_legitime, ",")} XPF</b></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">Solde actuel</span><b style="color:#8b949e">{format(actuel, ",")}</b></div>
+      </div>
+      <div style="background:rgba(34,211,238,.08);border:1px solid #0891b2;border-radius:10px;padding:14px">
+        <div style="color:#67e8f9;font-weight:700;margin-bottom:8px">👁️ Aperçu : débloquer + restituer <b>{format(a_restituer, ",")} XPF</b> (son dû légitime) → solde {format(actuel+a_restituer, ",")}</div>
+        <a href="{lien_conf}" style="display:inline-block;background:#0891b2;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer le déblocage</a>
+      </div>
+      <div style="color:#6b7280;font-size:12px;margin-top:10px">La restitution est plafonnée à son dû légitime — jamais les pions de fraude.</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/restaurer-collectrice")
+def restaurer_collectrice():
+    """ADMIN — Pour une collectrice débloquée à tort bannie : débloque + restitue
+    son solde légitime (annule la correction de mise à 0) + déduit un retrait CCP.
+    Garde le relevé cohérent. Aperçu ; rien sans &confirme=1.
+    ?cle=ADMIN&code=X&solde=Y[&deduire=Z][&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try: solde_leg = max(0, int(request.args.get("solde", "0") or "0"))
+    except Exception: solde_leg = 0
+    try: deduire = max(0, int(request.args.get("deduire", "0") or "0"))
+    except Exception: deduire = 0
+    confirme = request.args.get("confirme", "") == "1"
+    if not code or solde_leg <= 0:
+        return Response("Ajoute &code=LE_CODE&solde=XXXX[&deduire=YYY]", status=400, mimetype="text/plain; charset=utf-8")
+    deduire = min(deduire, solde_leg)
+    final = solde_leg - deduire
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+    def poser_solde(c, montant):
+        montant=max(0,int(montant)); r=montant
+        n100=r//100; r-=n100*100; n50=r//50; r-=n50*50; n20=r//20; r-=n20*20; n10=r//10
+        DB.setdefault("pions_joueurs", {})[c]={"100":n100,"50":n50,"20":n20,"10":n10}
+    est_banni = code in set(DB.get("codes_bloques", []) or [])
+    # Trouver la correction de mise à 0 (compte banni)
+    corr_zero = None
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict) and (c.get("code_joueur") or "").upper()==code and "banni" in (c.get("motif","") or "").lower():
+            corr_zero = c; break
+    corr_val = int(corr_zero.get("montant_retire",0) or 0) if corr_zero else 0
+
+    if confirme:
+        # 1) débloquer
+        if est_banni:
+            DB["codes_bloques"] = [x for x in DB.get("codes_bloques", []) if (x or "").upper()!=code]
+        # 2) annuler la correction de mise à 0 à hauteur du solde légitime
+        if corr_zero:
+            corr_zero["montant_retire"] = max(0, corr_val - solde_leg)
+            corr_zero["restauration"] = corr_zero.get("restauration",0) + min(corr_val, solde_leg)
+        else:
+            # pas de correction trouvée : tracer une entrée de restitution
+            DB.setdefault("credits_admin", []).insert(0, {"code_joueur": code, "nb_pions": solde_leg, "valeur_pion": 1, "motif": "Restitution solde légitime (déblocage)", "par": cle, "date": datetime.datetime.now().isoformat()})
+        # 3) déduire le retrait CCP (sortie tracée)
+        if deduire > 0:
+            DB.setdefault("corrections_pions", []).insert(0, {"code_joueur": code, "montant_retire": deduire, "motif": "Retrait CCP", "par": cle, "date": datetime.datetime.now().isoformat()})
+        # 4) poser le solde final
+        poser_solde(code, final)
+        DB.setdefault("restaurations", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"solde":solde_leg,"deduire":deduire,"final":final,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ {code} restaurée</div>
+        <div style="color:#cbd5e1;font-size:14px">{code} {nom} est <b>débloquée</b>.<br>Solde légitime restitué : {format(solde_leg, ",")} XPF<br>Retrait CCP déduit : −{format(deduire, ",")} XPF<br><b style="color:#6ee7b7">Solde final : {format(final, ",")} XPF</b><br><br>Vérifie : <a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff">relevé de {code}</a></div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lien_conf = f"/restaurer-collectrice?cle={cle}&code={code}&solde={solde_leg}&deduire={deduire}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Restaurer collectrice</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:600px;margin:0 auto">
+      <h1 style="font-size:19px;color:#22d3ee;margin-bottom:10px">🔓 Restaurer {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Statut</span><b style="color:{"#f87171" if est_banni else "#34d399"}">{"🚫 bannie" if est_banni else "✅ active"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Correction de mise à 0 trouvée</span><b style="color:#93c5fd">{format(corr_val, ",")} XPF</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Solde légitime à restituer</span><b style="color:#6ee7b7">{format(solde_leg, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Retrait CCP à déduire</span><b style="color:#fca5a5">−{format(deduire, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #30363d;margin-top:4px"><span style="color:#e6edf3;font-weight:700">Solde final</span><b style="color:#34d399">{format(final, ",")} XPF</b></div>
+      </div>
+      {"<div style='background:rgba(251,191,36,.12);border:1px solid #f59e0b;border-radius:8px;padding:10px;margin-bottom:10px;color:#fde68a'>⚠️ Le solde légitime demandé (" + format(solde_leg, ",") + ") dépasse la correction de mise à 0 (" + format(corr_val, ",") + "). Vérifie le montant.</div>" if solde_leg > corr_val and corr_val>0 else ""}
+      <div style="background:rgba(34,211,238,.08);border:1px solid #0891b2;border-radius:10px;padding:14px">
+        <div style="color:#67e8f9;font-weight:700;margin-bottom:8px">👁️ Aperçu : débloquer + solde final {format(final, ",")} XPF</div>
+        <a href="{lien_conf}" style="display:inline-block;background:#0891b2;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer la restauration</a>
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/corriger-ccp")
+def corriger_ccp():
+    """ADMIN — Annule le(s) paiement(s) CCP d'un joueur (les retire du total des
+    entrées), réduit le solde d'autant, et débloque le compte si banni. Garde le
+    relevé cohérent. Aperçu ; rien sans &confirme=1. ?cle=ADMIN&code=X[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def poser_solde(c, montant):
+        montant=max(0,int(montant)); r=montant
+        n100=r//100; r-=n100*100; n50=r//50; r-=n50*50; n20=r//20; r-=n20*20; n10=r//10
+        DB.setdefault("pions_joueurs", {})[c]={"100":n100,"50":n50,"20":n20,"10":n10}
+
+    # Repérer les paiements CCP de ce joueur (statut validee, "CCP" dans la commande)
+    ccp = []
+    for c in DB.get("commandes_pions_joueurs", []):
+        if not isinstance(c, dict): continue
+        if (c.get("code_joueur") or "").upper()!=code: continue
+        if c.get("statut")!="validee": continue
+        blob = " ".join(str(v) for v in c.values()).upper()
+        if "CCP" in blob:
+            nbp=int(c.get("nb_pions",c.get("pions_credites",0)) or 0); vp=int(c.get("valeur_pion",0) or 0)
+            m = (nbp*vp) or int(c.get("montant_net",0) or 0)
+            ccp.append((c, m))
+    total_ccp = sum(m for _,m in ccp)
+    actuel = solde(code)
+    nouveau = max(0, actuel - total_ccp)
+    est_banni = code in set(DB.get("codes_bloques", []) or [])
+
+    if confirme and ccp:
+        for c,_ in ccp:
+            c["statut"] = "annulee_ccp"
+        poser_solde(code, nouveau)
+        if est_banni:
+            DB["codes_bloques"] = [x for x in DB.get("codes_bloques", []) if (x or "").upper()!=code]
+        DB.setdefault("corrections_ccp", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"montant":total_ccp,"debloque":est_banni,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ Paiement CCP retiré</div>
+        <div style="color:#cbd5e1;font-size:14px">{code} {nom} : paiement(s) CCP de <b>{format(total_ccp, ",")} XPF</b> retiré(s) du total.<br>Solde : {format(actuel, ",")} → <b style="color:#6ee7b7">{format(nouveau, ",")} XPF</b>.{"<br>Compte débloqué ✅." if est_banni else ""}<br><br>Vérifie : <a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff">relevé de {code}</a></div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    rows = "".join(f'<div style="color:#cbd5e1;font-size:13px;padding:3px 0">• {str(c.get("date",""))[:16]} · {c.get("nb_pions","?")} pions · <b style="color:#fca5a5">{format(m, ",")} XPF</b> · réf {c.get("ref_paiement", c.get("ref",""))}</div>' for c,m in ccp) or '<div style="color:#6b7280">Aucun paiement CCP trouvé pour ce code.</div>'
+    lien_conf = f"/corriger-ccp?cle={cle}&code={code}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Corriger CCP</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:600px;margin:0 auto">
+      <h1 style="font-size:19px;color:#fbbf24;margin-bottom:10px">🧾 Retirer le paiement CCP — {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="color:#e6edf3;margin-bottom:6px;font-size:14px">Paiement(s) CCP repéré(s) :</div>
+        {rows}
+        <div style="border-top:1px solid #30363d;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="color:#8b949e">Statut</span><b style="color:{"#f87171" if est_banni else "#34d399"}">{"🚫 bannie (sera débloquée)" if est_banni else "✅ active"}</b></div>
+      </div>
+      <div style="background:rgba(251,191,36,.08);border:1px solid #f59e0b;border-radius:10px;padding:14px">
+        <div style="color:#fde68a;font-weight:700;margin-bottom:8px">👁️ Aperçu : retirer {format(total_ccp, ",")} XPF → solde {format(actuel, ",")} ➜ {format(nouveau, ",")}</div>
+        {"<a href='"+lien_conf+"' style='display:inline-block;background:#10b981;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700'>✅ Confirmer</a>" if ccp else "<div style='color:#fbbf24'>Rien à corriger.</div>"}
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
