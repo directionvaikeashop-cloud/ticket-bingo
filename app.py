@@ -16151,3 +16151,51 @@ def crediter_bonus():
         <a href="{lien_conf}" style="display:inline-block;background:#a855f7;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer le bonus</a>
       </div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/diag-acces")
+def diag_acces():
+    """ADMIN — Diagnostique pourquoi un code joueur ne peut pas accéder : bloqué ?
+    a un ticket/compte ? a des pions ? Donne le verdict + la solution. ?cle=ADMIN&code=X"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+
+    bloque = code in set(DB.get("codes_bloques", []) or [])
+    ticket = next((t for t in DB.get("tickets", []) if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code), None)
+    dans_map = code in (DB.get("tickets_acheteurs", {}) or {})
+    s = solde(code)
+    nom = ticket.get("acheteur","") if ticket else ""
+
+    # Verdict
+    if bloque:
+        verdict = "🔴 BLOQUÉ"; cause = "Ce code est dans la liste des bloqués (codes_bloques)."; sol = f"Débloque-le : /debloquer-joueuse?cle={cle}&code={code}"
+    elif not ticket and not dans_map:
+        verdict = "🟠 PAS DE COMPTE"; cause = "Ce code n'a AUCUN ticket/compte rattaché. Le système répond « Code introuvable » même s'il a des pions."; sol = "Il faut créer un compte/ticket pour ce code (lui attribuer une vente, ou je te fais un outil qui crée le compte avec son nom)."
+    else:
+        verdict = "🟢 ACCÈS OK"; cause = "Ce code a un compte et n'est pas bloqué. L'accès devrait fonctionner."; sol = "Si elle n'arrive toujours pas, vérifie qu'elle saisit le bon code (attention aux O/0)."
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diag accès</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:560px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f0883e;margin-bottom:12px">🩺 Diagnostic d'accès — {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:#8b949e">Bloqué (codes_bloques)</span><b style="color:{"#f87171" if bloque else "#34d399"}">{"OUI 🔴" if bloque else "non ✅"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:#8b949e">A un ticket/compte</span><b style="color:{"#34d399" if (ticket or dans_map) else "#f87171"}">{"OUI ✅" if (ticket or dans_map) else "NON 🔴"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:#8b949e">Solde de pions</span><b style="color:#67e8f9">{format(s, ",")} XPF</b></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:#8b949e">Nom rattaché</span><b style="color:#cbd5e1">{nom or "—"}</b></div>
+      </div>
+      <div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:10px;padding:14px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:6px">{verdict}</div>
+        <div style="color:#cbd5e1;font-size:13px;margin-bottom:8px">{cause}</div>
+        <div style="color:#fde68a;font-size:13px">💡 Solution : {sol}</div>
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
