@@ -16395,3 +16395,171 @@ def restituer_legitime():
         <a href="{lien_conf}" style="display:inline-block;background:#0891b2;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer</a>
       </div>
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/annuler-retrait-fabrique")
+def annuler_retrait_fabrique():
+    """ADMIN — Annule une correction 'Pions fabriqués retirés' posée à tort (le
+    montant était en fait légitime) + repose le bon solde. Aperçu ; rien sans
+    &confirme=1. ?cle=ADMIN&code=X&solde=Y[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try: nouveau_solde = max(0, int(request.args.get("solde", "0") or "0"))
+    except Exception: nouveau_solde = 0
+    confirme = request.args.get("confirme", "") == "1"
+    if not code or nouveau_solde <= 0:
+        return Response("Ajoute &code=LE_CODE&solde=XXXX", status=400, mimetype="text/plain; charset=utf-8")
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def poser(c, m):
+        m=max(0,int(m)); r=m
+        n100=r//100; r-=n100*100; n50=r//50; r-=n50*50; n20=r//20; r-=n20*20; n10=r//10
+        DB.setdefault("pions_joueurs", {})[c]={"100":n100,"50":n50,"20":n20,"10":n10}
+    # Corrections "fabriqués retirés" sur ce code
+    corrs = [c for c in DB.get("corrections_pions", []) if isinstance(c, dict)
+             and (c.get("code_joueur") or "").upper()==code
+             and "fabriqu" in (c.get("motif") or "").lower()]
+    total_retire = sum(int(c.get("montant_retire", 0) or 0) for c in corrs)
+    actuel = solde(code)
+
+    if confirme:
+        # retirer ces corrections du journal
+        DB["corrections_pions"] = [c for c in DB.get("corrections_pions", []) if not (isinstance(c, dict)
+                                   and (c.get("code_joueur") or "").upper()==code
+                                   and "fabriqu" in (c.get("motif") or "").lower())]
+        poser(code, nouveau_solde)
+        DB.setdefault("annulations_retrait", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"corrections_annulees":total_retire,"nouveau_solde":nouveau_solde,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ Retrait annulé</div>
+        <div style="color:#cbd5e1;font-size:14px">{code} {nom} : correction(s) « fabriqués retirés » annulée(s) ({format(total_retire, ",")}).<br>Solde remis à <b style="color:#6ee7b7">{format(nouveau_solde, ",")} XPF</b>.<br><br><a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff">voir son relevé</a></div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lien_conf = f"/annuler-retrait-fabrique?cle={cle}&code={code}&solde={nouveau_solde}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Annuler retrait</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:560px;margin:0 auto">
+      <h1 style="font-size:19px;color:#34d399;margin-bottom:10px">↩️ Annuler le retrait — {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Solde actuel</span><b style="color:#8b949e">{format(actuel, ",")} XPF</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Correction(s) à annuler</span><b style="color:#6ee7b7">+{format(total_retire, ",")}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #30363d;margin-top:4px"><span style="color:#e6edf3;font-weight:700">Nouveau solde</span><b style="color:#34d399">{format(nouveau_solde, ",")} XPF</b></div>
+      </div>
+      <a href="{lien_conf}" style="display:inline-block;background:#10b981;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer (remettre {format(nouveau_solde, ",")})</a>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/examiner-faux-positifs")
+def examiner_faux_positifs():
+    """ADMIN — Re-vérifie tous les comptes BANNIS en comptant les crédits admin
+    (crédits, gains, remboursements, bonus) comme argent légitime. Repère les
+    'fabricants' qui ne le sont QUE parce qu'ils ont reçu un crédit de l'admin
+    (faux positifs à réhabiliter). ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    bloques = [ (c or "").upper() for c in DB.get("codes_bloques", []) if c ]
+    transferts = DB.get("transferts_pions", [])
+
+    def nom_de(code):
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+                return t.get("acheteur")
+        return ""
+
+    def calc(code):
+        # argent réel (achats Stripe/manuel + espèces org)
+        reel = 0
+        for c in DB.get("commandes_pions_joueurs", []):
+            if isinstance(c, dict) and c.get("code_joueur")==code and c.get("statut")=="validee":
+                nb = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0); val = int(c.get("valeur_pion", 0) or 0)
+                m = nb*val if nb*val>0 else int(c.get("montant_net", 0) or 0)
+                reel += max(0, m)
+        for t in DB.get("transactions_joueur_org", []):
+            if isinstance(t, dict) and t.get("code_joueur")==code:
+                reel += int(t.get("montant_total", 0) or 0)
+        # crédits admin (TON argent) : crédits + masse + remboursements + bonus
+        credits = 0
+        for c in DB.get("credits_admin", []):
+            if isinstance(c, dict) and c.get("code_joueur")==code:
+                m = int(c.get("nb_pions", 0) or 0)*int(c.get("valeur_pion", 0) or 0)
+                if m>0: credits += m
+        for c in DB.get("credits_masse", []):
+            if isinstance(c, dict) and code in [ (x or "").upper() for x in (c.get("codes") or []) ]:
+                credits += int(c.get("nb_pions", 0) or 0)*int(c.get("valeur_pion", 0) or 0)
+        for rb in DB.get("remboursements_tournoi", []):
+            if isinstance(rb, dict):
+                for det in (rb.get("detail") or []):
+                    if isinstance(det, dict) and det.get("code_joueur")==code:
+                        credits += int(det.get("montant", 0) or 0)
+        for x in DB.get("rejoindre_log", []):
+            if (x.get("code","") or "").upper()==code and (x.get("campagne","") or "")=="semaine":
+                credits += 500; break
+        # gains tournoi
+        gains = 0
+        for g in DB.get("gains_finaux", []):
+            if isinstance(g, dict) and g.get("code_gagnant")==code and not g.get("annule"):
+                gains += int(g.get("montant_credite", 0) or 0)
+        # transferts
+        recus = sum(int(t.get("montant",0) or 0) for t in transferts if (t.get("vers","") or "").upper()==code)
+        envoyes = sum(int(t.get("montant",0) or 0) for t in transferts if (t.get("de","") or "").upper()==code)
+        return reel, credits, gains, recus, envoyes
+
+    verts, oranges, rouges = [], [], []
+    for code in bloques:
+        reel, credits, gains, recus, envoyes = calc(code)
+        # combien a-t-il envoyé de plus que (réel + reçus) ? = ce qui le faisait passer pour fabricant
+        excedent = envoyes - (reel + recus)
+        legit_admin = credits + gains  # ton argent + gains
+        row = (code, nom_de(code), reel, credits, gains, recus, envoyes, excedent)
+        if excedent > 0:
+            if legit_admin >= excedent:
+                verts.append(row)        # fabrication ENTIÈREMENT expliquée par tes crédits/gains
+            elif legit_admin > 0:
+                oranges.append(row)      # partiellement expliquée
+            else:
+                rouges.append(row)       # vrai fabricant, 0 crédit
+        else:
+            # pas fabricant (collectrice/normal). A-t-il du réel/crédit ?
+            if (reel + credits + gains) > 0 and recus == 0:
+                verts.append(row)        # a du légitime, n'a pas fabriqué, n'a rien reçu d'un tiers → probablement OK
+            elif (reel + credits + gains) > 0:
+                oranges.append(row)      # a du légitime MAIS a aussi reçu par transfert → à examiner
+            else:
+                rouges.append(row)       # 0 réel, 0 crédit, tout reçu par transfert → collectrice circuit
+
+    def fmt(n): return format(int(n), ",")
+    def bloc(titre, coul, rows, note):
+        if not rows: return f'<div style="margin:14px 0"><div style="color:{coul};font-weight:800;font-size:15px">{titre} (0)</div></div>'
+        h = f'<div style="margin:16px 0"><div style="color:{coul};font-weight:800;font-size:15px;margin-bottom:4px">{titre} ({len(rows)})</div><div style="color:#8b949e;font-size:12px;margin-bottom:8px">{note}</div>'
+        for (code,nom,reel,credits,gains,recus,envoyes,exc) in rows:
+            h += (f'<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid {coul};border-radius:8px;padding:10px;margin-bottom:6px;font-size:13px">'
+                  f'<div style="font-weight:700;color:#e6edf3;font-family:monospace">{code} <span style="color:#94a3b8;font-family:system-ui">{nom}</span></div>'
+                  f'<div style="color:#cbd5e1;margin-top:4px">💰 réel <b style="color:#6ee7b7">{fmt(reel)}</b> · 🎁 tes crédits <b style="color:#c084fc">{fmt(credits)}</b> · 🏆 gains <b style="color:#67e8f9">{fmt(gains)}</b></div>'
+                  f'<div style="color:#cbd5e1;margin-top:2px">⬇️ reçu {fmt(recus)} · ⬆️ envoyé {fmt(envoyes)}'
+                  + (f' · <span style="color:#fca5a5">a envoyé {fmt(exc)} de + que (réel+reçu)</span>' if exc>0 else '') + '</div></div>')
+        return h + '</div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Faux positifs</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:640px;margin:0 auto">
+      <h1 style="font-size:20px;color:#34d399;margin-bottom:6px">🔎 Bannis re-vérifiés (crédits admin comptés)</h1>
+      <div style="color:#8b949e;font-size:13px;margin-bottom:12px">{len(bloques)} comptes bannis analysés. Les 🟢 ont « fabriqué » UNIQUEMENT à cause de tes crédits/gains → à réhabiliter probablement.</div>
+      {bloc("🟢 FAUX POSITIFS — à réhabiliter", "#34d399", verts, "Leur excédent est entièrement couvert par TES crédits/gains. Ce ne sont pas des fabricants.")}
+      {bloc("🟠 À EXAMINER (mi-figue)", "#f59e0b", oranges, "Ont reçu des crédits de toi MAIS aussi un excédent ou des transferts non couverts. À regarder cas par cas.")}
+      {bloc("🔴 CIRCUIT confirmé", "#f85149", rouges, "Aucun crédit admin / fabrication ou collecte pure. À laisser bannis.")}
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
