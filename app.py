@@ -15430,3 +15430,69 @@ def examiner_codes():
       <div style="color:#94a3b8;font-size:12px;margin-bottom:14px">🔴 IP de fraude = 64.140.148.x / 103.129.120.55 / 92.184.113.175. 🚫 = contrepartie déjà bannie. Verdict heuristique — à toi de trancher.</div>
       {blocs}
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/assainir-solde-negatif")
+def assainir_solde_negatif():
+    """ADMIN — Corrige un solde négatif dû à une sur-correction : réduit la
+    correction excédentaire (corrections_pions) du montant indiqué, ramenant le
+    relevé vers 0. N'ajoute AUCUNE ligne d'équilibrage. Aperçu ; rien sans
+    &confirme=1. ?cle=ADMIN&code=X&montant=Y[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try: montant = max(0, int(request.args.get("montant", "0") or "0"))
+    except Exception: montant = 0
+    confirme = request.args.get("confirme", "") == "1"
+    if not code or montant <= 0:
+        return Response("Ajoute &code=LE_CODE&montant=XXXX (le montant à neutraliser).", status=400, mimetype="text/plain; charset=utf-8")
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==code and t.get("acheteur"):
+            nom = t.get("acheteur"); break
+
+    # Corrections existantes pour ce code (les plus grosses d'abord)
+    corrs = [c for c in DB.get("corrections_pions", []) if isinstance(c, dict) and (c.get("code_joueur") or "").upper()==code]
+    corrs.sort(key=lambda c:-int(c.get("montant_retire",0) or 0))
+    total_corr = sum(int(c.get("montant_retire",0) or 0) for c in corrs)
+    a_neutraliser = min(montant, total_corr)
+
+    if confirme and a_neutraliser > 0:
+        reste = a_neutraliser
+        for c in corrs:
+            if reste <= 0: break
+            mr = int(c.get("montant_retire",0) or 0)
+            reduc = min(mr, reste)
+            c["montant_retire"] = mr - reduc
+            c["assaini"] = True
+            c["assaini_de"] = c.get("assaini_de",0) + reduc
+            reste -= reduc
+        DB.setdefault("assainissements", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"montant":a_neutraliser,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:560px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ Solde assaini</div>
+        <div style="color:#cbd5e1;font-size:14px">La correction excédentaire de {code} {nom} a été réduite de <b style="color:#6ee7b7">{format(a_neutraliser, ",")} XPF</b>.<br>Son relevé n'est plus négatif. Aucune ligne d'équilibrage ajoutée.<br><br>Vérifie : <a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff">relevé de {code}</a></div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lignes_corr = "".join(f'<div style="color:#94a3b8;font-size:13px;padding:2px 0">• Correction de <b style="color:#fca5a5">{format(int(c.get("montant_retire",0) or 0), ",")}</b> XPF ({str(c.get("date",""))[:16]})</div>' for c in corrs) or '<div style="color:#6b7280">Aucune correction trouvée pour ce code.</div>'
+    lien_conf = f"/assainir-solde-negatif?cle={cle}&code={code}&montant={a_neutraliser}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Assainir solde</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:600px;margin:0 auto">
+      <h1 style="font-size:19px;color:#fbbf24;margin-bottom:10px">🩹 Assainir le solde négatif de {code} <span style="color:#94a3b8;font-size:14px">{nom}</span></h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="color:#e6edf3;margin-bottom:8px">Corrections enregistrées sur ce compte :</div>
+        {lignes_corr}
+        <div style="border-top:1px solid #30363d;margin-top:8px;padding-top:8px;color:#cbd5e1">Total des corrections : <b>{format(total_corr, ",")}</b> XPF</div>
+      </div>
+      <div style="background:rgba(251,191,36,.1);border:1px solid #f59e0b;border-radius:10px;padding:14px">
+        <div style="color:#fde68a;font-weight:700;margin-bottom:6px">👁️ Aperçu</div>
+        <div style="color:#94a3b8;font-size:13px;margin-bottom:10px">On va <b>réduire la correction excédentaire de {format(a_neutraliser, ",")} XPF</b> → le relevé de {code} remonte vers 0. Aucune ligne d'équilibrage, aucun pion réel crédité.</div>
+        <a href="{lien_conf}" style="display:inline-block;background:#10b981;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">✅ Confirmer l'assainissement</a>
+      </div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
