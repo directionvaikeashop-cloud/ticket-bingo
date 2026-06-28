@@ -16826,3 +16826,193 @@ def croiser_heini():
       {bloc("🔵 Auto-inscription QR", cats["qr"], "#58a6ff")}
       {bloc("⚪ Origine inconnue", cats["inconnu"], "#8b949e")}
     </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/suspendre-organisateur")
+def suspendre_organisateur():
+    """ADMIN — Suspend (désactive) un compte organisateur le temps d'une enquête.
+    Réversible avec &reactiver=1. Aperçu ; rien sans &confirme=1.
+    ?cle=ADMIN&code=X[&reactiver=1][&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    reactiver = request.args.get("reactiver", "") == "1"
+    confirme = request.args.get("confirme", "") == "1"
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    cinfo = DB.get("codes", {}).get(code)
+    if not cinfo:
+        return Response(f"Code {code} introuvable dans les comptes.", status=404, mimetype="text/plain; charset=utf-8")
+    if cinfo.get("admin"):
+        return Response("⛔ Ce code est ADMIN — refus de le suspendre par sécurité.", status=403, mimetype="text/plain; charset=utf-8")
+    nom = cinfo.get("nom", "") or ""
+    actif = cinfo.get("actif", True)
+
+    if confirme:
+        DB["codes"][code]["actif"] = True if reactiver else False
+        DB.setdefault("suspensions_org", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"action":("réactivé" if reactiver else "suspendu"),"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        coul = "#34d399" if reactiver else "#f85149"
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:520px;margin:0 auto">
+        <div style="background:rgba(0,0,0,.2);border:2px solid {coul};border-radius:12px;padding:20px;color:{coul}">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">{"✅ Organisatrice réactivée" if reactiver else "🔒 Organisatrice suspendue"}</div>
+        <div style="color:#cbd5e1;font-size:14px">Le compte <b style="color:#a78bfa">{code}</b> {nom} a été <b>{"réactivé" if reactiver else "suspendu"}</b>.{"" if reactiver else " Elle ne peut plus se connecter, créer de comptes, ni vendre de tickets."}<br><br>Réversible à tout moment.</div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lien_conf = f"/suspendre-organisateur?cle={cle}&code={code}{'&reactiver=1' if reactiver else ''}&confirme=1"
+    titre = "✅ Réactiver l'organisatrice" if reactiver else "🔒 Suspendre l'organisatrice"
+    btn_coul = "#10b981" if reactiver else "#ef4444"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Suspendre orga</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:520px;margin:0 auto">
+      <h1 style="font-size:19px;color:#f0883e;margin-bottom:12px">{titre}</h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Compte</span><b style="color:#a78bfa;font-family:monospace">{code}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Nom</span><b style="color:#cbd5e1">{nom or "—"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">État actuel</span><b style="color:{"#34d399" if actif else "#f87171"}">{"actif" if actif else "déjà suspendu"}</b></div>
+      </div>
+      <div style="background:rgba(251,146,60,.08);border:1px solid #f59e0b;border-radius:10px;padding:12px;margin-bottom:12px;color:#fde68a;font-size:13px">⚖️ Mesure conservatoire, réversible. Ça désactive sa connexion le temps de l'enquête — ça ne supprime rien.</div>
+      <a href="{lien_conf}" style="display:inline-block;background:{btn_coul};color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">{titre}</a>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/revoquer-admin")
+def revoquer_admin():
+    """ADMIN — Révoque définitivement un ANCIEN code admin (le désactive + retire
+    ses droits admin). À utiliser avec ton NOUVEAU code admin. On ne peut pas se
+    révoquer soi-même. ?cle=NOUVEAU_CODE&code=ANCIEN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Utilise ton NOUVEAU code admin : ?cle=TON_NOUVEAU_CODE", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+    if not code:
+        return Response("Ajoute &code=ANCIEN_CODE_A_REVOQUER", status=400, mimetype="text/plain; charset=utf-8")
+    if code == cle:
+        return Response("⛔ Tu ne peux pas révoquer le code que tu utilises maintenant (sécurité anti-verrouillage).", status=400, mimetype="text/plain; charset=utf-8")
+    if code == os.environ.get("ADMIN_CODE_SECRET", "").strip().upper():
+        return Response("⛔ Ce code est ton code secret ACTUEL (Railway). Révoquer impossible.", status=400, mimetype="text/plain; charset=utf-8")
+    cinfo = DB.get("codes", {}).get(code)
+    if not cinfo:
+        return Response(f"✅ Le code {code} n'existe déjà plus dans les comptes. Rien à révoquer.", mimetype="text/plain; charset=utf-8")
+    etait_admin = cinfo.get("admin", False); etait_actif = cinfo.get("actif", True)
+
+    if confirme:
+        DB["codes"][code]["actif"] = False
+        DB["codes"][code]["admin"] = False
+        DB.setdefault("revocations_admin", []).insert(0, {"id":secrets.token_hex(4).upper(),"code":code,"par":cle,"date":datetime.datetime.now().isoformat()})
+        save_data(immediat=True)
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:24px;color:#fff"><div style="max-width:520px;margin:0 auto">
+        <div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:20px;color:#34d399">
+        <div style="font-size:18px;font-weight:800;margin-bottom:8px">✅ Ancien code révoqué</div>
+        <div style="color:#cbd5e1;font-size:14px">Le code <b style="color:#a78bfa;font-family:monospace">{code}</b> est désormais <b>désactivé</b> et n'a <b>plus aucun droit admin</b>. Il ne pourra plus jamais se connecter ni créer de crédits.<br><br>✅ Seul ton nouveau code <b style="font-family:monospace">{cle}</b> reste admin.</div>
+        </div></div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    lien_conf = f"/revoquer-admin?cle={cle}&code={code}&confirme=1"
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Révoquer ancien admin</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:540px;margin:0 auto">
+      <h1 style="font-size:19px;color:#f85149;margin-bottom:12px">🗝️ Révoquer un ancien code admin</h1>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Code à révoquer</span><b style="color:#a78bfa;font-family:monospace">{code}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Admin actuellement ?</span><b style="color:{"#f87171" if etait_admin and etait_actif else "#34d399"}">{"OUI 🔴 (encore actif !)" if (etait_admin and etait_actif) else "non / déjà désactivé"}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:#8b949e">Tu agis avec</span><b style="color:#34d399;font-family:monospace">{cle}</b></div>
+      </div>
+      <a href="{lien_conf}" style="display:inline-block;background:#ef4444;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">🗝️ Confirmer la révocation de {code}</a>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/joueuses-a-reverifier")
+def joueuses_a_reverifier():
+    """ADMIN — Liste les joueuses NON bannies dont le solde contient de l'argent
+    issu d'ADMIN2024 (crédit direct d'ADMIN2024, ou transfert reçu d'un bénéficiaire
+    d'ADMIN2024). À recontrôler car peut-être gonflées par la fraude. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    bannis = set((c or "").upper() for c in DB.get("codes_bloques", []))
+    transferts = DB.get("transferts_pions", [])
+
+    # bénéficiaires d'ADMIN2024 + montant du crédit ADMIN2024 par code
+    credit_a24 = {}
+    for c in DB.get("credits_masse", []):
+        if isinstance(c, dict) and (c.get("par","") or "").upper()=="ADMIN2024":
+            mc=int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+            for cd in (c.get("codes") or []):
+                cd=(cd or "").upper()
+                if cd: credit_a24[cd]=credit_a24.get(cd,0)+mc
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par","") or "").upper()=="ADMIN2024":
+            cd=(c.get("code_joueur","") or "").upper()
+            if cd: credit_a24[cd]=credit_a24.get(cd,0)+int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+    benef_a24 = set(credit_a24.keys())
+
+    def solde(c):
+        p = DB.get("pions_joueurs", {}).get(c, {})
+        return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    def reel(c):
+        r=0
+        for x in DB.get("commandes_pions_joueurs", []):
+            if isinstance(x, dict) and x.get("code_joueur")==c and x.get("statut")=="validee":
+                nb=int(x.get("nb_pions", x.get("pions_credites",0)) or 0); v=int(x.get("valeur_pion",0) or 0)
+                r += (nb*v) if nb*v>0 else int(x.get("montant_net",0) or 0)
+        for t in DB.get("transactions_joueur_org", []):
+            if isinstance(t, dict) and t.get("code_joueur")==c: r+=int(t.get("montant_total",0) or 0)
+        return r
+    def nom_de(c):
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur") or "").upper()==c and t.get("acheteur"):
+                return t.get("acheteur")
+        return ""
+
+    # codes joueurs réels (ont un ticket)
+    codes_joueurs = set()
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur"):
+            codes_joueurs.add((t.get("code_acheteur") or "").upper())
+
+    rows=[]
+    for c in codes_joueurs:
+        if c in bannis: continue
+        cred = credit_a24.get(c, 0)  # crédit ADMIN2024 direct
+        # transferts reçus d'un bénéficiaire ADMIN2024
+        tr_susp = sum(int(t.get("montant",0) or 0) for t in transferts
+                      if (t.get("vers","") or "").upper()==c and (t.get("de","") or "").upper() in benef_a24)
+        susp = cred + tr_susp
+        if susp > 0:
+            s=solde(c); rl=reel(c)
+            rows.append((c, nom_de(c), s, rl, cred, tr_susp, susp))
+    rows.sort(key=lambda x: x[6], reverse=True)
+
+    def fmt(n): return format(int(n), ",")
+    body = "".join(
+        f'<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #f59e0b;border-radius:8px;padding:11px;margin-bottom:7px;font-size:13px">'
+        f'<div style="display:flex;justify-content:space-between"><b style="color:#e6edf3;font-family:monospace">{c} <span style="font-family:system-ui;color:#94a3b8">{nom}</span></b>'
+        f'<span style="color:#8b949e">solde {fmt(s)}</span></div>'
+        f'<div style="color:#cbd5e1;margin-top:4px">💰 réel <b style="color:#6ee7b7">{fmt(rl)}</b>'
+        + (f' · 🟥 crédit ADMIN2024 <b style="color:#fca5a5">{fmt(cred)}</b>' if cred>0 else '')
+        + (f' · ↘️ reçu d\'un bénéf. ADMIN2024 <b style="color:#fca5a5">{fmt(trs)}</b>' if trs>0 else '')
+        + f'</div>'
+        f'<div style="color:#fde68a;margin-top:3px">⚠️ argent douteux : <b>{fmt(susp)}</b> → solde « propre » estimé : <b style="color:#67e8f9">{fmt(max(0,s-susp))}</b> '
+        f'<a href="/releve-financier-joueur/{c}?cle={cle}" style="color:#58a6ff;margin-left:6px">relevé →</a></div></div>'
+        for (c,nom,s,rl,cred,trs,susp) in rows) or '<div style="color:#34d399">✅ Aucune joueuse non bannie avec de l\'argent ADMIN2024. Rien à recontrôler.</div>'
+
+    total = sum(r[6] for r in rows)
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>À revérifier</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;padding:16px;color:#fff"><div style="max-width:640px;margin:0 auto">
+      <h1 style="font-size:20px;color:#f59e0b;margin-bottom:6px">🔁 Joueuses à recontrôler (argent ADMIN2024)</h1>
+      <div style="color:#8b949e;font-size:13px;margin-bottom:14px">{len(rows)} joueuse(s) non bannie(s) · {fmt(total)} XPF d'argent douteux au total. Le « solde propre estimé » = solde actuel − argent douteux. À valider cas par cas.</div>
+      {body}
+      <div style="color:#8b949e;font-size:12px;margin-top:14px">💡 Pour corriger une joueuse : /restituer-legitime?cle=...&code=XXX&legitime=SOLDE_PROPRE&retirer=ARGENT_DOUTEUX</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
