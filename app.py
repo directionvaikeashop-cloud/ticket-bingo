@@ -17796,3 +17796,45 @@ def crediter_pions_org():
       Nouveau solde : <b style="color:#67e8f9;font-size:16px">{fmt(nv)} XPF</b><br>
       <span style="color:#8b949e;font-size:13px">Motif : {motif}</span></div></div>'''
     return page("🪙 Pions crédités", corps, "#10b981")
+
+
+@app.route("/email-organisateur")
+def email_organisateur():
+    """ADMIN — Enregistre/modifie l'email d'une organisatrice sur son code.
+    ?cle=ADMIN&code=X&email=Y[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    code = (request.args.get("code", "") or "").strip().upper()
+    email = (request.args.get("email", "") or "").strip()
+    confirme = request.args.get("confirme", "") == "1"
+
+    def nom_de(c): return DB.get("codes", {}).get((c or "").upper(), {}).get("nom", c) or c
+    def page(titre, corps, couleur="#0d9488"):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{titre}</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:540px;margin:0 auto">
+        <h1 style="font-size:20px;color:{couleur}">{titre}</h1>{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    if not code or code not in DB.get("codes", {}):
+        return page("❌ Code introuvable", f'<p style="color:#cbd5e1">Le code <b>{code or "(vide)"}</b> n\'existe pas.</p>', "#f85149")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return page("❌ Email invalide", '<p style="color:#cbd5e1">Vérifie l\'adresse email (ex: nom@gmail.com).</p>', "#f85149")
+
+    ancien = DB["codes"][code].get("email", "") or "(aucun)"
+    if not confirme:
+        corps = f'''<p style="color:#cbd5e1;font-size:14px">Enregistrer l'email de <b>{nom_de(code)}</b> <span style="font-family:monospace;color:#8b949e">{code}</span> :</p>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin:10px 0;font-size:14px">
+          Email actuel : <b style="color:#fca5a5">{ancien}</b><br>Nouvel email : <b style="color:#6ee7b7">{email}</b></div>
+        <a href="/email-organisateur?cle={cle}&code={code}&email={email}&confirme=1" style="display:block;text-align:center;background:#059669;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">✅ Confirmer l'email</a>'''
+        return page("📧 Enregistrer un email", corps)
+
+    DB["codes"][code]["email"] = email
+    save_data(immediat=True)
+    corps = f'''<div style="background:rgba(16,185,129,.1);border:1px solid #10b981;border-radius:10px;padding:14px">
+      <p style="color:#6ee7b7;font-weight:700;margin:0 0 6px">✅ Email enregistré</p>
+      <div style="color:#cbd5e1;font-size:14px">{nom_de(code)} <span style="font-family:monospace;color:#8b949e">{code}</span><br>📧 <b>{email}</b></div></div>'''
+    return page("📧 Email enregistré", corps, "#10b981")
