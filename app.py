@@ -17509,3 +17509,87 @@ def changer_code_organisateur():
     <div style="background:rgba(245,158,11,.1);border:1px solid #f59e0b;border-radius:8px;padding:12px;font-size:14px;color:#fcd34d;margin-top:10px">
       🔐 <b>Note ton nouveau code et garde-le secret.</b> Connecte-toi désormais avec <b>{nouveau}</b>.</div>'''
     return page("🔑 Code changé", corps, "#10b981")
+
+
+@app.route("/rib-organisateur")
+def rib_organisateur():
+    """ADMIN — Enregistre le RIB/coordonnées bancaires d'une organisatrice sur son code.
+    Crée l'organisatrice si le code n'existe pas. ?cle=ADMIN (formulaire)."""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    code = (request.args.get("code", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+    titulaire = (request.args.get("titulaire", "") or "").strip()
+    banque = (request.args.get("banque", "") or "").strip()
+    iban = (request.args.get("iban", "") or "").strip().upper()
+    bic = (request.args.get("bic", "") or "").strip().upper()
+
+    def page(titre, corps, couleur="#0d9488"):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{titre}</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:560px;margin:0 auto">
+        <h1 style="font-size:20px;color:{couleur}">{titre}</h1>{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    if confirme:
+        if not code:
+            return page("❌ Code manquant", '<p style="color:#cbd5e1">Entre le code de l\'organisatrice.</p>', "#f85149")
+        existe = code in DB["codes"]
+        if not existe:
+            # créer l'organisatrice
+            DB["codes"][code] = {
+                "duree": 365, "nom": titulaire or code, "actif": True, "email": "",
+                "created": datetime.datetime.now().isoformat(),
+                "expire": (datetime.datetime.now() + datetime.timedelta(days=365)).isoformat()
+            }
+        rib_txt = f"Titulaire : {titulaire} | Banque : {banque} | IBAN : {iban} | BIC : {bic}"
+        DB["codes"][code]["rib"] = rib_txt
+        DB["codes"][code]["deblock"] = iban
+        DB["codes"][code]["rib_titulaire"] = titulaire
+        DB["codes"][code]["rib_banque"] = banque
+        DB["codes"][code]["rib_iban"] = iban
+        DB["codes"][code]["rib_bic"] = bic
+        if titulaire and not DB["codes"][code].get("nom"):
+            DB["codes"][code]["nom"] = titulaire
+        save_data(immediat=True)
+        corps = f'''<div style="background:rgba(16,185,129,.1);border:1px solid #10b981;border-radius:10px;padding:14px">
+          <p style="color:#6ee7b7;font-weight:700;margin:0 0 8px">✅ RIB enregistré {"(nouvelle organisatrice créée)" if not existe else ""}</p>
+          <div style="color:#cbd5e1;font-size:14px;line-height:1.7">
+            Code : <b style="font-family:monospace;color:#67e8f9">{code}</b><br>
+            Titulaire : <b>{titulaire}</b><br>Banque : <b>{banque}</b><br>
+            IBAN : <b style="font-family:monospace">{iban}</b><br>BIC : <b style="font-family:monospace">{bic}</b></div></div>
+          <p style="color:#8b949e;font-size:13px;margin-top:10px">Les coordonnées apparaissent maintenant dans le circuit de paiement de cette organisatrice.</p>'''
+        return page("🏦 RIB enregistré", corps, "#10b981")
+
+    # FORMULAIRE pré-rempli
+    corps = f'''<p style="color:#cbd5e1;font-size:14px">Renseigne le <b>code de l'organisatrice</b>. Si le code n'existe pas encore, il sera <b>créé</b> avec ce RIB.</p>
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px">
+      <label style="font-size:12px;color:#8b949e">Code organisatrice</label>
+      <input id="code" placeholder="ex: VAHINE01" value="{code}" oninput="this.value=this.value.toUpperCase()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin:4px 0 12px;font-size:15px;font-family:monospace">
+      <label style="font-size:12px;color:#8b949e">Titulaire</label>
+      <input id="titulaire" value="Vahineura RUA" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin:4px 0 12px;font-size:15px">
+      <label style="font-size:12px;color:#8b949e">Banque</label>
+      <input id="banque" value="Deblock" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin:4px 0 12px;font-size:15px">
+      <label style="font-size:12px;color:#8b949e">IBAN</label>
+      <input id="iban" value="FR64 1774 8019 84TA HITI 25TH K57" oninput="this.value=this.value.toUpperCase()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin:4px 0 12px;font-size:14px;font-family:monospace">
+      <label style="font-size:12px;color:#8b949e">BIC</label>
+      <input id="bic" value="DBLKFR22XXX" oninput="this.value=this.value.toUpperCase()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin:4px 0 14px;font-size:15px;font-family:monospace">
+      <button onclick="save()" style="width:100%;padding:12px;border:0;border-radius:8px;background:#0d9488;color:#fff;font-weight:700;font-size:15px;cursor:pointer">🏦 Enregistrer le RIB</button>
+    </div>
+    <script>
+      function save(){{
+        var c=document.getElementById('code').value.trim();
+        if(!c){{alert('Entre le code de l\\'organisatrice');return;}}
+        var u='/rib-organisateur?cle={cle}&confirme=1'
+          +'&code='+encodeURIComponent(c)
+          +'&titulaire='+encodeURIComponent(document.getElementById('titulaire').value.trim())
+          +'&banque='+encodeURIComponent(document.getElementById('banque').value.trim())
+          +'&iban='+encodeURIComponent(document.getElementById('iban').value.trim())
+          +'&bic='+encodeURIComponent(document.getElementById('bic').value.trim());
+        window.location=u;
+      }}
+    </script>'''
+    return page("🏦 Enregistrer un RIB organisatrice", corps)
