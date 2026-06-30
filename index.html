@@ -5383,7 +5383,11 @@ async function chargerAnnonce(){
   try{
     const r = await fetch('/api/annonce/jeux', {headers: {'X-Token': TOKEN}});
     const annonces = await r.json();
-    annonceEnCours = annonces.length > 0 ? annonces[0] : null;
+    // CORRECTIF : ne garder que MON annonce (filtrer par mon code organisateur).
+    // Sinon on récupère l'annonce d'une AUTRE organisatrice (jeu ouvert à toutes)
+    // et l'écran se verrouille sur son jeu → impossible d'annoncer le sien.
+    const miennes = Array.isArray(annonces) ? annonces.filter(function(a){ return a && a.code_org === CODE_ORG; }) : [];
+    annonceEnCours = miennes.length > 0 ? miennes[0] : null;
     afficherEtatAnnonce();
   }catch(e){ console.error(e); }
 }
