@@ -17424,6 +17424,8 @@ def centre_admin():
         <a class="btn" style="background:#f59e0b;color:#1a1a1a" href="{lien('credits-organisateurs')}">🧾 Ardoise des organisatrices (commandes à crédit)</a>
         <a class="btn" style="background:#0d9488;margin-top:8px" href="{lien('crediter-stock-org')}">🪙 Créditer le stock de pions d'une organisatrice</a>
         <a class="btn" style="background:#7c3aed;margin-top:8px" href="{lien('creer-organisateur')}">➕ Créer une organisatrice</a>
+        <a class="btn" style="background:#059669;margin-top:8px" href="{lien('retrait-espece')}">💵 Enregistrer un retrait espèces</a>
+        <a class="btn" style="background:#0891b2;margin-top:8px" href="{lien('scan-soldes')}">🔬 Scanner les soldes (historique ≠ réel)</a>
         <a class="btn" style="background:#0d9488;margin-top:8px" href="{lien('rib-organisateur')}">🏦 Enregistrer un RIB organisatrice</a>
         <a class="btn" style="background:#c084fc;color:#1a1a1a;margin-top:8px" href="{lien('tarifs-jeux')}">🎲 Tarifs des jeux (prix par ticket)</a>
       </div>
@@ -18245,3 +18247,259 @@ def creer_organisateur():
         <a href="/credits-organisateurs?cle={cle}&action=ajouter&code={code}" style="color:#58a6ff">🧾 Ouvrir son ardoise (dette)</a></div></div>
     <p style="color:#8b949e;font-size:13px;margin-top:12px">Donne-lui son code <b style="font-family:monospace">{code}</b> : elle le saisit dans « 🎪 Espace Organisateur » pour se connecter.</p>'''
     return page("✅ Créée", corps, "#10b981")
+
+
+@app.route("/verif-retrait")
+def verif_retrait():
+    """ADMIN — Avant de payer un retrait en boutique : compte bloqué ? montant retirable ?
+    Seuls les pions REELS sont retirables (le bonus offert ne l'est pas).
+    ?cle=ADMIN&code=X[&montant=5000]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    try: montant = int(float(request.args.get("montant", "5000") or 5000))
+    except: montant = 5000
+
+    def fmt(n): return format(int(n), ",")
+    def val(p): return p.get("100",0)*100+p.get("50",0)*50+p.get("20",0)*20+p.get("10",0)*10
+    nom = DB.get("codes", {}).get(code, {}).get("nom", code) or code
+
+    bloque = code in [(c or "").upper() for c in DB.get("codes_bloques", [])]
+    reel = val(DB.get("pions_joueurs", {}).get(code, {}))      # RETIRABLE
+    bonus = val(DB.get("pions_bonus_joueurs", {}).get(code, {}))  # NON retirable
+
+    # demandes de retrait en attente pour ce code
+    pend = [r for r in DB.get("demandes_retrait", [])
+            if (r.get("code_joueur","") or "").upper()==code and r.get("statut")=="en_attente"]
+    pend_html = ""
+    if pend:
+        lignes = "".join(f'<div style="font-size:13px;color:#fcd34d">⏳ {fmt(r.get("montant_demande",0))} XPF — {r.get("mode","")} — {str(r.get("date",""))[:16].replace("T"," ")}</div>' for r in pend)
+        pend_html = f'<div style="background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:10px;padding:11px;margin-top:10px"><b style="color:#fcd34d;font-size:13px">Demande(s) de retrait déjà en attente :</b>{lignes}</div>'
+
+    # verdict
+    if bloque:
+        verdict = f'<div style="background:rgba(248,81,73,.15);border:2px solid #f85149;border-radius:12px;padding:16px;text-align:center"><div style="font-size:30px">⛔</div><div style="color:#fca5a5;font-weight:800;font-size:18px;margin-top:6px">NE PAS PAYER</div><div style="color:#fca5a5;font-size:14px;margin-top:4px">Le compte de {nom} est <b>BLOQUÉ</b>. Vérifie pourquoi avant tout paiement.</div></div>'
+    elif reel >= montant:
+        verdict = f'<div style="background:rgba(16,185,129,.15);border:2px solid #10b981;border-radius:12px;padding:16px;text-align:center"><div style="font-size:30px">✅</div><div style="color:#6ee7b7;font-weight:800;font-size:18px;margin-top:6px">PAIEMENT POSSIBLE</div><div style="color:#cbd5e1;font-size:14px;margin-top:6px">Tu peux lui remettre <b style="color:#6ee7b7">{fmt(montant)} XPF en espèces</b> (0% de frais en cash).<br>Retirable total : <b>{fmt(reel)} XPF</b> · il resterait <b>{fmt(reel-montant)} XPF</b> après.</div></div>'
+    else:
+        verdict = f'<div style="background:rgba(245,158,11,.15);border:2px solid #f59e0b;border-radius:12px;padding:16px;text-align:center"><div style="font-size:30px">⚠️</div><div style="color:#fcd34d;font-weight:800;font-size:18px;margin-top:6px">SOLDE INSUFFISANT</div><div style="color:#cbd5e1;font-size:14px;margin-top:6px">Elle demande <b>{fmt(montant)} XPF</b> mais n\'a que <b style="color:#fcd34d">{fmt(reel)} XPF retirables</b>.{f"<br>Elle a {fmt(bonus)} XPF de bonus, mais le <b>bonus n\'est PAS retirable</b> en espèces." if bonus>0 else ""}</div></div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vérif retrait {code}</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:540px;margin:0 auto">
+      <h1 style="font-size:20px;color:#67e8f9;margin-bottom:2px">💵 Vérif retrait</h1>
+      <div style="color:#8b949e;font-size:14px;margin-bottom:14px">{nom} · <span style="font-family:monospace">{code}</span> · demande <b style="color:#fff">{fmt(montant)} XPF</b></div>
+      {verdict}
+      {pend_html}
+      <div style="font-size:12px;font-weight:700;color:#f0883e;margin:16px 0 6px">DÉTAIL DU SOLDE</div>
+      <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #10b981;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between"><b style="color:#e6edf3">🪙 Pions RÉELS (retirables)</b><b style="color:#6ee7b7">{fmt(reel)} XPF</b></div>
+        <div style="color:#64748b;font-size:11px;margin-top:2px">→ C'est ce qu'elle peut retirer en espèces</div></div>
+      <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #f59e0b;border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><b style="color:#e6edf3">🎁 Pions BONUS (offerts)</b><b style="color:#fcd34d">{fmt(bonus)} XPF</b></div>
+        <div style="color:#64748b;font-size:11px;margin-top:2px">→ Jouables, mais NON retirables en espèces</div></div>
+      <div style="color:#8b949e;font-size:12px;margin-top:14px">Pour changer le montant testé : ajoute <b>&montant=...</b> à l'adresse.</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
+
+
+@app.route("/retrait-espece")
+def retrait_espece():
+    """ADMIN — Enregistre un retrait en ESPECES fait en boutique : deduit le montant
+    du solde REEL (retirable) de la joueuse et trace le retrait. Le bonus n'est jamais touche.
+    ?cle=ADMIN&code=X&montant=N[&confirme=1]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try: montant = int(float(request.args.get("montant", "0") or 0))
+    except: montant = 0
+    confirme = request.args.get("confirme", "") == "1"
+
+    def fmt(n): return format(int(n), ",")
+    def page(titre, corps, couleur="#0d9488"):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{titre}</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:540px;margin:0 auto">
+        <h1 style="font-size:20px;color:{couleur}">{titre}</h1>{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    if not code or montant <= 0:
+        return page("❌ Infos manquantes", '<p style="color:#cbd5e1">Ajoute &code=LE_CODE&montant=LE_MONTANT</p>', "#f85149")
+
+    nom = DB.get("codes", {}).get(code, {}).get("nom", code) or code
+    bloque = code in [(c or "").upper() for c in DB.get("codes_bloques", [])]
+    poche = dict(DB.get("pions_joueurs", {}).get(code, {}))
+    reel = _xpf_total_pions(poche)
+
+    if bloque:
+        return page("⛔ Compte bloqué", f'<div style="background:rgba(248,81,73,.15);border:2px solid #f85149;border-radius:12px;padding:16px"><p style="color:#fca5a5;font-weight:800;font-size:17px;margin:0">NE PAS PAYER — {nom} est bloquée.</p><p style="color:#cbd5e1;font-size:14px">Débloque-la d\'abord si le retrait est légitime.</p></div>', "#f85149")
+    if montant > reel:
+        return page("⚠️ Solde insuffisant", f'<div style="background:rgba(245,158,11,.15);border:2px solid #f59e0b;border-radius:12px;padding:16px"><p style="color:#fcd34d;font-weight:800;font-size:16px;margin:0 0 6px">Retrait impossible</p><p style="color:#cbd5e1;font-size:14px">{nom} n\'a que <b>{fmt(reel)} XPF</b> retirables. Tu ne peux pas enregistrer un retrait de {fmt(montant)} XPF.</p></div>', "#f59e0b")
+
+    if not confirme:
+        corps = f'''<p style="color:#cbd5e1;font-size:14px">Confirme le retrait en espèces de <b style="color:#fff">{nom}</b> :</p>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:10px 0;font-size:15px;line-height:2">
+          Code : <b style="font-family:monospace;color:#67e8f9">{code}</b><br>
+          Solde retirable actuel : <b style="color:#fff">{fmt(reel)} XPF</b><br>
+          Retrait espèces : <b style="color:#fca5a5">− {fmt(montant)} XPF</b><br>
+          <span style="border-top:1px solid #30363d;display:block;margin-top:6px;padding-top:6px">Nouveau solde : <b style="color:#6ee7b7;font-size:18px">{fmt(reel - montant)} XPF</b></span></div>
+        <p style="color:#8b949e;font-size:13px;margin-bottom:12px">💵 À faire UNIQUEMENT après lui avoir remis les {fmt(montant)} XPF en main. Le bonus n\'est pas touché.</p>
+        <a href="/retrait-espece?cle={cle}&code={code}&montant={montant}&confirme=1" style="display:block;text-align:center;background:#059669;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">✅ Confirmer — j\'ai remis {fmt(montant)} XPF en espèces</a>'''
+        return page("💵 Enregistrer un retrait espèces", corps)
+
+    # CONFIRME : déduire du réel
+    ok = _debiter_pions_montant(poche, montant)
+    if not ok:
+        return page("⚠️ Solde insuffisant", '<p style="color:#cbd5e1">Le solde réel ne permet pas ce retrait.</p>', "#f59e0b")
+    DB.setdefault("pions_joueurs", {})[code] = poche
+    DB.setdefault("demandes_retrait", []).insert(0, {
+        "id": secrets.token_hex(4).upper(),
+        "code_joueur": code, "nom": nom,
+        "montant_demande": montant, "mode": "Espèces (boutique)",
+        "frais": 0, "montant_net": montant,
+        "statut": "paye_espece", "par": cle,
+        "date": datetime.datetime.now().isoformat()
+    })
+    save_data(immediat=True)
+    nouveau = _xpf_total_pions(poche)
+    corps = f'''<div style="background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:12px;padding:16px">
+      <p style="color:#6ee7b7;font-weight:800;font-size:17px;margin:0 0 8px">✅ Retrait enregistré</p>
+      <div style="color:#cbd5e1;font-size:15px;line-height:1.9">
+        {nom} <span style="font-family:monospace;color:#8b949e">{code}</span><br>
+        Retiré en espèces : <b style="color:#fff">{fmt(montant)} XPF</b><br>
+        Nouveau solde retirable : <b style="color:#6ee7b7;font-size:18px">{fmt(nouveau)} XPF</b></div></div>
+    <p style="color:#8b949e;font-size:13px;margin-top:12px">Le retrait est tracé. Demande-lui de rafraîchir son écran pour voir son nouveau solde.</p>'''
+    return page("✅ Retrait espèces enregistré", corps, "#10b981")
+
+
+def _scan_val_pions(p):
+    if not isinstance(p, dict): return 0
+    return p.get("100",0)*100 + p.get("50",0)*50 + p.get("20",0)*20 + p.get("10",0)*10
+
+def _scan_solde_theorique(code, DB):
+    """Reproduit le calcul du releve (entrees - sorties) pour un code joueur."""
+    code = (code or "").upper()
+    e = 0; s = 0
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c,dict) and (c.get("code_joueur","") or "").upper()==code and c.get("statut")=="validee":
+            nb=int(c.get("nb_pions", c.get("pions_credites",0)) or 0); val=int(c.get("valeur_pion",0) or 0)
+            v=nb*val
+            if v<=0: v=int(c.get("montant_net",0) or 0)
+            e+=v
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t,dict) and (t.get("code_joueur","") or "").upper()==code:
+            e+=int(t.get("montant_total",0) or 0)
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g,dict) and (g.get("code_gagnant","") or "").upper()==code and not g.get("annule"):
+            e+=int(g.get("montant_credite",0) or 0)
+    for c in DB.get("credits_admin", []):
+        if isinstance(c,dict) and (c.get("code_joueur","") or "").upper()==code:
+            m=int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+            if m>0: e+=m
+            elif m<0: s+=-m
+    for c in DB.get("credits_masse", []):
+        if isinstance(c,dict) and c.get("profil","joueur")=="joueur" and code in [(x or "").upper() for x in (c.get("codes") or [])]:
+            m=int(c.get("nb_pions",0) or 0)*int(c.get("valeur_pion",0) or 0)
+            if m>0: e+=m
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c,dict) and (c.get("code_joueur","") or "").upper()==code:
+            s+=int(c.get("total_pions",0) or 0)
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r,dict) and (r.get("code_joueur","") or "").upper()==code and r.get("statut") in ("validee","paye_espece"):
+            s+=int(r.get("montant_demande",0) or 0)
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c,dict) and (c.get("code_joueur","") or "").upper()==code:
+            retire=int(c.get("solde_avant",0) or 0)-int(c.get("solde_apres",0) or 0)
+            if retire>0: s+=retire
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t,dict): continue
+        de=(t.get("de","") or "").upper(); vers=(t.get("vers","") or "").upper(); m=int(t.get("montant",0) or 0)
+        if de==code: s+=m
+        elif vers==code: e+=m
+    return e - s
+
+@app.route("/scan-soldes")
+def scan_soldes():
+    """ADMIN — Scanne toutes les joueuses et liste celles ou l'HISTORIQUE (entrees-sorties)
+    differe du SOLDE REEL detenu. Surfaces les gains coinces / sequelles de corruption.
+    APPROXIMATIF : a verifier au cas par cas via le releve. ?cle=ADMIN[&seuil=500]"""
+    global DB
+    DB = load_data()
+    cle = (request.args.get("cle", "") or "").strip().upper()
+    info = DB.get("codes", {}).get(cle)
+    if not (info and info.get("admin") and info.get("actif", True)):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    try: seuil = int(request.args.get("seuil", "500") or 500)
+    except: seuil = 500
+
+    def fmt(n): return format(int(n), ",")
+    # Univers des joueuses
+    codes = set()
+    for k in DB.get("pions_joueurs", {}): codes.add((k or "").upper())
+    for k in DB.get("pions_bonus_joueurs", {}): codes.add((k or "").upper())
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g,dict) and g.get("code_gagnant"): codes.add((g["code_gagnant"] or "").upper())
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c,dict) and c.get("code_joueur"): codes.add((c["code_joueur"] or "").upper())
+    codes.discard("")
+    # exclure les codes organisateurs/admin connus
+    orgs = set()
+    for cc, ii in DB.get("codes", {}).items():
+        if isinstance(ii, dict) and (ii.get("admin") or ii.get("role")=="revendeur"):
+            orgs.add((cc or "").upper())
+
+    def nom_de(c):
+        n = DB.get("codes", {}).get(c, {}).get("nom", "")
+        if n: return n
+        for t in DB.get("tickets", []):
+            if isinstance(t,dict) and (t.get("code_acheteur","") or "").upper()==c and t.get("acheteur"):
+                return t.get("acheteur")
+        return c
+
+    anomalies = []
+    for code in codes:
+        if code in orgs: continue
+        theo = _scan_solde_theorique(code, DB)
+        reel = _scan_val_pions(DB.get("pions_joueurs",{}).get(code,{})) + _scan_val_pions(DB.get("pions_bonus_joueurs",{}).get(code,{}))
+        ecart = theo - reel
+        if abs(ecart) >= seuil:
+            anomalies.append((code, nom_de(code), theo, reel, ecart))
+    anomalies.sort(key=lambda x: -abs(x[4]))
+
+    total_manque = sum(a[4] for a in anomalies if a[4] > 0)
+    total_surplus = sum(-a[4] for a in anomalies if a[4] < 0)
+
+    rows = ""
+    for code, nom, theo, reel, ecart in anomalies:
+        if ecart > 0:
+            badge = f'<span style="background:rgba(245,158,11,.18);color:#fcd34d;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700">manque {fmt(ecart)}</span>'
+            note = "Historique &gt; solde : gain/crédit non présent dans le solde (à vérifier/recréditer si légitime)"
+        else:
+            badge = f'<span style="background:rgba(248,81,73,.18);color:#fca5a5;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700">surplus {fmt(-ecart)}</span>'
+            note = "Solde &gt; historique : pions en trop non tracés (à examiner — possible fraude)"
+        rows += (f'<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px;margin-bottom:8px">'
+                 f'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+                 f'<div><b style="color:#e6edf3">{nom}</b> <span style="font-family:monospace;color:#8b949e;font-size:12px">{code}</span></div>{badge}</div>'
+                 f'<div style="font-size:12px;color:#8b949e;margin-top:4px">Historique : <b style="color:#cbd5e1">{fmt(theo)}</b> · Solde réel : <b style="color:#cbd5e1">{fmt(reel)}</b></div>'
+                 f'<div style="font-size:11px;color:#64748b;margin-top:2px">{note}</div>'
+                 f'<a href="/releve-financier-joueur/{code}?cle={cle}" style="color:#58a6ff;font-size:12px">Voir le relevé détaillé →</a></div>')
+    if not rows:
+        rows = '<div style="background:rgba(16,185,129,.1);border:1px solid #10b981;border-radius:10px;padding:16px;text-align:center;color:#6ee7b7">✅ Aucun écart au-dessus du seuil. Tous les soldes correspondent à leur historique.</div>'
+
+    return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scan des soldes</title></head>
+    <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:640px;margin:0 auto">
+      <h1 style="font-size:21px;color:#67e8f9;margin-bottom:2px">🔬 Scan des soldes</h1>
+      <div style="color:#8b949e;font-size:13px;margin-bottom:14px">Comptes où l'historique ≠ le solde réel (seuil : {fmt(seuil)} XPF). Approximatif — à vérifier au cas par cas.</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <div style="flex:1;background:#161b22;border:1px solid #30363d;border-left:3px solid #f59e0b;border-radius:10px;padding:11px"><div style="font-size:11px;color:#8b949e">À VÉRIFIER (manque)</div><div style="font-size:18px;font-weight:800;color:#fcd34d">{len([a for a in anomalies if a[4]>0])}</div><div style="font-size:11px;color:#64748b">total {fmt(total_manque)} XPF</div></div>
+        <div style="flex:1;background:#161b22;border:1px solid #30363d;border-left:3px solid #f85149;border-radius:10px;padding:11px"><div style="font-size:11px;color:#8b949e">SURPLUS (en trop)</div><div style="font-size:18px;font-weight:800;color:#fca5a5">{len([a for a in anomalies if a[4]<0])}</div><div style="font-size:11px;color:#64748b">total {fmt(total_surplus)} XPF</div></div>
+      </div>
+      {rows}
+      <div style="color:#8b949e;font-size:12px;margin-top:14px">💡 Change le seuil avec <b>&seuil=...</b> (ex. &seuil=1000 pour ne voir que les gros écarts).</div>
+    </div></body></html>''', mimetype="text/html; charset=utf-8")
