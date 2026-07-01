@@ -5,3 +5,4 @@ reportlab
 stripe
 flask-sock
 psycopg2-binary
+orjson
