@@ -2088,22 +2088,9 @@ function buildOrgSpace(){
 
     <!-- MICRO ORGANISATEUR UNIVERSEL -->
     <div class="card" style="margin-top:14px;background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.3)">
-      <div class="ct" style="margin-bottom:12px">🎤 Micro organisateur</div>
+      <div class="ct" style="margin-bottom:12px">💬 Messages aux joueuses</div>
       
-      <!-- Bouton micro principal -->
-      <div style="text-align:center;margin-bottom:16px">
-        <button id="btn-micro" onclick="toggleMicro()" style="width:90px;height:90px;border-radius:50%;background:rgba(99,102,241,.3);border:3px solid #6366f1;color:#fff;font-size:36px;cursor:pointer;transition:all .3s;display:flex;align-items:center;justify-content:center;margin:0 auto">🎤</button>
-        <div id="micro-status" style="font-size:13px;color:var(--mu);margin-top:10px">Appuyez pour parler</div>
-        <div id="micro-waves" style="display:none;margin-top:8px">
-          <div style="display:flex;align-items:center;justify-content:center;gap:3px">
-            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave1 0.8s infinite" id="w1"></div>
-            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave2 0.8s infinite" id="w2"></div>
-            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave3 0.8s infinite" id="w3"></div>
-            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave2 0.8s infinite" id="w4"></div>
-            <div style="width:4px;background:#6366f1;border-radius:2px;animation:wave1 0.8s infinite" id="w5"></div>
-          </div>
-        </div>
-      </div>
+      <!-- 🔇 Bouton micro VOCAL retiré (trop lourd : saturait le serveur). Messages texte conservés ci-dessous. -->
 
       <!-- Messages rapides -->
       <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Messages rapides</div>
@@ -6247,6 +6234,10 @@ function connecterMicroJoueur(codeOrg){
   if(!codeOrg) return;
   var _cm = document.getElementById('commentaire-micro-joueur');
   if(_cm) _cm.style.display = 'block';
+  // 🔇 MICRO VOCAL RETIRE : avant, chaque joueuse gardait une LIGNE serveur ouverte en
+  // permanence -> a 25 joueuses, le serveur etait sature (coupures). On garde la zone de
+  // MESSAGES/COMMENTAIRES ci-dessus, mais on N'OUVRE PLUS la ligne audio. -> libere le serveur.
+  return;
   // Eviter les doubles connexions
   if(joueurMicroWs && joueurMicroWs.readyState === WebSocket.OPEN && codeOrgMicroActuel === codeOrg) return;
   // CHANGEMENT D'ORGANISATRICE : fermer proprement l'ancien canal (sinon on entend l'ancienne ou on se reconnecte dessus)
