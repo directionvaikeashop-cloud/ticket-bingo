@@ -158,6 +158,16 @@ import time as _time_cache
 _LD_CACHE = {"contenu": None, "mtime": None, "taille": None, "ts": 0.0}
 _LD_VERROU = threading.Lock()
 
+# 🪶 Caches légers pour les lectures TRÈS fréquentes (micro + tirage).
+# Avant : chaque appel relisait TOUTE la base pour 2-3 petites infos -> saturation.
+# Maintenant : on garde ces infos en mémoire, on ne relit la base qu'AU PLUS 1x/2s.
+# Lecture seule (ne touche jamais à l'argent). Se met à jour tout seul en 2s max.
+_MICRO_CACHE = {"ts": 0.0, "actif": False, "message": ""}
+_MICRO_VERROU = threading.Lock()
+_TIRAGE_CACHE = {"ts": 0.0, "boules": [], "vitesse": 3}
+_TIRAGE_VERROU = threading.Lock()
+_CACHE_LEGER_TTL = 2.0
+
 
 def _lire_donnees_brut_cache():
     """Contenu brut du fichier principal, avec cache court anti-saturation."""
@@ -2390,6 +2400,8 @@ def reset_donnees_admin():
     DB["alertes_bingo"] = []
     DB["tirage"] = []
     DB["tirage_vitesse"] = 3
+    with _TIRAGE_VERROU:
+        _TIRAGE_CACHE["boules"] = []; _TIRAGE_CACHE["vitesse"] = 3; _TIRAGE_CACHE["ts"] = _time_cache.time()
     DB["coches"] = {}
     DB["commandes_tickets"] = []
     DB["paiements_stripe"] = []
@@ -2556,6 +2568,8 @@ def reset_tournoi():
     # 1. Remettre le tirage à zéro
     DB["tirage"] = []
     DB["tirage_vitesse"] = 3
+    with _TIRAGE_VERROU:
+        _TIRAGE_CACHE["boules"] = []; _TIRAGE_CACHE["vitesse"] = 3; _TIRAGE_CACHE["ts"] = _time_cache.time()
     
     # 2. Effacer TOUTES les alertes bingo
     DB["alertes_bingo"] = []
@@ -2637,13 +2651,24 @@ def sauvegarder_tirage():
     DB["tirage"] = d.get("boules", [])
     DB["tirage_vitesse"] = d.get("vitesse", 3)
     save_data()
+    with _TIRAGE_VERROU:
+        _TIRAGE_CACHE["boules"] = DB["tirage"]
+        _TIRAGE_CACHE["vitesse"] = DB["tirage_vitesse"]
+        _TIRAGE_CACHE["ts"] = _time_cache.time()
     return jsonify({"ok": True})
 
 @app.route("/api/tirage")
 def get_tirage():
-    global DB
-    DB = load_data()
-    return jsonify({"boules": DB.get("tirage", []), "vitesse": DB.get("tirage_vitesse", 3)})
+    maintenant = _time_cache.time()
+    with _TIRAGE_VERROU:
+        if (maintenant - _TIRAGE_CACHE["ts"]) < _CACHE_LEGER_TTL:
+            return jsonify({"boules": _TIRAGE_CACHE["boules"], "vitesse": _TIRAGE_CACHE["vitesse"]})
+    _d = load_data()
+    with _TIRAGE_VERROU:
+        _TIRAGE_CACHE["boules"] = _d.get("tirage", [])
+        _TIRAGE_CACHE["vitesse"] = _d.get("tirage_vitesse", 3)
+        _TIRAGE_CACHE["ts"] = maintenant
+        return jsonify({"boules": _TIRAGE_CACHE["boules"], "vitesse": _TIRAGE_CACHE["vitesse"]})
 
 @app.route("/api/verifier-bingo", methods=["POST"])
 def verifier_bingo_auto():
@@ -4763,16 +4788,24 @@ def micro_status():
     DB["micro_actif"] = d.get("actif", False)
     DB["micro_message"] = d.get("message", "")
     save_data()
+    with _MICRO_VERROU:
+        _MICRO_CACHE["actif"] = DB["micro_actif"]
+        _MICRO_CACHE["message"] = DB["micro_message"]
+        _MICRO_CACHE["ts"] = _time_cache.time()
     return jsonify({"ok": True})
 
 @app.route("/api/micro/status")
 def get_micro_status():
-    global DB
-    DB = load_data()
-    return jsonify({
-        "actif": DB.get("micro_actif", False),
-        "message": DB.get("micro_message", "")
-    })
+    maintenant = _time_cache.time()
+    with _MICRO_VERROU:
+        if (maintenant - _MICRO_CACHE["ts"]) < _CACHE_LEGER_TTL:
+            return jsonify({"actif": _MICRO_CACHE["actif"], "message": _MICRO_CACHE["message"]})
+    _d = load_data()
+    with _MICRO_VERROU:
+        _MICRO_CACHE["actif"] = _d.get("micro_actif", False)
+        _MICRO_CACHE["message"] = _d.get("micro_message", "")
+        _MICRO_CACHE["ts"] = maintenant
+        return jsonify({"actif": _MICRO_CACHE["actif"], "message": _MICRO_CACHE["message"]})
 
 # === GENERATION GENERIQUE : TOUS LES JEUX DU REGISTRE ===
 @app.route("/api/admin/generer-jeu", methods=["POST"])
