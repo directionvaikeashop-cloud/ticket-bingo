@@ -6130,14 +6130,7 @@ async function checkMicroJoueur(){
       }
     }
     
-    // Vérifier audio en direct
-    const r2 = await fetch('/api/micro/audio/get');
-    const audioData = await r2.json();
-    if(audioData.audio && audioData.timestamp && audioData.timestamp !== dernierAudioTimestamp){
-      dernierAudioTimestamp = audioData.timestamp;
-      // Jouer l'audio reçu
-      jouerAudioMicro(audioData.audio);
-    }
+    // 🔇 Audio micro RETIRE (micro vocal supprimé) : on ne demande plus l'audio au serveur toutes les 10s.
 
     // Alerte anti-perturbateur
     try{ majEtatApp(); }catch(e){}
