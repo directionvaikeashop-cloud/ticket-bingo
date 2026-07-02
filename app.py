@@ -168,6 +168,23 @@ _TIRAGE_CACHE = {"ts": 0.0, "boules": [], "vitesse": 3}
 _TIRAGE_VERROU = threading.Lock()
 _CACHE_LEGER_TTL = 2.0
 
+# 🪶 Cache court pour les PETITES lectures publiques interrogées en boucle pendant un tournoi
+# (maintenance, messages, tournois programmés). Avant : chacune relisait TOUTE la base.
+# Maintenant : on relit la base au plus 1x / 3s par info. Lecture seule (aucune donnée d'argent).
+_SET_CACHE = {}
+_SET_VERROU = threading.Lock()
+_SET_TTL = 3.0
+def _cache_lecture(cle, producteur):
+    maintenant = _time_cache.time()
+    with _SET_VERROU:
+        c = _SET_CACHE.get(cle)
+        if c and (maintenant - c["ts"]) < _SET_TTL:
+            return c["val"]
+    val = producteur()
+    with _SET_VERROU:
+        _SET_CACHE[cle] = {"ts": maintenant, "val": val}
+    return val
+
 
 def _lire_donnees_brut_cache():
     """Contenu brut du fichier principal, avec cache court anti-saturation."""
@@ -3706,11 +3723,12 @@ def valider_pions_joueur():
 
 @app.route("/api/maintenance")
 def get_maintenance():
-    """PUBLIC — Etat du mode maintenance"""
-    global DB
-    DB = load_data()
-    m = DB.get("maintenance", {})
-    return jsonify({"actif": bool(m.get("actif")), "message": m.get("message", "")})
+    """PUBLIC — Etat du mode maintenance (cache court)"""
+    def _lire():
+        d = load_data()
+        m = d.get("maintenance", {})
+        return {"actif": bool(m.get("actif")), "message": m.get("message", "")}
+    return jsonify(_cache_lecture("maintenance", _lire))
 
 @app.route("/api/admin/maintenance", methods=["POST"])
 def set_maintenance():
@@ -3938,23 +3956,25 @@ def stripe_crediter():
 
 @app.route("/api/message-admin")
 def lire_message_admin():
-    """Tous — Message d'information publie par l'administration"""
-    global DB
-    DB = load_data()
-    msg = DB.get("message_admin", {})
-    if not msg.get("actif"):
-        return jsonify({"actif": False})
-    return jsonify({"actif": True, "texte": msg.get("texte", ""), "date": msg.get("date", "")})
+    """Tous — Message d'information publie par l'administration (cache court)"""
+    def _lire():
+        d = load_data()
+        msg = d.get("message_admin", {})
+        if not msg.get("actif"):
+            return {"actif": False}
+        return {"actif": True, "texte": msg.get("texte", ""), "date": msg.get("date", "")}
+    return jsonify(_cache_lecture("message_admin", _lire))
 
 @app.route("/api/message-joueurs")
 def lire_message_joueurs():
-    """Tous — Message d'information aux joueuses"""
-    global DB
-    DB = load_data()
-    msg = DB.get("message_joueurs", {})
-    if not msg.get("actif"):
-        return jsonify({"actif": False})
-    return jsonify({"actif": True, "texte": msg.get("texte", ""), "date": msg.get("date", "")})
+    """Tous — Message d'information aux joueuses (cache court)"""
+    def _lire():
+        d = load_data()
+        msg = d.get("message_joueurs", {})
+        if not msg.get("actif"):
+            return {"actif": False}
+        return {"actif": True, "texte": msg.get("texte", ""), "date": msg.get("date", "")}
+    return jsonify(_cache_lecture("message_joueurs", _lire))
 
 @app.route("/api/admin/message-joueurs", methods=["POST"])
 def publier_message_joueurs():
@@ -7999,25 +8019,24 @@ def creer_tournoi_programme():
 
 @app.route("/api/tournois-programmes")
 def get_tournois_programmes():
-    """Liste les tournois programmes a venir (tous organisateurs). Nettoie les tournois passes depuis +6h."""
-    global DB
-    DB = load_data()
-    maintenant = datetime.datetime.now()
-    limite = maintenant - datetime.timedelta(hours=6)
-    a_venir = []
-    for t in DB.get("tournois_programmes", []):
-        if not isinstance(t, dict):
-            continue
-        try:
-            dt = datetime.datetime.fromisoformat(t.get("date_heure", "").replace("Z", ""))
-            # Garder si le tournoi n'est pas termine depuis plus de 6h
-            if dt > limite:
+    """Liste les tournois programmes a venir (cache court)."""
+    def _lire():
+        d = load_data()
+        maintenant = datetime.datetime.now()
+        limite = maintenant - datetime.timedelta(hours=6)
+        a_venir = []
+        for t in d.get("tournois_programmes", []):
+            if not isinstance(t, dict):
+                continue
+            try:
+                dt = datetime.datetime.fromisoformat(t.get("date_heure", "").replace("Z", ""))
+                if dt > limite:
+                    a_venir.append(t)
+            except (ValueError, TypeError):
                 a_venir.append(t)
-        except (ValueError, TypeError):
-            a_venir.append(t)  # Si date illisible, on garde par securite
-    # Trier par date (le plus proche en premier)
-    a_venir.sort(key=lambda x: str(x.get("date_heure", "")))
-    return jsonify(a_venir)
+        a_venir.sort(key=lambda x: str(x.get("date_heure", "")))
+        return a_venir
+    return jsonify(_cache_lecture("tournois_programmes", _lire))
 
 
 @app.route("/api/tournoi-programme/supprimer", methods=["POST"])
