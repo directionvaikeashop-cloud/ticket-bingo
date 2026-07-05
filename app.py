@@ -17,7 +17,7 @@ def _parse_json_rapide(contenu):
         except Exception:
             pass
     return json.loads(contenu)
-from flask import Flask, request, jsonify, send_from_directory, Response, send_file, g, make_response
+from flask import Flask, request, jsonify, send_from_directory, Response, send_file, g, make_response, redirect
 try:
     from flask_sock import Sock
     HAS_WEBSOCKET = True
@@ -107,6 +107,25 @@ from sendgrid.helpers.mail import Mail
 app = Flask(__name__, static_folder=".")
 if HAS_WEBSOCKET:
     sock = Sock(app)
+
+# 🌺 DOMAINE OFFICIEL : l'adresse Railway reste vivante (réveil anti-veille,
+# surveillance UptimeRobot, adresse de secours) mais TOUTE visite passant par
+# elle est renvoyée automatiquement vers https://tukeabingo.com (même page).
+# Exceptions vitales (ne JAMAIS rediriger) :
+#   /ping                  -> le réveil et la surveillance en ont besoin ici
+#   /api/paiement/webhook  -> Stripe livre les paiements sur cette adresse
+_HOTE_TECHNIQUE = "ticket-bingo-production.up.railway.app"
+_CHEMINS_SANS_REDIRECTION = ("/ping", "/api/paiement/webhook")
+
+@app.before_request
+def _forcer_domaine_officiel():
+    try:
+        hote = (request.host or "").split(":")[0].lower()
+        if hote == _HOTE_TECHNIQUE and request.path not in _CHEMINS_SANS_REDIRECTION:
+            cible = "https://tukeabingo.com" + (request.full_path if request.query_string else request.path)
+            return redirect(cible, code=308)
+    except Exception:
+        pass
 
 # 🛡️ BRIQUE 1 : routes admin (GET) qui MODIFIENT l'argent — elles passent
 # désormais par le MÊME verrou que les POST. Avant, elles écrivaient hors
