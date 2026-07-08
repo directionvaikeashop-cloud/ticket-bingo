@@ -119,11 +119,15 @@ _CHEMINS_SANS_REDIRECTION = ("/ping", "/api/paiement/webhook")
 
 @app.before_request
 def _forcer_domaine_officiel():
+    # 🌺 Redirection DOUCE : seule la PAGE D'ENTREE bascule vers tukeabingo.com.
+    # Les appels internes de l'appli (boules, messages, alertes BINGO, PDF...)
+    # continuent de fonctionner meme pour un telephone encore sur l'ancienne
+    # adresse -> aucune casse en pleine partie. Au prochain demarrage de
+    # l'appli, chacun atterrit naturellement sur tukeabingo.com.
     try:
         hote = (request.host or "").split(":")[0].lower()
-        if hote == _HOTE_TECHNIQUE and request.path not in _CHEMINS_SANS_REDIRECTION:
-            cible = "https://tukeabingo.com" + (request.full_path if request.query_string else request.path)
-            return redirect(cible, code=308)
+        if hote == _HOTE_TECHNIQUE and request.method == "GET" and request.path == "/":
+            return redirect("https://tukeabingo.com/", code=302)
     except Exception:
         pass
 
