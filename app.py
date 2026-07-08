@@ -98,6 +98,14 @@ _enregistrer_jeu("BROWN 8 BOULES", "🤎", "generate_brown8")
 _enregistrer_jeu("KAI", "🍽️", "generate_kai")
 _enregistrer_jeu("FLASH QUINES ALLONGER", "⚡", "generate_flash_quines")
 _enregistrer_jeu("POL 6 BOULES", "🎲", "generate_pol")
+_enregistrer_jeu("SUN 8 BOULES", "☀️", "generate_sun")
+_enregistrer_jeu("POW 9 BOULES", "💥", "generate_pow")
+_enregistrer_jeu("WIN 9 BOULES", "🏆", "generate_win")
+_enregistrer_jeu("VAI 9 BOULES", "🌊", "generate_vai")
+_enregistrer_jeu("BNO 8 BOULES", "🎯", "generate_bno")
+_enregistrer_jeu("NGO 8 BOULES", "🎳", "generate_ngo")
+_enregistrer_jeu("WOW 4", "🎆", "generate_wow4")
+_enregistrer_jeu("RUBIS 90", "💎", "generate_rubis90")
 # --- Ajouter les futurs jeux ici, une ligne chacun : ---
 # _enregistrer_jeu("OHANA 90", "🌺", "generate_ohana_90")
 # _enregistrer_jeu("QUINES 90", "🎲", "generate_quines_90")
@@ -9032,6 +9040,22 @@ def _variante_cle(jeu):
         return "KAIB"
     if "POL" in ju:
         return "POLB"
+    if "SUN" in ju:
+        return "SUNB"
+    if "POW" in ju:
+        return "POWB"
+    if "WIN" in ju:
+        return "WINB"
+    if "VAI" in ju:
+        return "VAIB"
+    if "BNO" in ju:
+        return "BNOB"
+    if "NGO" in ju:
+        return "NGOB"
+    if "WOW" in ju:
+        return "WOWB"
+    if "RUBIS" in ju:
+        return "RUBIS90"
     return ju.split()[0] if ju.strip() else ""
 
 # Jeux "une boule" (1 numéro = 1 case), reproductibles depuis la réparation (graine).
@@ -9210,6 +9234,113 @@ def _regen_pol(serie_start, serial_cible, maxiter=8000):
         produits += 1
     return None
 
+def _regen_grille_pleine(seed_base, r0, r1, r2, serie_start, serial_cible, maxiter=9000):
+    # POW/WIN/VAI : 3×3 pleine, 3 numéros par colonne. 9 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(seed_base+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(r0[0],r0[1]+1),3))
+        c1=sorted(rng.sample(range(r1[0],r1[1]+1),3))
+        c2=sorted(rng.sample(range(r2[0],r2[1]+1),3))
+        g=[[c0[0],c1[0],c2[0]],[c0[1],c1[1],c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible: return c0+c1+c2
+        produits+=1
+    return None
+
+def _regen_pow(ss, sc): return _regen_grille_pleine(901000,(1,9),(10,18),(19,27),ss,sc)
+def _regen_win(ss, sc): return _regen_grille_pleine(911000,(1,15),(16,30),(31,45),ss,sc)
+def _regen_vai(ss, sc): return _regen_grille_pleine(921000,(61,70),(71,80),(81,90),ss,sc)
+
+def _regen_sun(serie_start, serial_cible, maxiter=9000):
+    # SUN 8 : 3×3, colonne milieu 1 case vide aléatoire. 8 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(501000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(1,9),3))
+        c2=sorted(rng.sample(range(17,25),3))
+        c1n=sorted(rng.sample(range(9,17),2))
+        vide=rng.randint(0,2)
+        c1=[]; iu=iter(c1n)
+        for r in range(3): c1.append(None if r==vide else next(iu))
+        g=[[c0[0],c1[0],c2[0]],[c0[1],c1[1],c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
+def _regen_centre_vide(seed_base, r0, r1, r2, serie_start, serial_cible, maxiter=9000):
+    # BNO/NGO : 3×3, centre vide, col milieu 2 numéros. 8 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(seed_base+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(r0[0],r0[1]+1),3))
+        c2=sorted(rng.sample(range(r2[0],r2[1]+1),3))
+        c1n=sorted(rng.sample(range(r1[0],r1[1]+1),2))
+        c1=[c1n[0],None,c1n[1]]
+        g=[[c0[0],c1[0],c2[0]],[c0[1],None,c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
+def _regen_bno(ss, sc): return _regen_centre_vide(801000,(1,15),(31,45),(61,75),ss,sc)
+def _regen_ngo(ss, sc): return _regen_centre_vide(701000,(31,45),(46,60),(61,75),ss,sc)
+
+def _regen_wow4(serie_start, serial_cible, maxiter=9000):
+    # WOW 4 : 2×2, W(30-44) O(45-60). 4 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(401000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        w=sorted(rng.sample(range(30,45),2))
+        o=sorted(rng.sample(range(45,61),2))
+        g=[[w[0],o[0]],[w[1],o[1]]]
+        sig=tuple(tuple(row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible: return sorted(w+o)
+        produits+=1
+    return None
+
+def _regen_rubis90(serie_start, serial_cible, maxiter=9000):
+    # RUBIS 90 : 5 colonnes R-U-B-I-S, centre vide. 14 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    RANGES=[(1,18),(19,36),(37,54),(55,72),(73,90)]
+    rng=_rnd_verif.Random(90000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        cols=[]
+        for ci,(lo,hi) in enumerate(RANGES):
+            if ci==2:
+                n=sorted(rng.sample(range(lo,hi+1),2)); cols.append([n[0],None,n[1]])
+            else:
+                n=sorted(rng.sample(range(lo,hi+1),3)); cols.append([n[0],n[1],n[2]])
+        g=[[cols[c][r] for c in range(5)] for r in range(3)]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
 def _regen_flashq(serie_start, serial_cible, maxiter=8000):
     serie_start = int(serie_start); serial_cible = int(serial_cible)
     if serial_cible < serie_start:
@@ -9279,6 +9410,22 @@ def _verifier_serial(jeu, serial, tirage):
         nums = _regen_kai(ss, serial); nom = "KAI"
     elif cle == "POLB":
         nums = _regen_pol(ss, serial); nom = "POL 6 BOULES"
+    elif cle == "SUNB":
+        nums = _regen_sun(ss, serial); nom = "SUN 8 BOULES"
+    elif cle == "POWB":
+        nums = _regen_pow(ss, serial); nom = "POW 9 BOULES"
+    elif cle == "WINB":
+        nums = _regen_win(ss, serial); nom = "WIN 9 BOULES"
+    elif cle == "VAIB":
+        nums = _regen_vai(ss, serial); nom = "VAI 9 BOULES"
+    elif cle == "BNOB":
+        nums = _regen_bno(ss, serial); nom = "BNO 8 BOULES"
+    elif cle == "NGOB":
+        nums = _regen_ngo(ss, serial); nom = "NGO 8 BOULES"
+    elif cle == "WOWB":
+        nums = _regen_wow4(ss, serial); nom = "WOW 4"
+    elif cle == "RUBIS90":
+        nums = _regen_rubis90(ss, serial); nom = "RUBIS 90"
     elif cle == "FLASHQ":
         nums = _regen_flashq(ss, serial); nom = "FLASH QUINES ALLONGER"
     else:
