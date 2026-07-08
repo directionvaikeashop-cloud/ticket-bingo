@@ -97,6 +97,7 @@ _enregistrer_jeu("BINGO BALL", "🔵", "generate_bingo_ball")
 _enregistrer_jeu("BROWN 8 BOULES", "🤎", "generate_brown8")
 _enregistrer_jeu("KAI", "🍽️", "generate_kai")
 _enregistrer_jeu("FLASH QUINES ALLONGER", "⚡", "generate_flash_quines")
+_enregistrer_jeu("POL 6 BOULES", "🎲", "generate_pol")
 # --- Ajouter les futurs jeux ici, une ligne chacun : ---
 # _enregistrer_jeu("OHANA 90", "🌺", "generate_ohana_90")
 # _enregistrer_jeu("QUINES 90", "🎲", "generate_quines_90")
@@ -9029,6 +9030,8 @@ def _variante_cle(jeu):
         return "FLASHQ"
     if "KAI" in ju:
         return "KAIB"
+    if "POL" in ju:
+        return "POLB"
     return ju.split()[0] if ju.strip() else ""
 
 # Jeux "une boule" (1 numéro = 1 case), reproductibles depuis la réparation (graine).
@@ -9184,6 +9187,29 @@ def _regen_kai(serie_start, serial_cible, maxiter=8000):
         produits += 1
     return None
 
+def _regen_pol(serie_start, serial_cible, maxiter=8000):
+    # POL 6 boules : 3×3, colonnes 30-40 / 41-50 / 51-60, 2 barrées + série au centre.
+    # Doit coller EXACTEMENT à generate_pol.py (graine 601000, même ordre de tirage).
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(601000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        c0 = sorted(rng.sample(range(30, 41), 2))
+        c1 = sorted(rng.sample(range(41, 51), 2))
+        c2 = sorted(rng.sample(range(51, 61), 2))
+        grille = [[None, c1[0], c2[0]], [c0[0], "SER", c2[1]], [c0[1], c1[1], None]]
+        sig = tuple(tuple(("X" if v is None else v) for v in row) for row in grille)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return c0 + c1 + c2   # 6 numéros
+        produits += 1
+    return None
+
 def _regen_flashq(serie_start, serial_cible, maxiter=8000):
     serie_start = int(serie_start); serial_cible = int(serial_cible)
     if serial_cible < serie_start:
@@ -9251,6 +9277,8 @@ def _verifier_serial(jeu, serial, tirage):
         nums = _regen_brown8(ss, serial); nom = "BROWN 8 BOULES"
     elif cle == "KAIB":
         nums = _regen_kai(ss, serial); nom = "KAI"
+    elif cle == "POLB":
+        nums = _regen_pol(ss, serial); nom = "POL 6 BOULES"
     elif cle == "FLASHQ":
         nums = _regen_flashq(ss, serial); nom = "FLASH QUINES ALLONGER"
     else:
