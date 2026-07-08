@@ -356,16 +356,21 @@ _MEM_DB = {"sig": None, "obj": None}
 _MEM_VERROU = threading.Lock()
 
 def load_data():
-    # 🧠 Si le fichier n'a pas changé -> servir l'objet déjà en mémoire (instantané)
+    # 🧠 MÉMOIRE SOUVERAINE : une fois chargée (au démarrage), la mémoire est LA
+    # référence UNIQUE. On ne re-analyse plus JAMAIS le disque en cours de route
+    # (l'appli est la seule à écrire son propre fichier). Avant, une re-analyse
+    # pouvait créer DEUX copies concurrentes qui se volaient des écritures
+    # (soldes qui « sautent », débits de tickets perdus). C'est structurellement
+    # impossible désormais. Le disque n'est relu qu'au démarrage, ou après une
+    # RESTAURATION explicite (qui vide la mémoire pour forcer la relecture).
+    with _MEM_VERROU:
+        if _MEM_DB["obj"] is not None:
+            return _MEM_DB["obj"]
     try:
         _st = os.stat(DATA_FILE)
         _sig = (_st.st_mtime_ns, _st.st_size)
     except Exception:
         _sig = None
-    if _sig is not None:
-        with _MEM_VERROU:
-            if _MEM_DB["obj"] is not None and _MEM_DB["sig"] == _sig:
-                return _MEM_DB["obj"]
     # Essayer le fichier principal, puis la copie de secours (.bak)
     for chemin in [DATA_FILE, DATA_FILE + ".bak"]:
         try:
@@ -11389,6 +11394,10 @@ def api_sauvegardes_restaurer():
                 except Exception:
                     pass
             os.replace(tmp, DATA_FILE)
+        # 🧠 Vider la mémoire souveraine -> load_data relira le fichier RESTAURÉ
+        with _MEM_VERROU:
+            _MEM_DB["obj"] = None
+            _MEM_DB["sig"] = None
         DB = load_data()
         resume_apres = _resume_donnees(DB)
     except Exception as e:
