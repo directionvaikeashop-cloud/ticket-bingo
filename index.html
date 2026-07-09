@@ -1357,11 +1357,11 @@ async function accesJoueurDirect(){
       // Afficher la barre fixe boules
       afficherBarreBoules();
       if(window._intBarreBoules) clearInterval(window._intBarreBoules);
-      window._intBarreBoules = setInterval(updateBarreBoules, 12000);
+      window._intBarreBoules = setInterval(updateBarreBoules, 8000);
       updateBarreBoules();
       // Vérifier les messages micro toutes les 3 secondes
       if(window._intCheckMicro) clearInterval(window._intCheckMicro);
-      window._intCheckMicro = setInterval(checkMicroJoueur, 20000);
+      window._intCheckMicro = setInterval(checkMicroJoueur, 10000);
       checkMicroJoueur();
       // Afficher et rafraîchir les jeux annoncés par l'organisateur
       chargerJeuxDisponibles(code);
@@ -3020,7 +3020,7 @@ async function effacerSignal(code){
   }catch(e){}
 }
 // Rafraîchissement automatique de la surveillance toutes les 8s (si organisateur connecté)
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('surveillance-liste')) chargerSurveillance(); }catch(e){} }, 45000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('surveillance-liste')) chargerSurveillance(); }catch(e){} }, 20000); }catch(e){}
 
 // 📮 BOÎTE À RÉCLAMATION — côté joueuse
 function envoyerReclamation(){
@@ -3094,7 +3094,7 @@ async function traiterReclamation(id){
   }catch(e){}
 }
 // Rafraîchissement auto des réclamations toutes les 30s (si organisateur connecté)
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('reclamations-liste')) chargerReclamations(); }catch(e){} }, 40000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('reclamations-liste')) chargerReclamations(); }catch(e){} }, 18000); }catch(e){}
 
 async function chargerCommentairesMicro(){
   var liste = document.getElementById('commentaires-micro-liste');
@@ -3141,7 +3141,7 @@ async function traiterCommentaireMicro(id){
   }catch(e){}
 }
 // Rafraîchissement auto des commentaires micro toutes les 6s
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('commentaires-micro-liste')) chargerCommentairesMicro(); }catch(e){} }, 40000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('commentaires-micro-liste')) chargerCommentairesMicro(); }catch(e){} }, 18000); }catch(e){}
 
 // 🙋 LÈVE-LA-MAIN : la joueuse signale son état à l'organisateur
 function envoyerSignal(type){
@@ -4417,7 +4417,7 @@ function startAutoRefreshAdmin(){
     checkPionsEnAttente();
     checkPionsJoueursEnAttente();
     loadCommandesPionsAdmin();
-  }, 30000);
+  }, 15000);
 }
 
 // === AUTO REFRESH ORGANISATEUR ===
@@ -4429,7 +4429,7 @@ function startAutoRefreshOrg(){
     loadVentesPaiement();
     chargerPDFsOrganisateur();
     loadMesCommandes();
-  }, 30000); // Rafraîchit toutes les 30 secondes
+  }, 15000); // Rafraîchit toutes les 15 secondes
 }
 
 function stopAutoRefreshOrg(){
