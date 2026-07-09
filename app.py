@@ -12026,46 +12026,51 @@ def activite_signal_effacer():
 # Contrairement aux signaux temps réel, les reclamations sont
 # ENREGISTREES sur le disque (elles doivent survivre jusqu'a la fin).
 # ============================================================
-def _purger_vieilles_reclamations(heures=24):
-    """Efface automatiquement les réclamations de plus de N heures (défaut 24h).
-    Garde la base propre sans thread dédié : le ménage se fait à la lecture/écriture.
-    Ne s'exécute au plus qu'une fois par heure pour rester léger."""
+def _purger_vieux(cle, marqueur_purge, heures=24):
+    """Efface les entrées de plus de N heures dans DB[cle] (liste avec champ 'date').
+    Léger : au plus une purge par heure et par type. Sert pour réclamations ET commentaires."""
     global DB
     try:
         maintenant = datetime.datetime.now()
-        # anti-répétition : au plus une purge par heure
-        derniere = DB.get("_derniere_purge_reclam")
+        derniere = DB.get(marqueur_purge)
         if derniere:
             try:
                 if (maintenant - datetime.datetime.fromisoformat(derniere)).total_seconds() < 3600:
                     return
             except Exception:
                 pass
-        recs = DB.get("reclamations", [])
-        if not recs:
-            DB["_derniere_purge_reclam"] = maintenant.isoformat()
+        items = DB.get(cle, [])
+        if not items:
+            DB[marqueur_purge] = maintenant.isoformat()
             return
         limite = maintenant - datetime.timedelta(hours=heures)
         gardees = []
-        for r in recs:
+        for r in items:
             try:
                 d = datetime.datetime.fromisoformat(r.get("date", ""))
                 if d >= limite:
                     gardees.append(r)
             except Exception:
                 gardees.append(r)  # date illisible -> on garde par prudence
-        efacees = len(recs) - len(gardees)
-        DB["reclamations"] = gardees
-        DB["_derniere_purge_reclam"] = maintenant.isoformat()
+        efacees = len(items) - len(gardees)
+        DB[cle] = gardees
+        DB[marqueur_purge] = maintenant.isoformat()
         if efacees > 0:
-            DB["_purge_dirty"] = True
-            print("[PURGE RECLAM] %d réclamation(s) de +%dh effacée(s)" % (efacees, heures))
+            print("[PURGE %s] %d entrée(s) de +%dh effacée(s)" % (cle, efacees, heures))
             try:
                 save_data()
             except Exception:
                 pass
     except Exception as e:
-        print("[PURGE RECLAM] ignorée:", e)
+        print("[PURGE %s] ignorée:" % cle, e)
+
+
+def _purger_vieilles_reclamations(heures=24):
+    _purger_vieux("reclamations", "_derniere_purge_reclam", heures)
+
+
+def _purger_vieux_commentaires(heures=24):
+    _purger_vieux("commentaires_micro", "_derniere_purge_commentaires", heures)
 
 
 @app.route("/api/reclamation", methods=["POST"])
@@ -12348,6 +12353,7 @@ def creer_commentaire_micro():
     """JOUEUSE — Envoie un commentaire en réponse aux questions micro de l'organisatrice."""
     global DB
     DB = load_data()
+    _purger_vieux_commentaires()
     d = request.get_json(silent=True) or {}
     code = (d.get("code_joueur", "") or "").upper().strip()
     message = (d.get("message", "") or "").strip()[:500]
@@ -12382,6 +12388,7 @@ def liste_commentaires_micro():
     """ORGANISATRICE voit ses commentaires ; ADMIN voit tout."""
     global DB
     DB = load_data()
+    _purger_vieux_commentaires()
     s = verif_session(request.headers.get("X-Token", ""))
     if not s:
         return jsonify([]), 403
