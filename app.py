@@ -97,6 +97,15 @@ _enregistrer_jeu("BINGO BALL", "🔵", "generate_bingo_ball")
 _enregistrer_jeu("BROWN 8 BOULES", "🤎", "generate_brown8")
 _enregistrer_jeu("KAI", "🍽️", "generate_kai")
 _enregistrer_jeu("FLASH QUINES ALLONGER", "⚡", "generate_flash_quines")
+_enregistrer_jeu("POL 6 BOULES", "🎲", "generate_pol")
+_enregistrer_jeu("SUN 8 BOULES", "☀️", "generate_sun")
+_enregistrer_jeu("POW 9 BOULES", "💥", "generate_pow")
+_enregistrer_jeu("WIN 9 BOULES", "🏆", "generate_win")
+_enregistrer_jeu("VAI 9 BOULES", "🌊", "generate_vai")
+_enregistrer_jeu("BNO 8 BOULES", "🎯", "generate_bno")
+_enregistrer_jeu("NGO 8 BOULES", "🎳", "generate_ngo")
+_enregistrer_jeu("WOW 4", "🎆", "generate_wow4")
+_enregistrer_jeu("RUBIS 90", "💎", "generate_rubis90")
 # --- Ajouter les futurs jeux ici, une ligne chacun : ---
 # _enregistrer_jeu("OHANA 90", "🌺", "generate_ohana_90")
 # _enregistrer_jeu("QUINES 90", "🎲", "generate_quines_90")
@@ -461,7 +470,15 @@ def _ecrire_donnees_disque():
             with open(tmp, "w") as f:
                 json.dump(a_ecrire, f, ensure_ascii=False, default=str)
                 f.flush()
-                os.fsync(f.fileno())
+                # ⚡ CORRECTIF LENTEUR : sur volume réseau (Railway), os.fsync() peut
+                # prendre plusieurs SECONDES en tenant le verrou -> tout le serveur
+                # attend derrière (réponses à 20s, erreurs 503). Le os.replace()
+                # ci-dessous est déjà ATOMIQUE (aucune corruption possible) et
+                # PostgreSQL sert de filet durable. On ne force donc plus la synchro
+                # disque physique dans le chemin bloquant, SAUF si FSYNC_BLOQUANT=1
+                # (bouton de secours réactivable sur Railway sans redéployer).
+                if os.environ.get("FSYNC_BLOQUANT", "0") == "1":
+                    os.fsync(f.fileno())
             if os.path.exists(DATA_FILE):
                 try:
                     os.replace(DATA_FILE, DATA_FILE + ".bak")
@@ -549,52 +566,101 @@ def _sauvegarde_differee():
         pass
 
 def save_data(immediat=False):
-    """Sauvegarde intelligente : immédiate si isolée, regroupée si en rafale.
-    L'état final est TOUJOURS écrit (aucune perte de données).
+    """Sauvegarde NON BLOQUANTE : la modification est déjà en mémoire (DB) —
+    donc rien n'est jamais perdu — et l'écriture sur le disque réseau (lent) est
+    confiée à un thread dédié qui n'immobilise JAMAIS les requêtes des joueurs.
 
-    immediat=True  -> écrit TOUT DE SUITE, sans différer (à utiliser pour les
-                      mouvements d'argent : retrait, crédit, achat, validation…
-                      pour qu'aucune sauvegarde différée ne puisse les écraser).
+    Durabilité garantie par 3 filets :
+      1) la mémoire (DB) — vérité immédiate pour toutes les requêtes
+      2) PostgreSQL en arrière-plan (_pg_planifier) — copie durable
+      3) le fichier disque, écrit par le thread dédié + sauvegardes horodatées
 
-    À chaque appel on fige une PHOTO de l'état courant (_DB_A_ECRIRE) ; c'est
-    cette photo qui sera écrite, même par une sauvegarde différée — donc un
-    rafraîchissement de téléphone ne peut plus effacer la correction."""
-    # 📸 On fige l'état courant : c'est la modification que l'appelant vient de faire.
+    immediat=True ne force plus une écriture disque SYNCHRONE (c'était la cause
+    des blocages à 20s sur volume réseau) : il demande juste une écriture disque
+    au plus vite (réveille le writer sans délai). L'ordre des écritures reste
+    sérialisé -> aucun écrasement possible.
+    """
+    # 📸 On fige l'état courant en mémoire : la modif de l'appelant est déjà "sauvée"
+    # du point de vue de toutes les requêtes (qui lisent DB en mémoire).
     _DB_A_ECRIRE[0] = DB
-    if immediat:
-        # Écriture synchrone immédiate, sérialisée (anti-écrasement).
-        with _VERROU_DB:
-            with _VERROU_THROTTLE:
-                _DERNIERE_SAUVEGARDE[0] = _time_save.time()
-            _ecrire_donnees_disque()
+    # 🚀 On réveille le thread d'écriture disque (non bloquant).
+    _demander_ecriture_disque(urgent=immediat)
+
+
+# ── Thread d'écriture disque dédié (un seul writer, jamais bloquant) ──
+_ECRITURE_DEMANDEE = _threading_save.Event()
+_ECRITURE_URGENTE = [False]
+_WRITER_DEMARRE = [False]
+_WRITER_VERROU = _threading_save.Lock()
+
+def _demander_ecriture_disque(urgent=False):
+    """Signale au writer qu'il y a des données à écrire. Retour immédiat."""
+    if urgent:
+        _ECRITURE_URGENTE[0] = True
+    _ECRITURE_DEMANDEE.set()
+    _demarrer_writer_disque()
+
+def _boucle_writer_disque():
+    """Écrit le dernier état sur le disque, en regroupant les rafales.
+    Ne bloque jamais une requête : c'est CE thread, et lui seul, qui touche le disque."""
+    while True:
         try:
-            verifier_soldes_negatifs()
-        except Exception:
-            pass
+            _ECRITURE_DEMANDEE.wait()          # attend qu'une écriture soit demandée
+            urgent = _ECRITURE_URGENTE[0]
+            # Regroupement : on laisse les rafales s'accumuler un court instant,
+            # puis on écrit UNE fois le dernier état (throttle réseau).
+            _time_save.sleep(0.15 if urgent else max(0.3, _THROTTLE_SECONDES))
+            _ECRITURE_DEMANDEE.clear()
+            _ECRITURE_URGENTE[0] = False
+            with _VERROU_DB:
+                _ecrire_donnees_disque()
+            try:
+                verifier_soldes_negatifs()
+            except Exception:
+                pass
+        except Exception as _e:
+            print(f"[WRITER DISQUE ERR] {_e}")
+            _time_save.sleep(1.0)
+
+def _demarrer_writer_disque():
+    if _WRITER_DEMARRE[0]:
         return
-    maintenant = _time_save.time()
-    with _VERROU_THROTTLE:
-        depuis_derniere = maintenant - _DERNIERE_SAUVEGARDE[0]
-        if depuis_derniere >= _THROTTLE_SECONDES:
-            # Assez de temps écoulé -> sauvegarder tout de suite
-            _DERNIERE_SAUVEGARDE[0] = maintenant
-            faire_maintenant = True
-        else:
-            # Trop rapproché -> programmer une sauvegarde groupée (une seule en attente)
-            faire_maintenant = False
-            if _SAUVEGARDE_EN_ATTENTE[0] is None:
-                delai = max(0.1, _THROTTLE_SECONDES - depuis_derniere)
-                t = _threading_save.Timer(delai, _sauvegarde_differee)
-                t.daemon = True
-                _SAUVEGARDE_EN_ATTENTE[0] = t
-                t.start()
-    if faire_maintenant:
+    with _WRITER_VERROU:
+        if _WRITER_DEMARRE[0]:
+            return
+        _WRITER_DEMARRE[0] = True
+        t = _threading_save.Thread(target=_boucle_writer_disque, daemon=True)
+        t.start()
+        print("[WRITER DISQUE] Thread d'écriture disque démarré (non bloquant).")
+
+# 🛟 FILET DE SÉCURITÉ À L'ARRÊT : si Railway redémarre le serveur, on force
+# UNE écriture disque finale synchrone pour ne rien perdre (soldes, gains...).
+# Se déclenche à l'arrêt normal (atexit) ET sur signal d'arrêt Railway (SIGTERM).
+def _sauvegarde_finale_arret(*_a):
+    try:
+        _DB_A_ECRIRE[0] = DB
         with _VERROU_DB:
             _ecrire_donnees_disque()
+        print("[ARRET] Sauvegarde finale effectuée (données préservées).")
+    except Exception as _e:
+        print(f"[ARRET] Erreur sauvegarde finale : {_e}")
+
+try:
+    import atexit as _atexit
+    _atexit.register(_sauvegarde_finale_arret)
+    import signal as _signal
+    def _handler_sigterm(signum, frame):
+        _sauvegarde_finale_arret()
+        # Laisse le comportement par défaut se poursuivre (arrêt).
         try:
-            verifier_soldes_negatifs()
+            _signal.signal(signum, _signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
         except Exception:
             pass
+    _signal.signal(_signal.SIGTERM, _handler_sigterm)
+    print("[ARRET] Filet de sauvegarde à l'arrêt armé (atexit + SIGTERM).")
+except Exception as _e:
+    print(f"[ARRET] Impossible d'armer le filet d'arrêt : {_e}")
 
 _synchroniser_postgres_demarrage()
 DB = load_data()
@@ -4823,7 +4889,14 @@ def get_commandes_joueurs():
 ws_micro_org = {}  # organisateur -> list of ws
 ws_micro_joueurs = {}  # liste des joueurs connectés
 
-if HAS_WEBSOCKET:
+# 🎯 CORRECTIF DÉFINITIF SATURATION : chaque connexion WebSocket micro occupe
+# UN THREAD gunicorn EN PERMANENCE (boucle infinie ws.receive). Avec 25 threads
+# et ~20 joueurs au micro pendant un tournoi -> TOUS les threads sont confisqués
+# -> plus AUCUNE requête ne passe (même /ping) -> blocages "5 minutes" et 499.
+# Le micro continue de fonctionner via son relais HTTP (/api/micro/audio + get),
+# qui ne confisque aucun thread. Pour réactiver les WebSockets malgré tout :
+# variable Railway MICRO_WEBSOCKET=1 (déconseillé).
+if HAS_WEBSOCKET and os.environ.get("MICRO_WEBSOCKET", "0") == "1":
     @sock.route("/ws/micro/org/<code_org>")
     def ws_organisateur(ws, code_org):
         """WebSocket organisateur — envoie l'audio"""
@@ -9029,6 +9102,24 @@ def _variante_cle(jeu):
         return "FLASHQ"
     if "KAI" in ju:
         return "KAIB"
+    if "POL" in ju:
+        return "POLB"
+    if "SUN" in ju:
+        return "SUNB"
+    if "POW" in ju:
+        return "POWB"
+    if "WIN" in ju:
+        return "WINB"
+    if "VAI" in ju:
+        return "VAIB"
+    if "BNO" in ju:
+        return "BNOB"
+    if "NGO" in ju:
+        return "NGOB"
+    if "WOW" in ju:
+        return "WOWB"
+    if "RUBIS" in ju:
+        return "RUBIS90"
     return ju.split()[0] if ju.strip() else ""
 
 # Jeux "une boule" (1 numéro = 1 case), reproductibles depuis la réparation (graine).
@@ -9184,6 +9275,136 @@ def _regen_kai(serie_start, serial_cible, maxiter=8000):
         produits += 1
     return None
 
+def _regen_pol(serie_start, serial_cible, maxiter=8000):
+    # POL 6 boules : 3×3, colonnes 30-40 / 41-50 / 51-60, 2 barrées + série au centre.
+    # Doit coller EXACTEMENT à generate_pol.py (graine 601000, même ordre de tirage).
+    serie_start = int(serie_start); serial_cible = int(serial_cible)
+    if serial_cible < serie_start:
+        return None
+    rng = _rnd_verif.Random(601000 + serie_start)
+    vus = set(); produits = 0; it = 0
+    while it < maxiter:
+        it += 1
+        c0 = sorted(rng.sample(range(30, 41), 2))
+        c1 = sorted(rng.sample(range(41, 51), 2))
+        c2 = sorted(rng.sample(range(51, 61), 2))
+        grille = [[None, c1[0], c2[0]], [c0[0], "SER", c2[1]], [c0[1], c1[1], None]]
+        sig = tuple(tuple(("X" if v is None else v) for v in row) for row in grille)
+        if sig in vus:
+            continue
+        vus.add(sig)
+        if serie_start + produits == serial_cible:
+            return c0 + c1 + c2   # 6 numéros
+        produits += 1
+    return None
+
+def _regen_grille_pleine(seed_base, r0, r1, r2, serie_start, serial_cible, maxiter=9000):
+    # POW/WIN/VAI : 3×3 pleine, 3 numéros par colonne. 9 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(seed_base+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(r0[0],r0[1]+1),3))
+        c1=sorted(rng.sample(range(r1[0],r1[1]+1),3))
+        c2=sorted(rng.sample(range(r2[0],r2[1]+1),3))
+        g=[[c0[0],c1[0],c2[0]],[c0[1],c1[1],c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible: return c0+c1+c2
+        produits+=1
+    return None
+
+def _regen_pow(ss, sc): return _regen_grille_pleine(901000,(1,9),(10,18),(19,27),ss,sc)
+def _regen_win(ss, sc): return _regen_grille_pleine(911000,(1,15),(16,30),(31,45),ss,sc)
+def _regen_vai(ss, sc): return _regen_grille_pleine(921000,(61,70),(71,80),(81,90),ss,sc)
+
+def _regen_sun(serie_start, serial_cible, maxiter=9000):
+    # SUN 8 : 3×3, colonne milieu 1 case vide aléatoire. 8 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(501000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(1,9),3))
+        c2=sorted(rng.sample(range(17,25),3))
+        c1n=sorted(rng.sample(range(9,17),2))
+        vide=rng.randint(0,2)
+        c1=[]; iu=iter(c1n)
+        for r in range(3): c1.append(None if r==vide else next(iu))
+        g=[[c0[0],c1[0],c2[0]],[c0[1],c1[1],c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
+def _regen_centre_vide(seed_base, r0, r1, r2, serie_start, serial_cible, maxiter=9000):
+    # BNO/NGO : 3×3, centre vide, col milieu 2 numéros. 8 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(seed_base+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        c0=sorted(rng.sample(range(r0[0],r0[1]+1),3))
+        c2=sorted(rng.sample(range(r2[0],r2[1]+1),3))
+        c1n=sorted(rng.sample(range(r1[0],r1[1]+1),2))
+        c1=[c1n[0],None,c1n[1]]
+        g=[[c0[0],c1[0],c2[0]],[c0[1],None,c2[1]],[c0[2],c1[2],c2[2]]]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
+def _regen_bno(ss, sc): return _regen_centre_vide(801000,(1,15),(31,45),(61,75),ss,sc)
+def _regen_ngo(ss, sc): return _regen_centre_vide(701000,(31,45),(46,60),(61,75),ss,sc)
+
+def _regen_wow4(serie_start, serial_cible, maxiter=9000):
+    # WOW 4 : 2×2, W(30-44) O(45-60). 4 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    rng=_rnd_verif.Random(401000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        w=sorted(rng.sample(range(30,45),2))
+        o=sorted(rng.sample(range(45,61),2))
+        g=[[w[0],o[0]],[w[1],o[1]]]
+        sig=tuple(tuple(row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible: return sorted(w+o)
+        produits+=1
+    return None
+
+def _regen_rubis90(serie_start, serial_cible, maxiter=9000):
+    # RUBIS 90 : 5 colonnes R-U-B-I-S, centre vide. 14 numéros.
+    serie_start=int(serie_start); serial_cible=int(serial_cible)
+    if serial_cible < serie_start: return None
+    RANGES=[(1,18),(19,36),(37,54),(55,72),(73,90)]
+    rng=_rnd_verif.Random(90000+serie_start); vus=set(); produits=0; it=0
+    while it<maxiter:
+        it+=1
+        cols=[]
+        for ci,(lo,hi) in enumerate(RANGES):
+            if ci==2:
+                n=sorted(rng.sample(range(lo,hi+1),2)); cols.append([n[0],None,n[1]])
+            else:
+                n=sorted(rng.sample(range(lo,hi+1),3)); cols.append([n[0],n[1],n[2]])
+        g=[[cols[c][r] for c in range(5)] for r in range(3)]
+        sig=tuple(tuple(('X' if v is None else v) for v in row) for row in g)
+        if sig in vus: continue
+        vus.add(sig)
+        if serie_start+produits==serial_cible:
+            return sorted([v for row in g for v in row if v is not None])
+        produits+=1
+    return None
+
 def _regen_flashq(serie_start, serial_cible, maxiter=8000):
     serie_start = int(serie_start); serial_cible = int(serial_cible)
     if serial_cible < serie_start:
@@ -9251,6 +9472,24 @@ def _verifier_serial(jeu, serial, tirage):
         nums = _regen_brown8(ss, serial); nom = "BROWN 8 BOULES"
     elif cle == "KAIB":
         nums = _regen_kai(ss, serial); nom = "KAI"
+    elif cle == "POLB":
+        nums = _regen_pol(ss, serial); nom = "POL 6 BOULES"
+    elif cle == "SUNB":
+        nums = _regen_sun(ss, serial); nom = "SUN 8 BOULES"
+    elif cle == "POWB":
+        nums = _regen_pow(ss, serial); nom = "POW 9 BOULES"
+    elif cle == "WINB":
+        nums = _regen_win(ss, serial); nom = "WIN 9 BOULES"
+    elif cle == "VAIB":
+        nums = _regen_vai(ss, serial); nom = "VAI 9 BOULES"
+    elif cle == "BNOB":
+        nums = _regen_bno(ss, serial); nom = "BNO 8 BOULES"
+    elif cle == "NGOB":
+        nums = _regen_ngo(ss, serial); nom = "NGO 8 BOULES"
+    elif cle == "WOWB":
+        nums = _regen_wow4(ss, serial); nom = "WOW 4"
+    elif cle == "RUBIS90":
+        nums = _regen_rubis90(ss, serial); nom = "RUBIS 90"
     elif cle == "FLASHQ":
         nums = _regen_flashq(ss, serial); nom = "FLASH QUINES ALLONGER"
     else:
@@ -11787,11 +12026,54 @@ def activite_signal_effacer():
 # Contrairement aux signaux temps réel, les reclamations sont
 # ENREGISTREES sur le disque (elles doivent survivre jusqu'a la fin).
 # ============================================================
+def _purger_vieilles_reclamations(heures=24):
+    """Efface automatiquement les réclamations de plus de N heures (défaut 24h).
+    Garde la base propre sans thread dédié : le ménage se fait à la lecture/écriture.
+    Ne s'exécute au plus qu'une fois par heure pour rester léger."""
+    global DB
+    try:
+        maintenant = datetime.datetime.now()
+        # anti-répétition : au plus une purge par heure
+        derniere = DB.get("_derniere_purge_reclam")
+        if derniere:
+            try:
+                if (maintenant - datetime.datetime.fromisoformat(derniere)).total_seconds() < 3600:
+                    return
+            except Exception:
+                pass
+        recs = DB.get("reclamations", [])
+        if not recs:
+            DB["_derniere_purge_reclam"] = maintenant.isoformat()
+            return
+        limite = maintenant - datetime.timedelta(hours=heures)
+        gardees = []
+        for r in recs:
+            try:
+                d = datetime.datetime.fromisoformat(r.get("date", ""))
+                if d >= limite:
+                    gardees.append(r)
+            except Exception:
+                gardees.append(r)  # date illisible -> on garde par prudence
+        efacees = len(recs) - len(gardees)
+        DB["reclamations"] = gardees
+        DB["_derniere_purge_reclam"] = maintenant.isoformat()
+        if efacees > 0:
+            DB["_purge_dirty"] = True
+            print("[PURGE RECLAM] %d réclamation(s) de +%dh effacée(s)" % (efacees, heures))
+            try:
+                save_data()
+            except Exception:
+                pass
+    except Exception as e:
+        print("[PURGE RECLAM] ignorée:", e)
+
+
 @app.route("/api/reclamation", methods=["POST"])
 def creer_reclamation():
     """JOUEUSE — Dépose une réclamation (gardée jusqu'à traitement)."""
     global DB
     DB = load_data()
+    _purger_vieilles_reclamations()
     d = request.get_json(silent=True) or {}
     code = (d.get("code_joueur", "") or "").upper().strip()
     message = (d.get("message", "") or "").strip()
@@ -11827,6 +12109,7 @@ def liste_reclamations():
     """ORGANISATEUR — Liste de ses réclamations (ouvertes en premier)."""
     global DB
     DB = load_data()
+    _purger_vieilles_reclamations()
     token = request.headers.get("X-Token", "")
     s = verif_session(token)
     if not s:
@@ -14627,177 +14910,6 @@ def solde_legitime():
     </div></body></html>''', mimetype="text/html; charset=utf-8")
 
 
-def _releve_officiel(code, DB):
-    """Solde OFFICIEL d'une joueuse : calcul copié MOT POUR MOT depuis la page
-    relevé (/releve-financier-joueur). Mêmes sources, mêmes filtres (validee,
-    gains non annulés, transferts, corrections, ajustements). Par construction,
-    ce que rend cette fonction = ce que la joueuse lit sur son relevé."""
-    code = (code or "").upper().strip()
-    lignes = []  # {date, type, desc, entree, sortie}
-
-    # === ENTREE : achats de pions — VALEUR EN PIONS (pas l'argent payé, frais exclus) ===
-    for c in DB.get("commandes_pions_joueurs", []):
-        if isinstance(c, dict) and c.get("code_joueur") == code and c.get("statut") == "validee":
-            # Achat carte (Stripe) : champ "pions_credites" ; achat manuel : champ "nb_pions"
-            nb = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0)
-            val = int(c.get("valeur_pion", 0) or 0)
-            valeur_pions = nb * val
-            if valeur_pions <= 0:
-                valeur_pions = int(c.get("montant_net", 0) or 0)  # filet de sécurité (Stripe)
-            lignes.append({
-                "date": c.get("date", "?"),
-                "type": "Achat pions",
-                "desc": str(nb) + " pions x " + str(val) + " XPF (" + str(c.get("mode_paiement", "?")) + ")"
-                        + ((" · payé " + format(int(c.get("montant_paye", 0) or 0), ",") + " XPF") if c.get("montant_paye") else "")
-                        + ((" · frais " + format(int(c.get("frais_service", 0) or 0), ",") + " XPF") if c.get("frais_service") else "")
-                        + ((" · réf. " + str(c.get("ref_paiement"))) if c.get("ref_paiement") else ""),
-                "entree": valeur_pions,
-                "sortie": 0
-            })
-
-    # === ENTREE : pions reçus de l'organisateur ===
-    for t in DB.get("transactions_joueur_org", []):
-        if isinstance(t, dict) and t.get("code_joueur") == code:
-            lignes.append({
-                "date": t.get("date", "?"),
-                "type": "Pions reçus (org)",
-                "desc": str(t.get("nb_pions", "?")) + " x " + str(t.get("valeur_pion", "?")) + " XPF (" + str(t.get("mode_paiement", "?")) + ")",
-                "entree": int(t.get("montant_total", 0) or 0),
-                "sortie": 0
-            })
-
-    # === ENTREE : gains à la cagnotte (pions gagnés au tournoi) ===
-    for g in DB.get("gains_finaux", []):
-        if isinstance(g, dict) and g.get("code_gagnant") == code and not g.get("annule"):
-            gain = int(g.get("montant_credite", 0) or 0)
-            if gain > 0:
-                lignes.append({
-                    "date": g.get("date", "?"),
-                    "type": "Gain cagnotte",
-                    "desc": "Pions gagnés au tournoi",
-                    "entree": gain,
-                    "sortie": 0
-                })
-
-    # === SORTIE : tickets achetés en pions ===
-    for c in DB.get("commandes_tickets_pions", []):
-        if isinstance(c, dict) and c.get("code_joueur") == code:
-            lignes.append({
-                "date": c.get("date", "?"),
-                "type": "Achat tickets",
-                "desc": str(c.get("jeu", "?")) + " (" + str(c.get("nb_tickets", "?")) + " tickets)",
-                "entree": 0,
-                "sortie": int(c.get("total_pions", 0) or 0)
-            })
-
-    # === SORTIE : retraits validés (pions convertis en argent) ===
-    for r in DB.get("demandes_retrait", []):
-        if isinstance(r, dict) and r.get("code_joueur") == code and r.get("statut") == "validee":
-            lignes.append({
-                "date": r.get("date", "?"),
-                "type": "Retrait argent",
-                "desc": "Pions convertis en argent (" + str(r.get("mode", "?")) + ")",
-                "entree": 0,
-                "sortie": int(r.get("montant_demande", 0) or 0)
-            })
-
-    # === SORTIE : corrections admin (pions retirés) ===
-    for c in DB.get("corrections_pions", []):
-        if isinstance(c, dict) and c.get("code_joueur") == code:
-            retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
-            if retire > 0:
-                lignes.append({
-                    "date": c.get("date", "?"),
-                    "type": "Correction admin",
-                    "desc": "Pions retirés (correction)",
-                    "entree": 0,
-                    "sortie": retire
-                })
-
-    # === ENTREE/SORTIE : crédits directs de l'admin (recrédit après incident) ===
-    for c in DB.get("credits_admin", []):
-        if isinstance(c, dict) and c.get("code_joueur") == code:
-            montant = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
-            _motif = (c.get("motif") or c.get("jeu") or "").strip()
-            if montant > 0:
-                lignes.append({"date": c.get("date", "?"), "type": ("Remboursement" if _motif else "Crédit admin"),
-                               "desc": (_motif if _motif else "Pions crédités par l'admin"), "entree": montant, "sortie": 0})
-            elif montant < 0:
-                lignes.append({"date": c.get("date", "?"), "type": "Débit admin",
-                               "desc": "Pions retirés par l'admin", "entree": 0, "sortie": -montant})
-
-    # === ENTREE : crédits en masse de l'admin (dédommagements / transferts) ===
-    for c in DB.get("credits_masse", []):
-        if isinstance(c, dict) and c.get("profil", "joueur") == "joueur" and code in (c.get("codes") or []):
-            montant = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
-            if montant > 0:
-                lignes.append({"date": c.get("date", "?"), "type": "Crédit admin (groupe)",
-                               "desc": "Dédommagement / transfert admin", "entree": montant, "sortie": 0})
-
-    # === ENTREE : remboursements (jeu annulé par l'organisateur) ===
-    for rb in DB.get("remboursements_tournoi", []):
-        if isinstance(rb, dict):
-            for det in (rb.get("detail") or []):
-                if isinstance(det, dict) and det.get("code_joueur") == code:
-                    montant = int(det.get("montant", 0) or 0)
-                    if montant > 0:
-                        lignes.append({"date": rb.get("date", "?"), "type": "Remboursement",
-                                       "desc": "Jeu annulé : " + str(rb.get("jeu", "?")),
-                                       "entree": montant, "sortie": 0})
-
-    # === ENTREE : cadeau d'inscription (campagne "semaine" : 500 F de bonus offerts à l'inscription) ===
-    for x in DB.get("rejoindre_log", []):
-        if (x.get("code", "") or "").upper() == code and (x.get("campagne", "") or "") == "semaine":
-            lignes.append({"date": x.get("date", "?"), "type": "Cadeau inscription",
-                           "desc": "Bonus 500 F offert à l'inscription", "entree": 500, "sortie": 0})
-            break
-
-    # === TRANSFERTS DE PIONS (envoyés / reçus) — notés comme sur un relevé bancaire ===
-    # Chaque transfert vers ou depuis un autre code apparaît, avec la date, le code
-    # concerné et l'origine (IP). La transparence montre que tout est tracé.
-    for t in DB.get("transferts_pions", []):
-        if not isinstance(t, dict):
-            continue
-        de = (t.get("de", "") or "").upper()
-        vers = (t.get("vers", "") or "").upper()
-        montant = int(t.get("montant", 0) or 0)
-        origine = ""
-        if t.get("ip"):
-            origine = " · IP " + str(t.get("ip"))
-        elif t.get("admin"):
-            origine = " · opération administrateur"
-        if de == code:
-            lignes.append({"date": t.get("date", "?"), "type": "Transfert émis",
-                           "desc": "Pions transférés vers le compte " + vers + origine,
-                           "entree": 0, "sortie": montant})
-        elif vers == code:
-            lignes.append({"date": t.get("date", "?"), "type": "Transfert reçu",
-                           "desc": "Pions reçus du compte " + de + origine,
-                           "entree": montant, "sortie": 0})
-
-    # Solde de pions actuel = pions RÉELS + pions BONUS (tous deux jouables)
-    pj = DB.get("pions_joueurs", {}).get(code, {})
-    pb = DB.get("pions_bonus_joueurs", {}).get(code, {})
-    solde_pions = 0
-    for v, nb in pj.items():
-        try:
-            solde_pions += int(v) * int(nb)
-        except (ValueError, TypeError):
-            pass
-    solde_bonus = 0
-    for v, nb in pb.items():
-        try:
-            solde_bonus += int(v) * int(nb)
-        except (ValueError, TypeError):
-            pass
-    solde_pions = solde_pions + solde_bonus
-    _te = sum(l["entree"] for l in lignes if not l.get("ajustement"))
-    _ts = sum(l["sortie"] for l in lignes if not l.get("ajustement"))
-    _an = (sum(l["entree"] for l in lignes if l.get("ajustement"))
-           - sum(l["sortie"] for l in lignes if l.get("ajustement")))
-    return max(0, _te - _ts + _an)
-
-
 @app.route("/aligner-soldes")
 def aligner_soldes():
     """ADMIN — Aligne le COMPTEUR interne de chaque joueur sur son vrai solde
@@ -14835,26 +14947,19 @@ def aligner_soldes():
         if isinstance(c, dict) and c.get("code_joueur") and c.get("statut") == "validee":
             cj = (c.get("code_joueur") or "").upper()
             nbp = int(c.get("nb_pions", c.get("pions_credites", 0)) or 0); vp = int(c.get("valeur_pion", 0) or 0)
-            ent[cj] = ent.get(cj, 0) + ((nbp * vp) or int(c.get("montant_net", 0) or 0)
-                or int(c.get("montant_total", 0) or 0) or int(c.get("montant", 0) or 0))
+            ent[cj] = ent.get(cj, 0) + ((nbp * vp) or int(c.get("montant_net", 0) or 0))
     for t in DB.get("transactions_joueur_org", []):
         if isinstance(t, dict) and t.get("code_joueur"):
             cj = (t.get("code_joueur") or "").upper()
-            m = int(t.get("montant_total", 0) or 0) or int(t.get("montant", 0) or 0) \
-                or (int(t.get("nb_pions", 0) or 0) * int(t.get("valeur_pion", 0) or 0))
-            ent[cj] = ent.get(cj, 0) + m
+            ent[cj] = ent.get(cj, 0) + int(t.get("montant", t.get("nb_pions", 0)) or 0)
     for g in DB.get("gains_finaux", []):
-        if isinstance(g, dict) and (g.get("code_gagnant") or g.get("code") or g.get("code_joueur")):
-            cj = (g.get("code_gagnant") or g.get("code") or g.get("code_joueur") or "").upper()
-            m = int(g.get("montant_gain", 0) or 0) or int(g.get("montant_credite", 0) or 0) \
-                or int(g.get("montant_total", 0) or 0) or int(g.get("montant", 0) or 0)
-            ent[cj] = ent.get(cj, 0) + m
+        if isinstance(g, dict) and g.get("code"):
+            cj = (g.get("code") or "").upper()
+            ent[cj] = ent.get(cj, 0) + int(g.get("montant_gain", g.get("montant_credite", 0)) or 0)
     for c in DB.get("credits_admin", []):
         if isinstance(c, dict) and c.get("code_joueur"):
             cj = (c.get("code_joueur") or "").upper()
-            m = (int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)) \
-                or int(c.get("montant_total", 0) or 0) or int(c.get("montant", 0) or 0)
-            ent[cj] = ent.get(cj, 0) + m
+            ent[cj] = ent.get(cj, 0) + int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
     for c in DB.get("credits_masse", []):
         if isinstance(c, dict):
             m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
@@ -14866,16 +14971,15 @@ def aligner_soldes():
     for c in DB.get("commandes_tickets_pions", []):
         if isinstance(c, dict) and c.get("code_joueur"):
             cj = (c.get("code_joueur") or "").upper()
-            sor[cj] = sor.get(cj, 0) + (int(c.get("total_pions", 0) or 0)
-                or int(c.get("montant_total", 0) or 0) or int(c.get("montant", 0) or 0))
+            sor[cj] = sor.get(cj, 0) + int(c.get("total_pions", 0) or 0)
     for r in DB.get("demandes_retrait", []):
         if isinstance(r, dict) and r.get("statut") == "validee" and r.get("code_joueur"):
             cj = (r.get("code_joueur") or "").upper()
-            sor[cj] = sor.get(cj, 0) + (int(r.get("montant_demande", 0) or 0) or int(r.get("montant", 0) or 0))
+            sor[cj] = sor.get(cj, 0) + int(r.get("montant_demande", 0) or 0)
     for c in DB.get("corrections_pions", []):
         if isinstance(c, dict) and c.get("code_joueur"):
             cj = (c.get("code_joueur") or "").upper()
-            sor[cj] = sor.get(cj, 0) + (int(c.get("montant_retire", 0) or 0) or int(c.get("montant", 0) or 0))
+            sor[cj] = sor.get(cj, 0) + int(c.get("montant_retire", 0) or 0)
     for t in DB.get("transferts_pions", []):
         if isinstance(t, dict):
             de = (t.get("de") or "").upper(); vers = (t.get("vers") or "").upper(); m = int(t.get("montant", 0) or 0)
@@ -14890,7 +14994,7 @@ def aligner_soldes():
         c = c.upper()
         if c in staff:
             continue
-        vrai = _releve_officiel(c, DB)  # = EXACTEMENT ce que dit le relevé
+        vrai = max(0, ent.get(c, 0) - sor.get(c, 0))
         stocke = solde_stocke(c)
         if vrai != stocke:
             ecart = vrai - stocke
