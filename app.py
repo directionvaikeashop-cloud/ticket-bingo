@@ -4889,7 +4889,14 @@ def get_commandes_joueurs():
 ws_micro_org = {}  # organisateur -> list of ws
 ws_micro_joueurs = {}  # liste des joueurs connectés
 
-if HAS_WEBSOCKET:
+# 🎯 CORRECTIF DÉFINITIF SATURATION : chaque connexion WebSocket micro occupe
+# UN THREAD gunicorn EN PERMANENCE (boucle infinie ws.receive). Avec 25 threads
+# et ~20 joueurs au micro pendant un tournoi -> TOUS les threads sont confisqués
+# -> plus AUCUNE requête ne passe (même /ping) -> blocages "5 minutes" et 499.
+# Le micro continue de fonctionner via son relais HTTP (/api/micro/audio + get),
+# qui ne confisque aucun thread. Pour réactiver les WebSockets malgré tout :
+# variable Railway MICRO_WEBSOCKET=1 (déconseillé).
+if HAS_WEBSOCKET and os.environ.get("MICRO_WEBSOCKET", "0") == "1":
     @sock.route("/ws/micro/org/<code_org>")
     def ws_organisateur(ws, code_org):
         """WebSocket organisateur — envoie l'audio"""
