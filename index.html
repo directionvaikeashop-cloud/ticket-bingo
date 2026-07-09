@@ -1357,16 +1357,16 @@ async function accesJoueurDirect(){
       // Afficher la barre fixe boules
       afficherBarreBoules();
       if(window._intBarreBoules) clearInterval(window._intBarreBoules);
-      window._intBarreBoules = setInterval(updateBarreBoules, 8000);
+      window._intBarreBoules = setInterval(updateBarreBoules, 12000);
       updateBarreBoules();
       // Vérifier les messages micro toutes les 3 secondes
       if(window._intCheckMicro) clearInterval(window._intCheckMicro);
-      window._intCheckMicro = setInterval(checkMicroJoueur, 10000);
+      window._intCheckMicro = setInterval(checkMicroJoueur, 20000);
       checkMicroJoueur();
       // Afficher et rafraîchir les jeux annoncés par l'organisateur
       chargerJeuxDisponibles(code);
       if(window._intJeuxDispo) clearInterval(window._intJeuxDispo);
-      window._intJeuxDispo = setInterval(function(){ chargerJeuxDisponibles(code); }, 25000);
+      window._intJeuxDispo = setInterval(function(){ chargerJeuxDisponibles(code); }, 45000);
       document.getElementById("joueur-ticket-zone").innerHTML = `
         <div class="card">
           <div class="ct">🎱 ${t.jeu} — Série ${t.serie}</div>
@@ -1552,7 +1552,7 @@ async function supprimerTournoiProgramme(id){
 }
 
 // Rafraichir les comptes a rebours toutes les minutes
-setInterval(function(){ if(typeof loadTournoisProgrammes === 'function') loadTournoisProgrammes(); }, 60000);
+setInterval(function(){ if(typeof loadTournoisProgrammes === 'function') loadTournoisProgrammes(); }, 120000);
 
 async function autoCrediterStripe(){
   try{
@@ -3020,7 +3020,7 @@ async function effacerSignal(code){
   }catch(e){}
 }
 // Rafraîchissement automatique de la surveillance toutes les 8s (si organisateur connecté)
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('surveillance-liste')) chargerSurveillance(); }catch(e){} }, 20000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('surveillance-liste')) chargerSurveillance(); }catch(e){} }, 45000); }catch(e){}
 
 // 📮 BOÎTE À RÉCLAMATION — côté joueuse
 function envoyerReclamation(){
@@ -3094,7 +3094,7 @@ async function traiterReclamation(id){
   }catch(e){}
 }
 // Rafraîchissement auto des réclamations toutes les 30s (si organisateur connecté)
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('reclamations-liste')) chargerReclamations(); }catch(e){} }, 18000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('reclamations-liste')) chargerReclamations(); }catch(e){} }, 40000); }catch(e){}
 
 async function chargerCommentairesMicro(){
   var liste = document.getElementById('commentaires-micro-liste');
@@ -3141,7 +3141,7 @@ async function traiterCommentaireMicro(id){
   }catch(e){}
 }
 // Rafraîchissement auto des commentaires micro toutes les 6s
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('commentaires-micro-liste')) chargerCommentairesMicro(); }catch(e){} }, 18000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('commentaires-micro-liste')) chargerCommentairesMicro(); }catch(e){} }, 40000); }catch(e){}
 
 // 🙋 LÈVE-LA-MAIN : la joueuse signale son état à l'organisateur
 function envoyerSignal(type){
@@ -3175,7 +3175,7 @@ function pingActivite(type){
 }
 function demarrerHeartbeatActivite(){
   try{ if(_heartbeatActivite) clearInterval(_heartbeatActivite); }catch(e){}
-  _heartbeatActivite = setInterval(function(){ pingActivite('ping'); }, 40000);
+  _heartbeatActivite = setInterval(function(){ pingActivite('ping'); }, 60000);
 }
 function arreterHeartbeatActivite(){
   try{ if(_heartbeatActivite){ clearInterval(_heartbeatActivite); _heartbeatActivite = null; } }catch(e){}
@@ -4417,7 +4417,7 @@ function startAutoRefreshAdmin(){
     checkPionsEnAttente();
     checkPionsJoueursEnAttente();
     loadCommandesPionsAdmin();
-  }, 15000);
+  }, 30000);
 }
 
 // === AUTO REFRESH ORGANISATEUR ===
@@ -4429,7 +4429,7 @@ function startAutoRefreshOrg(){
     loadVentesPaiement();
     chargerPDFsOrganisateur();
     loadMesCommandes();
-  }, 15000); // Rafraîchit toutes les 15 secondes
+  }, 30000); // Rafraîchit toutes les 30 secondes
 }
 
 function stopAutoRefreshOrg(){
@@ -4632,7 +4632,7 @@ async function chargerCagnotteAuto(remplir){
   }catch(e){ if(info) info.textContent = '—'; }
 }
 // Rafraîchissement automatique en direct pendant le tournoi (toutes les 10s)
-try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('cagnotte-auto-info')) chargerCagnotteAuto(false); }catch(e){} }, 20000); }catch(e){}
+try{ setInterval(function(){ try{ if(typeof TOKEN !== 'undefined' && TOKEN && document.getElementById('cagnotte-auto-info')) chargerCagnotteAuto(false); }catch(e){} }, 45000); }catch(e){}
 
 function previewGain(){
   var mises = parseFloat(document.getElementById('cagnotte-mises').value || 0);
@@ -5846,7 +5846,7 @@ var _intervalSolde = null;
 function demarrerRafraichissementSolde(code){
   if(_intervalSolde) clearInterval(_intervalSolde);
   if(!code) return;
-  _intervalSolde = setInterval(function(){ chargerSoldesPionsJoueur(code); }, 25000);
+  _intervalSolde = setInterval(function(){ chargerSoldesPionsJoueur(code); }, 45000);
 }
 
 // === SYSTEME DE PIONS ===
