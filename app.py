@@ -566,52 +566,101 @@ def _sauvegarde_differee():
         pass
 
 def save_data(immediat=False):
-    """Sauvegarde intelligente : immédiate si isolée, regroupée si en rafale.
-    L'état final est TOUJOURS écrit (aucune perte de données).
+    """Sauvegarde NON BLOQUANTE : la modification est déjà en mémoire (DB) —
+    donc rien n'est jamais perdu — et l'écriture sur le disque réseau (lent) est
+    confiée à un thread dédié qui n'immobilise JAMAIS les requêtes des joueurs.
 
-    immediat=True  -> écrit TOUT DE SUITE, sans différer (à utiliser pour les
-                      mouvements d'argent : retrait, crédit, achat, validation…
-                      pour qu'aucune sauvegarde différée ne puisse les écraser).
+    Durabilité garantie par 3 filets :
+      1) la mémoire (DB) — vérité immédiate pour toutes les requêtes
+      2) PostgreSQL en arrière-plan (_pg_planifier) — copie durable
+      3) le fichier disque, écrit par le thread dédié + sauvegardes horodatées
 
-    À chaque appel on fige une PHOTO de l'état courant (_DB_A_ECRIRE) ; c'est
-    cette photo qui sera écrite, même par une sauvegarde différée — donc un
-    rafraîchissement de téléphone ne peut plus effacer la correction."""
-    # 📸 On fige l'état courant : c'est la modification que l'appelant vient de faire.
+    immediat=True ne force plus une écriture disque SYNCHRONE (c'était la cause
+    des blocages à 20s sur volume réseau) : il demande juste une écriture disque
+    au plus vite (réveille le writer sans délai). L'ordre des écritures reste
+    sérialisé -> aucun écrasement possible.
+    """
+    # 📸 On fige l'état courant en mémoire : la modif de l'appelant est déjà "sauvée"
+    # du point de vue de toutes les requêtes (qui lisent DB en mémoire).
     _DB_A_ECRIRE[0] = DB
-    if immediat:
-        # Écriture synchrone immédiate, sérialisée (anti-écrasement).
-        with _VERROU_DB:
-            with _VERROU_THROTTLE:
-                _DERNIERE_SAUVEGARDE[0] = _time_save.time()
-            _ecrire_donnees_disque()
+    # 🚀 On réveille le thread d'écriture disque (non bloquant).
+    _demander_ecriture_disque(urgent=immediat)
+
+
+# ── Thread d'écriture disque dédié (un seul writer, jamais bloquant) ──
+_ECRITURE_DEMANDEE = _threading_save.Event()
+_ECRITURE_URGENTE = [False]
+_WRITER_DEMARRE = [False]
+_WRITER_VERROU = _threading_save.Lock()
+
+def _demander_ecriture_disque(urgent=False):
+    """Signale au writer qu'il y a des données à écrire. Retour immédiat."""
+    if urgent:
+        _ECRITURE_URGENTE[0] = True
+    _ECRITURE_DEMANDEE.set()
+    _demarrer_writer_disque()
+
+def _boucle_writer_disque():
+    """Écrit le dernier état sur le disque, en regroupant les rafales.
+    Ne bloque jamais une requête : c'est CE thread, et lui seul, qui touche le disque."""
+    while True:
         try:
-            verifier_soldes_negatifs()
-        except Exception:
-            pass
+            _ECRITURE_DEMANDEE.wait()          # attend qu'une écriture soit demandée
+            urgent = _ECRITURE_URGENTE[0]
+            # Regroupement : on laisse les rafales s'accumuler un court instant,
+            # puis on écrit UNE fois le dernier état (throttle réseau).
+            _time_save.sleep(0.15 if urgent else max(0.3, _THROTTLE_SECONDES))
+            _ECRITURE_DEMANDEE.clear()
+            _ECRITURE_URGENTE[0] = False
+            with _VERROU_DB:
+                _ecrire_donnees_disque()
+            try:
+                verifier_soldes_negatifs()
+            except Exception:
+                pass
+        except Exception as _e:
+            print(f"[WRITER DISQUE ERR] {_e}")
+            _time_save.sleep(1.0)
+
+def _demarrer_writer_disque():
+    if _WRITER_DEMARRE[0]:
         return
-    maintenant = _time_save.time()
-    with _VERROU_THROTTLE:
-        depuis_derniere = maintenant - _DERNIERE_SAUVEGARDE[0]
-        if depuis_derniere >= _THROTTLE_SECONDES:
-            # Assez de temps écoulé -> sauvegarder tout de suite
-            _DERNIERE_SAUVEGARDE[0] = maintenant
-            faire_maintenant = True
-        else:
-            # Trop rapproché -> programmer une sauvegarde groupée (une seule en attente)
-            faire_maintenant = False
-            if _SAUVEGARDE_EN_ATTENTE[0] is None:
-                delai = max(0.1, _THROTTLE_SECONDES - depuis_derniere)
-                t = _threading_save.Timer(delai, _sauvegarde_differee)
-                t.daemon = True
-                _SAUVEGARDE_EN_ATTENTE[0] = t
-                t.start()
-    if faire_maintenant:
+    with _WRITER_VERROU:
+        if _WRITER_DEMARRE[0]:
+            return
+        _WRITER_DEMARRE[0] = True
+        t = _threading_save.Thread(target=_boucle_writer_disque, daemon=True)
+        t.start()
+        print("[WRITER DISQUE] Thread d'écriture disque démarré (non bloquant).")
+
+# 🛟 FILET DE SÉCURITÉ À L'ARRÊT : si Railway redémarre le serveur, on force
+# UNE écriture disque finale synchrone pour ne rien perdre (soldes, gains...).
+# Se déclenche à l'arrêt normal (atexit) ET sur signal d'arrêt Railway (SIGTERM).
+def _sauvegarde_finale_arret(*_a):
+    try:
+        _DB_A_ECRIRE[0] = DB
         with _VERROU_DB:
             _ecrire_donnees_disque()
+        print("[ARRET] Sauvegarde finale effectuée (données préservées).")
+    except Exception as _e:
+        print(f"[ARRET] Erreur sauvegarde finale : {_e}")
+
+try:
+    import atexit as _atexit
+    _atexit.register(_sauvegarde_finale_arret)
+    import signal as _signal
+    def _handler_sigterm(signum, frame):
+        _sauvegarde_finale_arret()
+        # Laisse le comportement par défaut se poursuivre (arrêt).
         try:
-            verifier_soldes_negatifs()
+            _signal.signal(signum, _signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
         except Exception:
             pass
+    _signal.signal(_signal.SIGTERM, _handler_sigterm)
+    print("[ARRET] Filet de sauvegarde à l'arrêt armé (atexit + SIGTERM).")
+except Exception as _e:
+    print(f"[ARRET] Impossible d'armer le filet d'arrêt : {_e}")
 
 _synchroniser_postgres_demarrage()
 DB = load_data()
