@@ -2742,8 +2742,11 @@ def reset_tournoi():
     # 5. Les ventes (PDFs achetés par l'organisateur) RESTENT INTACTES
     # On efface uniquement les tickets joueurs, pas les achats de l'organisateur
     
-    # 6. Effacer les commandes tickets pions de ce tournoi
-    DB["commandes_tickets_pions"] = [c for c in DB.get("commandes_tickets_pions", []) if c.get("code_org") != code_org]
+    # 6. Effacer les commandes tickets pions EN ATTENTE de ce tournoi.
+    # 🔒 CORRECTION 10/07/2026 : les commandes VALIDEES sont CONSERVEES A VIE —
+    # ce sont les retraits (achats de tickets) qui doivent apparaitre sur les
+    # releves des joueurs. Argent reel = traçabilite obligatoire.
+    DB["commandes_tickets_pions"] = [c for c in DB.get("commandes_tickets_pions", []) if c.get("code_org") != code_org or c.get("statut") == "validee"]
     
     # 7. Supprimer l'annonce du jeu en cours
     DB["annonces_jeux"] = [a for a in DB.get("annonces_jeux", []) if a.get("code_org") != code_org]
