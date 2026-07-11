@@ -6923,6 +6923,146 @@ def releve_financier_org(code):
 
 
 
+@app.route("/bilan-fraude")
+def bilan_fraude():
+    """BILAN FRAUDE (11/07/2026) : la page de CLOTURE du dossier fraude.
+    En un coup d'oeil : 1) chaque code bloque avec son etat (poche videe ?
+    transferts annules ?) et l'action restante s'il y en a une ;
+    2) les emetteurs de transferts NON bloques (fraudeurs potentiels non
+    encore traites) ; 3) le total purge. LECTURE SEULE, avec liens vers les
+    outils d'action. Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    # Transferts par emetteur (actifs / annules)
+    emis_actifs = {}
+    emis_annules = {}
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de") or "").upper().strip()
+        m = int(t.get("montant", 0) or 0)
+        if not de or m <= 0:
+            continue
+        if t.get("annule_fraude"):
+            emis_annules[de] = emis_annules.get(de, 0) + m
+        else:
+            emis_actifs[de] = emis_actifs.get(de, 0) + m
+
+    # Pions fraude repris par code (vidages + corrections liees a la fraude)
+    repris_fraude = {}
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict):
+            motif_u = str(c.get("motif", "") or "").lower()
+            if "fraude" in motif_u or "banni" in motif_u or "fabriqu" in motif_u:
+                cj = (c.get("code_joueur") or "").upper().strip()
+                retire = int(c.get("montant_retire", 0) or 0)
+                if retire <= 0:
+                    retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
+                if cj and retire > 0:
+                    repris_fraude[cj] = repris_fraude.get(cj, 0) + retire
+
+    bloques = [(b or "").upper() for b in DB.get("codes_bloques", []) if b]
+
+    # SECTION 1 : etat de chaque code bloque
+    lignes_b = []
+    actions_restantes = 0
+    for b in sorted(set(bloques)):
+        pj = _xpf_total_pions(DB.get("pions_joueurs", {}).get(b, {}))
+        pb = _xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(b, {}))
+        po = _xpf_total_pions(DB.get("pions_org", {}).get(b, {})) if b in DB.get("codes", {}) else 0
+        poche = pj + pb + po
+        actifs = emis_actifs.get(b, 0)
+        etat_ok = (poche == 0 and actifs == 0)
+        if not etat_ok:
+            actions_restantes += 1
+        lignes_b.append({"code": b, "nom": noms.get(b, ""), "poche": poche,
+                         "actifs": actifs, "annules": emis_annules.get(b, 0),
+                         "repris": repris_fraude.get(b, 0), "ok": etat_ok})
+    lignes_b.sort(key=lambda r: (r["ok"], -(r["poche"] + r["actifs"])))
+
+    # SECTION 2 : emetteurs de transferts NON bloques (a examiner)
+    lignes_e = []
+    for de, m in emis_actifs.items():
+        if de in bloques:
+            continue
+        est_org = de in DB.get("codes", {})
+        lignes_e.append({"code": de, "nom": noms.get(de, ""), "montant": m,
+                         "est_org": est_org})
+    lignes_e.sort(key=lambda r: -r["montant"])
+
+    total_repris = sum(repris_fraude.values())
+    total_annules = sum(emis_annules.values())
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Bilan fraude</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#f85149}h2{color:#58a6ff;margin-top:30px}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".totaux{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:16px 0;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;text-align:center}"
+    html += ".m{font-size:18px;font-weight:bold}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128737;&#65039; Bilan fraude — page de cloture</h1>"
+    html += "<div class='totaux'>"
+    html += "<div><strong>Codes bloques</strong><br><span class='m'>" + str(len(set(bloques))) + "</span></div>"
+    html += "<div><strong>Pions fraude repris</strong><br><span class='m ok'>" + format(total_repris, ",") + " XPF</span></div>"
+    html += "<div><strong>Transferts annules</strong><br><span class='m ok'>" + format(total_annules, ",") + " XPF</span></div>"
+    html += "<div><strong>Actions restantes</strong><br><span class='m " + ("ko" if (actions_restantes + len(lignes_e)) else "ok") + "'>" + str(actions_restantes + len(lignes_e)) + "</span></div>"
+    html += "</div>"
+
+    html += "<h2>1&#65039;&#8283; Etat des codes bloques</h2>"
+    html += "<div class='sub'>Un code bloque est NEUTRALISE quand sa poche est a 0 ET tous ses transferts emis sont annules. Sinon, l'action restante est indiquee.</div>"
+    if lignes_b:
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Poche restante</th><th class='dr'>Transferts emis ACTIFS</th><th class='dr'>Transferts annules</th><th class='dr'>Pions repris</th><th>Etat / Action</th></tr>"
+        for r in lignes_b:
+            if r["ok"]:
+                etat = "<span class='ok'>&#9989; NEUTRALISE</span>"
+            else:
+                a = []
+                if r["poche"] > 0:
+                    a.append("vider la poche (<a href='/quarantaine-code?cle=" + _cle + "&code=" + r["code"] + "'>quarantaine</a>)")
+                if r["actifs"] > 0:
+                    a.append("<a href='/annuler-transferts-fraude?cle=" + _cle + "&code=" + r["code"] + "'>annuler ses transferts</a>")
+                etat = "<span class='ko'>&#9888;&#65039; " + " + ".join(a) + "</span>"
+            html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
+            html += "<td>" + r["nom"] + "</td>"
+            html += "<td class='dr'>" + format(r["poche"], ",") + "</td>"
+            html += "<td class='dr'>" + (("<strong class='ko'>" + format(r["actifs"], ",") + "</strong>") if r["actifs"] else "0") + "</td>"
+            html += "<td class='dr'>" + format(r["annules"], ",") + "</td>"
+            html += "<td class='dr'>" + format(r["repris"], ",") + "</td>"
+            html += "<td>" + etat + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='ok'>Aucun code bloque.</p>"
+
+    html += "<h2>2&#65039;&#8283; Emetteurs de transferts NON bloques</h2>"
+    html += "<div class='sub'>Le transfert de pions entre comptes etait LE vecteur de la fraude. Chaque emetteur non bloque merite un examen : soit c'est legitime (a toi de juger), soit on le bloque et on annule.</div>"
+    if lignes_e:
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Total transfere (actif)</th><th>Outils</th></tr>"
+        for r in lignes_e:
+            html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
+            html += "<td>" + r["nom"] + (" (organisatrice)" if r["est_org"] else "") + "</td>"
+            html += "<td class='dr'><strong>" + format(r["montant"], ",") + "</strong></td>"
+            html += "<td style='font-size:12px'><a href='/empreinte?cle=" + _cle + "&code=" + r["code"] + "'>empreinte IP</a> &middot; <a href='/annuler-transferts-fraude?cle=" + _cle + "&code=" + r["code"] + "'>annuler transferts</a> &middot; <a href='/anti-fraude?cle=" + _cle + "&codes=" + r["code"] + "'>bloquer</a></td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='ok'>&#9989; Aucun emetteur actif non bloque : tous les transferts du systeme sont soit legitimes annules, soit emis par des codes deja traites.</p>"
+
+    html += "<p class='sub' style='margin-top:24px'>Quand toutes les lignes sont vertes, le dossier fraude est CLOS. &#128274;</p>"
+    html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Audit des soldes</a></p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/reparer-restitutions")
 def reparer_restitutions():
     """REPARATION (11/07/2026) : les restitutions ont ete executees avec
