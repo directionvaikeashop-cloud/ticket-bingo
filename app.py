@@ -6910,6 +6910,262 @@ def releve_financier_org(code):
 
 
 
+@app.route("/quarantaine-code")
+def quarantaine_code():
+    """QUARANTAINE (10/07/2026) : pour un code suspect (ex: code fantome ayant
+    recu des credits par erreur), fait 3 gestes d'un coup :
+    1. VIDE toutes ses poches (reelle, bonus, organisateur le cas echeant)
+    2. BLOQUE le code (plus de jeu ni de retrait possible)
+    3. TRACE la reprise sur son releve (transparence si reclamation)
+    Si la vraie personne se manifeste, on la recredite sur son bon code.
+    SANS &executer=1 : apercu seulement. ?cle=ADMIN&code=LECODE[&executer=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    code_v = (request.args.get("code", "") or "").strip().upper()
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Quarantaine</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#f0883e}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128683; Mise en quarantaine d'un code</h1>"
+    if not code_v:
+        html += "<div class='enc'>Ajoute <strong>&amp;code=LECODE</strong> a l'adresse pour choisir le code a mettre en quarantaine.</div></body></html>"
+        return html
+
+    pj = DB.get("pions_joueurs", {}).get(code_v, {})
+    pb = DB.get("pions_bonus_joueurs", {}).get(code_v, {})
+    po = DB.get("pions_org", {}).get(code_v, {}) if code_v in DB.get("codes", {}) else {}
+    t_r = _xpf_total_pions(pj)
+    t_b = _xpf_total_pions(pb)
+    t_o = _xpf_total_pions(po)
+    total = t_r + t_b + t_o
+    deja_bloque = code_v in DB.get("codes_bloques", [])
+
+    if executer:
+        repris = 0
+        if t_r > 0:
+            p = dict(pj)
+            if _debiter_pions_montant(p, t_r):
+                DB.setdefault("pions_joueurs", {})[code_v] = p
+                repris += t_r
+        if t_b > 0:
+            p = dict(pb)
+            if _debiter_pions_montant(p, t_b):
+                DB.setdefault("pions_bonus_joueurs", {})[code_v] = p
+                repris += t_b
+        if t_o > 0:
+            p = dict(po)
+            if _debiter_pions_montant(p, t_o):
+                DB.setdefault("pions_org", {})[code_v] = p
+                repris += t_o
+        if not deja_bloque:
+            DB.setdefault("codes_bloques", []).append(code_v)
+        if repris > 0 and repris % 100 == 0:
+            DB.setdefault("credits_admin", []).insert(0, {
+                "code_joueur": code_v,
+                "nb_pions": -(repris // 100),
+                "valeur_pion": 100,
+                "par": "QUARANTAINE",
+                "motif": "Code mis en quarantaine — pions repris en attente de réclamation du titulaire légitime",
+                "date": datetime.datetime.now().isoformat()
+            })
+        DB.setdefault("quarantaines", []).insert(0, {
+            "code": code_v, "repris": repris, "par": _cle,
+            "date": datetime.datetime.now().isoformat()
+        })
+        save_data(immediat=True)
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; QUARANTAINE APPLIQUEE</span><br>"
+        html += "Code <strong>" + code_v + "</strong> : <strong>" + format(repris, ",") + " XPF</strong> repris &middot; code <strong>BLOQUE</strong> (jeu et retrait impossibles).<br>"
+        html += "Si la vraie personne se manifeste : recredite-la sur son bon code, la trace est la pour justifier.</div>"
+        html += "<p class='sub'><a href='/trace-pions?cle=" + _cle + "&code=" + code_v + "'>Voir sa trace</a> &middot; <a href='/audit-soldes?cle=" + _cle + "'>Audit des soldes</a></p>"
+    else:
+        html += "<div class='enc'><strong>APERCU</strong> pour le code <strong>" + code_v + "</strong> &mdash; rien n'a ete modifie.<br><br>"
+        html += "Poche REELLE : <strong>" + format(t_r, ",") + " XPF</strong><br>"
+        html += "Poche BONUS : <strong>" + format(t_b, ",") + " XPF</strong><br>"
+        if code_v in DB.get("codes", {}):
+            html += "Poche ORGANISATEUR : <strong>" + format(t_o, ",") + " XPF</strong><br>"
+        html += "TOTAL a reprendre : <strong class='ko'>" + format(total, ",") + " XPF</strong><br>"
+        html += "Statut actuel : " + ("<span class='ko'>deja bloque</span>" if deja_bloque else "<span class='ok'>actif</span> &rarr; sera BLOQUE") + "</div>"
+        html += "<a class='btn' href='?cle=" + _cle + "&code=" + code_v + "&executer=1' onclick=\"return confirm('Vider et bloquer le code " + code_v + " (" + format(total, ",") + " XPF) ?')\">&#128683; VIDER ET BLOQUER CE CODE</a>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/corriger-doubles-clics")
+def corriger_doubles_clics():
+    """CORRECTION (10/07/2026) : reprend le trop-percu des remboursements en
+    DOUBLE-CLIC — la meme joueuse creditee plusieurs fois du meme montant, le
+    meme jour, avec le MEME motif (signature du double-clic). Le premier credit
+    est conserve (legitime), les suivants sont repris dans sa poche (reel puis
+    bonus). Si elle a deja tout depense, on reprend ce qui reste et le solde
+    irrecuperable est signale. Une trace 'Correction double-clic' est ecrite
+    sur chaque releve. Les operations 'ardoise' sont EXCLUES (volontaires).
+    SANS parametre : SIMULATION. Avec &executer=1 : applique.
+    Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+
+    # Groupes (code, jour, montant, motif) -> nb d'occurrences dans credits_admin
+    groupes = {}
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict):
+            continue
+        par = (c.get("par") or "")
+        if par in ("CONVERSION-QR", "CORRECTION-DOUBLE"):
+            continue
+        motif = (c.get("motif") or "sans motif").strip()
+        m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        if m <= 0:
+            continue
+        code_j = (c.get("code_joueur") or "").upper().strip()
+        jour = str(c.get("date") or "")[:10]
+        if not code_j or not jour:
+            continue
+        cle_g = code_j + "|" + jour + "|" + str(m) + "|" + motif
+        groupes[cle_g] = groupes.get(cle_g, 0) + 1
+
+    deja_faites = set(DB.get("corrections_doubles_faites", []))
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    # Trop-percu par joueuse (somme de tous ses groupes en double non traites)
+    par_joueuse = {}
+    groupes_a_marquer = {}
+    for cle_g, nb in groupes.items():
+        if nb < 2 or cle_g in deja_faites:
+            continue
+        code_j, jour, m, motif = cle_g.split("|", 3)
+        trop = int(m) * (nb - 1)
+        par_joueuse.setdefault(code_j, {"trop": 0, "detail": []})
+        par_joueuse[code_j]["trop"] += trop
+        par_joueuse[code_j]["detail"].append(jour + " · " + format(int(m), ",") + " x" + str(nb) + " (" + motif + ")")
+        groupes_a_marquer.setdefault(code_j, []).append(cle_g)
+
+    lignes_res = []
+    for code_j, info in par_joueuse.items():
+        est_org = code_j in DB.get("codes", {})
+        pj = DB.get("pions_joueurs", {}).get(code_j, {})
+        pb = DB.get("pions_bonus_joueurs", {}).get(code_j, {})
+        po = DB.get("pions_org", {}).get(code_j, {}) if est_org else {}
+        # Le disponible = TOUTES les poches du code (certains codes sont hybrides
+        # joueur + organisateur : on reprend la ou l'argent se trouve vraiment)
+        dispo = _xpf_total_pions(pj) + _xpf_total_pions(pb) + _xpf_total_pions(po)
+        recuperable = min(info["trop"], dispo)
+        nom_aff = noms.get(code_j, "")
+        if est_org:
+            nom_aff = (DB["codes"].get(code_j, {}).get("nom", "") or nom_aff) + " (organisatrice)"
+        lignes_res.append({"code": code_j, "nom": nom_aff, "est_org": est_org, "trop": info["trop"],
+                           "dispo": dispo, "recup": recuperable,
+                           "perte": info["trop"] - recuperable, "detail": info["detail"]})
+    lignes_res.sort(key=lambda r: r["trop"], reverse=True)
+    total_trop = sum(r["trop"] for r in lignes_res)
+    total_recup = sum(r["recup"] for r in lignes_res)
+    total_perte = sum(r["perte"] for r in lignes_res)
+
+    faits = []
+    if executer and lignes_res:
+        for r in lignes_res:
+            code_j = r["code"]
+            a_reprendre = r["recup"]
+            if a_reprendre > 0:
+                # Reprise en cascade : poche REELLE -> poche BONUS -> poche ORG
+                repris = 0
+                reste = a_reprendre
+                poche_r = dict(DB.get("pions_joueurs", {}).get(code_j, {}))
+                part = min(reste, _xpf_total_pions(poche_r))
+                if part > 0 and _debiter_pions_montant(poche_r, part):
+                    DB.setdefault("pions_joueurs", {})[code_j] = poche_r
+                    repris += part
+                    reste -= part
+                if reste > 0:
+                    poche_b = dict(DB.get("pions_bonus_joueurs", {}).get(code_j, {}))
+                    part = min(reste, _xpf_total_pions(poche_b))
+                    if part > 0 and _debiter_pions_montant(poche_b, part):
+                        DB.setdefault("pions_bonus_joueurs", {})[code_j] = poche_b
+                        repris += part
+                        reste -= part
+                if reste > 0 and r.get("est_org"):
+                    poche_o = dict(DB.get("pions_org", {}).get(code_j, {}))
+                    part = min(reste, _xpf_total_pions(poche_o))
+                    if part > 0 and _debiter_pions_montant(poche_o, part):
+                        DB.setdefault("pions_org", {})[code_j] = poche_o
+                        repris += part
+                        reste -= part
+                if repris > 0 and repris % 100 == 0:
+                    DB.setdefault("credits_admin", []).insert(0, {
+                        "code_joueur": code_j,
+                        "nb_pions": -(repris // 100),
+                        "valeur_pion": 100,
+                        "par": "CORRECTION-DOUBLE",
+                        "motif": "Correction double-clic — reprise du trop-perçu (remboursement crédité en double)",
+                        "date": datetime.datetime.now().isoformat()
+                    })
+                r["repris"] = repris
+            else:
+                r["repris"] = 0
+            for cle_g in groupes_a_marquer.get(code_j, []):
+                DB.setdefault("corrections_doubles_faites", []).append(cle_g)
+            faits.append(r)
+        save_data(immediat=True)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Correction doubles-clics</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}.b{color:#a78bfa}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}</style></head><body>"
+    html += "<h1>&#9986;&#65039; Correction des doubles-clics</h1>"
+    html += "<div class='sub'>Reprise du trop-percu : meme joueuse + meme jour + meme montant + MEME motif, credite 2 fois ou plus. Le 1er credit est conserve, les suivants sont repris (poche organisatrice geree aussi).</div>"
+    if executer:
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; CORRECTION EFFECTUEE</span><br>"
+        html += str(len(faits)) + " joueuse(s) &middot; " + format(sum(r.get('repris', 0) for r in faits), ",") + " XPF repris"
+        if total_perte:
+            html += " &middot; <span class='ko'>" + format(total_perte, ",") + " XPF irrecuperables (deja depenses)</span>"
+        html += "</div>"
+        liste = faits
+    else:
+        html += "<div class='enc'><strong>MODE SIMULATION</strong> &mdash; rien n'a ete modifie.<br>"
+        html += "Joueuses : <strong>" + str(len(lignes_res)) + "</strong> &middot; Trop-percu : <strong>" + format(total_trop, ",") + " XPF</strong>"
+        html += " &middot; Recuperable : <strong class='ok'>" + format(total_recup, ",") + " XPF</strong>"
+        if total_perte:
+            html += " &middot; Irrecuperable (deja depense) : <strong class='ko'>" + format(total_perte, ",") + " XPF</strong>"
+        html += "</div>"
+        if lignes_res:
+            html += "<a class='btn' href='?cle=" + _cle + "&executer=1' onclick=\"return confirm('Reprendre le trop-percu chez " + str(len(lignes_res)) + " joueuses ? Cette action ecrit dans la base.')\">&#9889; EXECUTER LA REPRISE (" + format(total_recup, ",") + " XPF)</a>"
+        liste = lignes_res
+    if liste:
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Trop-percu</th><th class='dr'>Dispo en poche</th><th class='dr'>" + ("Repris" if executer else "Recuperable") + "</th><th class='dr'>Irrecuperable</th><th>Detail des doubles</th></tr>"
+        for r in liste:
+            html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
+            html += "<td>" + r["nom"] + "</td>"
+            html += "<td class='dr'>" + format(r["trop"], ",") + "</td>"
+            html += "<td class='dr'>" + format(r["dispo"], ",") + "</td>"
+            html += "<td class='dr'><strong class='ok'>" + format(r.get("repris", r["recup"]), ",") + "</strong></td>"
+            html += "<td class='dr'>" + ("<strong class='ko'>" + format(r["perte"], ",") + "</strong>" if r["perte"] else "0") + "</td>"
+            html += "<td style='font-size:11px;color:#8b949e'>" + "<br>".join(r["detail"]) + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='ok' style='font-size:16px'>&#127881; Aucun double-clic a corriger : tout est deja regularise.</p>"
+    html += "<p class='sub' style='margin-top:16px'><a href='/detecter-doubles-remboursements?cle=" + _cle + "'>&larr; Retour au detecteur</a> &middot; <a href='/audit-soldes?cle=" + _cle + "'>Audit des soldes</a></p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/detecter-doubles-remboursements")
 def detecter_doubles_remboursements():
     """DETECTEUR (10/07/2026) : repere les DOUBLES remboursements — la meme
