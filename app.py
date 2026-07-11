@@ -6923,6 +6923,160 @@ def releve_financier_org(code):
 
 
 
+@app.route("/dossier-reseau")
+def dossier_reseau():
+    """DOSSIER DE PREUVE (11/07/2026) : genere le releve COMPLET de chaque code
+    du reseau de fraude (tous les codes bloques), RT50CJ en tete. Pour chaque
+    code : ses adresses IP relevees, tous ses mouvements dates (entrees,
+    sorties, transferts avec contreparties, corrections) et ses soldes finaux.
+    Page imprimable (Ctrl+P -> PDF) pour archives et contestations.
+    Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    ips_par_code = {}
+    for j in DB.get("journal_connexions", []):
+        cj = (j.get("code") or "").upper().strip()
+        ip_j = (j.get("ip") or "").strip()
+        if cj and ip_j:
+            ips_par_code.setdefault(cj, set()).add(ip_j)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("ip") or "").strip():
+            for k in ("de", "vers"):
+                ck = (t.get(k) or "").upper().strip()
+                if ck:
+                    ips_par_code.setdefault(ck, set()).add((t.get("ip") or "").strip())
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    def mouvements(code):
+        mv = []
+        for c in DB.get("commandes_pions_joueurs", []):
+            if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code and c.get("statut") == "validee":
+                m = _iv(c.get("nb_pions", c.get("pions_credites", 0))) * _iv(c.get("valeur_pion", 0))
+                if m <= 0:
+                    m = _iv(c.get("montant_net", 0))
+                mv.append((str(c.get("date", "")), "Achat pions", "commande validee", m))
+        for t in DB.get("transactions_joueur_org", []):
+            if isinstance(t, dict) and (t.get("code_joueur", "") or "").upper() == code:
+                mv.append((str(t.get("date", "")), "Pions recus (org)", "vendu par org " + str(t.get("code_org", "?")), _iv(t.get("montant_total", 0))))
+        for g in DB.get("gains_finaux", []):
+            if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() == code:
+                if g.get("annule"):
+                    mv.append((str(g.get("date", "")), "Gain ANNULE", str(g.get("jeu", "?")), 0))
+                else:
+                    mv.append((str(g.get("date", "")), "Gain", str(g.get("jeu", "?")) + " (org " + str(g.get("code_org", "?")) + ")", _iv(g.get("montant_credite", 0))))
+        for c in DB.get("credits_admin", []):
+            if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+                m = _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))
+                mv.append((str(c.get("date", "")), "Credit admin" if m >= 0 else "Reprise admin", str(c.get("motif", "") or "") + " (par " + str(c.get("par", "?")) + ")", m))
+        for cm in DB.get("credits_masse", []):
+            if isinstance(cm, dict) and cm.get("profil", "joueur") == "joueur" and code in [(x or "").upper() for x in (cm.get("codes") or [])]:
+                m = _iv(cm.get("nb_pions", 0)) * _iv(cm.get("valeur_pion", 0))
+                mv.append((str(cm.get("date", "")), "Credit masse", str(cm.get("motif", "") or "dedommagement"), m))
+        for rb in DB.get("remboursements_tournoi", []):
+            if isinstance(rb, dict):
+                for det in (rb.get("detail") or []):
+                    if isinstance(det, dict) and (det.get("code_joueur", "") or "").upper() == code:
+                        mv.append((str(rb.get("date", "")), "Remboursement", str(rb.get("jeu", "?")), _iv(det.get("montant", 0))))
+        for x in DB.get("rejoindre_log", []):
+            if (x.get("code", "") or "").upper() == code and (x.get("campagne", "") or "") == "semaine":
+                mv.append((str(x.get("date", "")), "Cadeau inscription", "bonus QR semaine", 500))
+                break
+        for e in DB.get("encaissements_org", []):
+            if isinstance(e, dict) and (e.get("code_joueur", "") or "").upper() == code:
+                mv.append((str(e.get("date", "")), "Achat tickets", str(e.get("jeu", "?")) + " (org " + str(e.get("code_org", "?")) + ")", -_iv(e.get("montant", 0))))
+        for r in DB.get("demandes_retrait", []):
+            if isinstance(r, dict) and (r.get("code_joueur", "") or "").upper() == code and r.get("statut") == "validee":
+                mv.append((str(r.get("date", "")), "RETRAIT ARGENT", "retrait valide", -_iv(r.get("montant_demande", 0))))
+        for c in DB.get("corrections_pions", []):
+            if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+                retire = _iv(c.get("montant_retire", 0))
+                if retire <= 0:
+                    retire = _iv(c.get("solde_avant", 0)) - _iv(c.get("solde_apres", 0))
+                mv.append((str(c.get("date", "")), "Correction", str(c.get("motif", "") or "correction admin"), -max(0, retire)))
+        for t in DB.get("transferts_pions", []):
+            if not isinstance(t, dict):
+                continue
+            de = (t.get("de", "") or "").upper()
+            vers = (t.get("vers", "") or "").upper()
+            m = _iv(t.get("montant", 0))
+            annul = " [ANNULE FRAUDE le " + str(t.get("annule_fraude_date", ""))[:10] + "]" if t.get("annule_fraude") else ""
+            if de == code:
+                mv.append((str(t.get("date", "")), "Transfert EMIS" + (" ANNULE" if annul else ""), "vers " + vers + (" (" + str(t.get("ip", "")) + ")" if t.get("ip") else "") + annul, 0 if annul else -m))
+            if vers == code:
+                mv.append((str(t.get("date", "")), "Transfert RECU" + (" ANNULE" if annul else ""), "de " + de + annul, 0 if annul else m))
+        mv.sort(key=lambda r: r[0])
+        return mv
+
+    bloques = sorted(set((b or "").upper() for b in DB.get("codes_bloques", []) if b))
+    if "RT50CJ" in bloques:
+        bloques.remove("RT50CJ")
+        bloques.insert(0, "RT50CJ")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Dossier reseau fraude</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:26px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#C00000;margin-top:34px;page-break-before:auto}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:18px}"
+    html += ".fiche{border:1px solid #bbb;border-radius:8px;padding:14px 16px;margin:18px 0;page-break-inside:avoid}"
+    html += ".ips{background:#FFF7E6;border:1px solid #E8C77B;border-radius:6px;padding:8px 10px;font-size:12px;margin:8px 0}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}"
+    html += "td{border:1px solid #bbb;padding:5px}.dr{text-align:right;white-space:nowrap}"
+    html += ".neg{color:#C00000}.pos{color:#1E7B34}.zero{color:#777}"
+    html += ".soldes{font-weight:bold;margin-top:8px;font-size:13px}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; Pour archiver ce dossier : <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128737;&#65039; DOSSIER DE PREUVE — Reseau de fraude RT50CJ</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT (N&deg; TAHITI B90121, Papeete) &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(bloques)) + " codes bloques &middot; Document confidentiel — administration</div>"
+    html += "<p style='font-size:13px'>Ce dossier presente, pour chaque compte du reseau bloque, l'integralite de ses mouvements traces (entrees, sorties, transferts avec contreparties et adresses IP, corrections) ainsi que ses soldes finaux. Toutes les donnees proviennent directement de la base de la plateforme et font foi.</p>"
+
+    for code in bloques:
+        pj = _xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {}))
+        pb = _xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(code, {}))
+        po = _xpf_total_pions(DB.get("pions_org", {}).get(code, {})) if code in DB.get("codes", {}) else 0
+        mv = mouvements(code)
+        tot_e = sum(m for (_, _, _, m) in mv if m > 0)
+        tot_s = sum(-m for (_, _, _, m) in mv if m < 0)
+        titre_c = code + (" — " + noms[code] if code in noms and noms[code] else "")
+        if code == "RT50CJ":
+            titre_c += "  [PIVOT DU RESEAU]"
+        html += "<div class='fiche'><h2 style='margin-top:0'>" + titre_c + " <span style='font-size:13px;color:#C00000'>&#128683; BLOQUE</span></h2>"
+        ips = sorted(ips_par_code.get(code, set()))
+        html += "<div class='ips'><strong>Adresses IP relevees :</strong> " + (", ".join(ips) if ips else "aucune enregistree (compte anterieur au journal des connexions)") + "</div>"
+        if mv:
+            html += "<table><tr><th style='width:120px'>Date</th><th style='width:150px'>Type</th><th>Detail</th><th class='dr' style='width:90px'>Montant</th></tr>"
+            for (d, ty, det, m) in mv:
+                cls = "pos" if m > 0 else ("neg" if m < 0 else "zero")
+                html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + det + "</td><td class='dr " + cls + "'>" + ("+" if m > 0 else "") + format(m, ",") + "</td></tr>"
+            html += "</table>"
+        else:
+            html += "<p style='font-size:12px;color:#777'>Aucun mouvement trace (compte anterieur aux journaux, traite par vidage direct).</p>"
+        html += "<div class='soldes'>Total entrees tracees : <span class='pos'>+" + format(tot_e, ",") + " XPF</span> &middot; Total sorties tracees : <span class='neg'>-" + format(tot_s, ",") + " XPF</span><br>"
+        html += "SOLDES FINAUX : poche reelle <strong>" + format(pj, ",") + "</strong> &middot; bonus <strong>" + format(pb, ",") + "</strong>"
+        if code in DB.get("codes", {}):
+            html += " &middot; organisateur <strong>" + format(po, ",") + "</strong>"
+        html += " XPF &mdash; <span style='color:#1E7B34'>compte neutralise</span></div></div>"
+
+    html += "<p style='margin-top:26px;font-size:13px;font-style:italic'>Fin du dossier — " + str(len(bloques)) + " comptes documentes. L'Administration, TATIE TUKEA — Ticket Bingo, Papeete.</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/bilan-fraude")
 def bilan_fraude():
     """BILAN FRAUDE (11/07/2026) : la page de CLOTURE du dossier fraude.
