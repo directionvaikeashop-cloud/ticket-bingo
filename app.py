@@ -3760,6 +3760,37 @@ def solde_pions_joueur(code_joueur):
         "bonus_total": _xpf_total_pions(bonus)
     })
 
+def _nom_org_public(code_org):
+    """CONFIDENTIALITE (11/07/2026) : ne JAMAIS afficher un code organisateur ou
+    admin en clair sur un releve joueur. Renvoie le NOM de l'organisatrice si
+    connu, sinon un masque neutre. Les codes servent a se connecter : les
+    exposer permettrait a une joueuse de se faire passer pour l'organisatrice."""
+    try:
+        code_org = (code_org or "").upper().strip()
+        info = DB.get("codes", {}).get(code_org)
+        if info and info.get("nom"):
+            return str(info.get("nom"))
+    except Exception:
+        pass
+    return "organisatrice"
+
+
+def _masquer_par(par):
+    """Masque l'auteur d'un credit/correction ('par ...') sur les releves joueur.
+    Un code admin ou org ne doit jamais fuiter ; on affiche 'administration'."""
+    p = (par or "").upper().strip()
+    if not p or p in ("ADMIN", "SYSTEME", "SYSTEM"):
+        return "administration"
+    # Etiquettes internes de nos outils : neutralisees
+    if p in ("CONVERSION-QR", "CORRECTION-DOUBLE", "CORRECTION-ECRITURE",
+             "QUARANTAINE", "RESTITUTION", "CORRECTION-RESTITUTION", "MASSE"):
+        return "administration"
+    # Tout code connu (admin ou org) -> 'administration'
+    if p in DB.get("codes", {}):
+        return "administration"
+    return "administration"
+
+
 def _xpf_total_pions(dico):
     """Somme en XPF d'une poche de pions {denomination: nombre}."""
     t = 0
@@ -6139,7 +6170,7 @@ def releve_complet_joueur(code):
                 "date": str(e.get("date", ""))[:16].replace("T", " "),
                 "type": "Ticket",
                 "montant": -m,
-                "detail": f"{e.get('jeu','')} (vente validee - org {e.get('code_org','')})",
+                "detail": f"{e.get('jeu','')} (vente validee - {_nom_org_public(e.get('code_org',''))})",
                 "statut": "validee"
             })
     for c in DB.get("commandes_tickets_pions", []):
@@ -6172,21 +6203,21 @@ def releve_complet_joueur(code):
         de = (tr.get("de", "") or "").upper()
         vers = (tr.get("vers", "") or "").upper()
         mt = int(tr.get("montant", 0) or 0)
+        _mq = lambda c: ((c or "").upper()[:2] + "***") if len((c or "")) > 2 else "***"
         if tr.get("annule_fraude"):
             if de == code or vers == code:
                 lignes.append({"date": str(tr.get("date", ""))[:16].replace("T", " "),
                                "type": "Transfert ANNULE", "montant": 0,
-                               "detail": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude " + (vers if de == code else de) + ")",
+                               "detail": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude)",
                                "statut": "annule_fraude"})
             continue
-        org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
         dt = str(tr.get("date", ""))[:16].replace("T", " ")
         if de == code:
             lignes.append({"date": dt, "type": "Transfert emis", "montant": -mt,
-                           "detail": "Pions transferes vers le compte " + vers + org, "statut": "transfert"})
+                           "detail": "Pions transferes vers le compte " + _mq(vers), "statut": "transfert"})
         elif vers == code:
             lignes.append({"date": dt, "type": "Transfert recu", "montant": mt,
-                           "detail": "Pions recus du compte " + de + org, "statut": "transfert"})
+                           "detail": "Pions recus du compte " + _mq(de), "statut": "transfert"})
 
     # Trier par date
     lignes.sort(key=lambda x: x.get("date", ""))
@@ -6484,20 +6515,20 @@ def releve_code(code):
         de = (tr.get("de", "") or "").upper()
         vers = (tr.get("vers", "") or "").upper()
         mt = int(tr.get("montant", 0) or 0)
+        _mq2 = lambda c: ((c or "").upper()[:2] + "***") if len((c or "")) > 2 else "***"
         if tr.get("annule_fraude"):
             if de == code or vers == code:
                 transactions.append({"date": tr.get("date", "?"), "type": "Transfert ANNULE",
-                                     "description": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude " + (vers if de == code else de) + ")",
+                                     "description": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude)",
                                      "entree": 0, "sortie": 0})
             continue
-        org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
         if de == code:
             transactions.append({"date": tr.get("date", "?"), "type": "Transfert emis",
-                                 "description": "Pions transferes vers le compte " + vers + org,
+                                 "description": "Pions transferes vers le compte " + _mq2(vers),
                                  "entree": 0, "sortie": mt})
         elif vers == code:
             transactions.append({"date": tr.get("date", "?"), "type": "Transfert recu",
-                                 "description": "Pions recus du compte " + de + org,
+                                 "description": "Pions recus du compte " + _mq2(de),
                                  "entree": mt, "sortie": 0})
 
     transactions.sort(key=lambda x: str(x["date"]), reverse=True)
@@ -8657,7 +8688,7 @@ def releve_financier_joueur(code):
             lignes.append({
                 "date": e.get("date", "?"),
                 "type": "Achat tickets",
-                "desc": str(e.get("jeu", "?")) + " (vente validée — org " + str(e.get("code_org", "?")) + ")",
+                "desc": str(e.get("jeu", "?")) + " (vente validée — " + _nom_org_public(e.get("code_org", "")) + ")",
                 "entree": 0,
                 "sortie": int(e.get("montant", 0) or 0)
             })
@@ -8734,8 +8765,13 @@ def releve_financier_joueur(code):
             break
 
     # === TRANSFERTS DE PIONS (envoyés / reçus) — notés comme sur un relevé bancaire ===
-    # Chaque transfert vers ou depuis un autre code apparaît, avec la date, le code
-    # concerné et l'origine (IP). La transparence montre que tout est tracé.
+    # CONFIDENTIALITE (11/07/2026) : sur le releve d'une joueuse, on ne montre ni
+    # le code complet de l'autre partie, ni les adresses IP. On masque le code
+    # (2 premiers caracteres + ***) pour que la joueuse s'y retrouve sans exposer
+    # un code qui sert a se connecter.
+    def _masque_code(c):
+        c = (c or "").upper()
+        return (c[:2] + "***") if len(c) > 2 else "***"
     for t in DB.get("transferts_pions", []):
         if not isinstance(t, dict):
             continue
@@ -8745,21 +8781,16 @@ def releve_financier_joueur(code):
         if t.get("annule_fraude"):
             if de == code or vers == code:
                 lignes.append({"date": t.get("date", "?"), "type": "Transfert ANNULÉ",
-                               "desc": "Transfert de " + format(montant, ",") + " F ANNULÉ par l'administration (fraude — compte " + (vers if de == code else de) + ")",
+                               "desc": "Transfert de " + format(montant, ",") + " F ANNULÉ par l'administration (fraude)",
                                "entree": 0, "sortie": 0})
             continue
-        origine = ""
-        if t.get("ip"):
-            origine = " · IP " + str(t.get("ip"))
-        elif t.get("admin"):
-            origine = " · opération administrateur"
         if de == code:
             lignes.append({"date": t.get("date", "?"), "type": "Transfert émis",
-                           "desc": "Pions transférés vers le compte " + vers + origine,
+                           "desc": "Pions transférés vers le compte " + _masque_code(vers),
                            "entree": 0, "sortie": montant})
         elif vers == code:
             lignes.append({"date": t.get("date", "?"), "type": "Transfert reçu",
-                           "desc": "Pions reçus du compte " + de + origine,
+                           "desc": "Pions reçus du compte " + _masque_code(de),
                            "entree": montant, "sortie": 0})
 
     # Solde de pions actuel = pions RÉELS + pions BONUS (tous deux jouables)
