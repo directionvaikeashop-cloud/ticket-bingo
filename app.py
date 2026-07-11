@@ -7053,18 +7053,43 @@ def rapport_tournoi_org():
     html += "<div class='meta'>" + str(nb_ventes_pions) + " ventes de pions &middot; " + str(nb_tickets) + " ventes de tickets &middot; " + str(nb_gains) + " gains payes &middot; " + str(len(lignes)) + " transactions au total</div>"
 
     if lignes:
-        html += "<table><tr><th style='width:120px'>Date</th><th style='width:110px'>Type</th><th style='width:90px'>Joueuse</th><th>Detail</th><th class='dr' style='width:85px'>Encaisse</th><th class='dr' style='width:85px'>Paye</th></tr>"
+        html += "<table><tr><th style='width:120px'>Date</th><th style='width:110px'>Type</th><th style='width:95px'>Joueuse</th><th>Detail</th><th class='dr' style='width:85px'>Encaisse</th><th class='dr' style='width:85px'>Paye</th></tr>"
         for (d, ty, jou, det, e, s) in lignes:
-            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + jou + "</td><td>" + det + "</td>"
+            lien_jou = ("<a href='/releve-financier-joueur/" + jou + "?cle=" + _cle + "' target='_blank'>" + jou + "</a>") if jou else ""
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + lien_jou + "</td><td>" + det + "</td>"
             html += "<td class='dr pos'>" + ("+" + format(e, ",") if e else "") + "</td>"
             html += "<td class='dr neg'>" + ("-" + format(s, ",") if s else "") + "</td></tr>"
         html += "<tr style='background:#DEEAF6;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAUX</td>"
         html += "<td class='dr pos'>+" + format(tot_entrees, ",") + "</td><td class='dr neg'>-" + format(tot_sorties, ",") + "</td></tr>"
         html += "</table>"
+        html += "<div style='margin-top:12px;font-size:12px;color:#555'>&#128279; Chaque code de joueuse est cliquable : il ouvre le releve financier detaille de cette joueuse, pour verifier chaque transaction des deux cotes (organisatrice et joueuse).</div>"
     else:
         html += "<p>Aucune transaction trouvee pour cette organisatrice.</p>"
 
     html += "<div style='margin-top:18px;font-size:13px'><strong>Lecture :</strong> le SOLDE THEORIQUE (" + format(solde_theorique, ",") + " XPF) represente ce que l'organisatrice devrait avoir en caisse (encaissements moins gains payes). La POCHE ACTUELLE (" + format(poche, ",") + " XPF) est ce qu'elle a reellement en pions sur la plateforme. Un ecart peut venir de retraits en especes deja effectues ou de decouverts completes de sa poche.</div>"
+
+    # === RECAPITULATIF PAR JOUEUSE (relie aux releves) ===
+    par_j = {}
+    for (d, ty, jou, det, e, s) in lignes:
+        if not jou:
+            continue
+        par_j.setdefault(jou, {"encaisse": 0, "paye": 0, "nb": 0})
+        par_j[jou]["encaisse"] += e
+        par_j[jou]["paye"] += s
+        par_j[jou]["nb"] += 1
+    recap = sorted(par_j.items(), key=lambda x: -(x[1]["encaisse"] + x[1]["paye"]))
+    html += "<h2 style='color:#1F4E79;margin-top:26px'>Recapitulatif par joueuse &mdash; relie aux releves</h2>"
+    html += "<div style='font-size:12px;color:#555;margin-bottom:8px'>Pour chaque joueuse ayant eu une activite chez cette organisatrice : total depense (achats de pions/tickets) et total recu (gains). Le code est cliquable vers son releve detaille.</div>"
+    html += "<table><tr><th style='width:110px'>Joueuse</th><th class='dr'>Transactions</th><th class='dr'>A depense (encaisse par l'org)</th><th class='dr'>A recu (gains)</th><th>Releve</th></tr>"
+    for jou, v in recap:
+        html += "<tr><td><a href='/releve-financier-joueur/" + jou + "?cle=" + _cle + "' target='_blank'>" + jou + "</a></td>"
+        html += "<td class='dr'>" + str(v["nb"]) + "</td>"
+        html += "<td class='dr pos'>" + format(v["encaisse"], ",") + "</td>"
+        html += "<td class='dr neg'>" + format(v["paye"], ",") + "</td>"
+        html += "<td style='font-size:11px'><a href='/releve-financier-joueur/" + jou + "?cle=" + _cle + "' target='_blank'>ouvrir le releve &rarr;</a></td></tr>"
+    html += "</table>"
+    html += "<div style='font-size:12px;color:#555;margin-top:6px'>" + str(len(recap)) + " joueuse(s) distincte(s) ont eu une activite chez cette organisatrice.</div>"
+
     html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
     html += "</body></html>"
     return html
