@@ -7184,9 +7184,12 @@ def audit_soldes():
     voir_tous = (request.args.get("tous", "") or "").strip() == "1"
     nb_total = len(resultats)
     nb_ok = sum(1 for r in resultats if r["ecart"] == 0)
+    nb_bonus = sum(1 for r in resultats if 0 < r["ecart"] <= r["poche_bonus"])
+    nb_examiner = nb_total - nb_ok - nb_bonus
     if not voir_tous:
         resultats = [r for r in resultats if r["ecart"] != 0]
-    resultats.sort(key=lambda r: abs(r["ecart"]), reverse=True)
+    # Tri : les cas A EXAMINER d'abord (par taille d'ecart), les "sans risque" a la fin
+    resultats.sort(key=lambda r: (1 if 0 < r["ecart"] <= r["poche_bonus"] else 0, -abs(r["ecart"])))
 
     html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit des soldes</title><style>"
     html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
@@ -7199,10 +7202,11 @@ def audit_soldes():
     html += ".dr{text-align:right}a{color:#58a6ff}</style></head><body>"
     html += "<h1>&#128269; Audit des soldes joueuses</h1>"
     html += "<div class='sub'>Poche reelle (pions jouables) comparee aux mouvements traces (entrees &minus; sorties)</div>"
-    html += "<div class='totaux'>"
+    html += "<div class='totaux' style='grid-template-columns:1fr 1fr 1fr 1fr'>"
     html += "<div><strong>Joueuses auditees</strong><br><span class='m'>" + str(nb_total) + "</span></div>"
     html += "<div><strong>Equilibrees</strong><br><span class='m ok'>" + str(nb_ok) + "</span></div>"
-    html += "<div><strong>Avec ecart</strong><br><span class='m " + ("ko" if nb_total - nb_ok else "ok") + "'>" + str(nb_total - nb_ok) + "</span></div>"
+    html += "<div><strong>Sans risque</strong><br><span class='m' style='color:#a78bfa'>" + str(nb_bonus) + "</span><br><span style='font-size:11px;color:#8b949e'>ecart couvert par le bonus non retirable</span></div>"
+    html += "<div><strong>A EXAMINER</strong><br><span class='m " + ("ko" if nb_examiner else "ok") + "'>" + str(nb_examiner) + "</span><br><span style='font-size:11px;color:#8b949e'>avant tout retrait d'argent</span></div>"
     html += "</div>"
     if voir_tous:
         html += "<p><a href='?cle=" + _cle + "'>Voir seulement les ecarts</a></p>"
@@ -7213,8 +7217,10 @@ def audit_soldes():
         for r in resultats:
             if r["ecart"] == 0:
                 verdict = "<span class='ok'>&#9989; equilibre</span>"
+            elif 0 < r["ecart"] <= r["poche_bonus"]:
+                verdict = "<span style='color:#a78bfa'>&#9989; sans risque : ecart couvert par le bonus (non retirable)</span>"
             elif r["ecart"] > 0:
-                verdict = "<span class='ko'>&#128680; poche &gt; traces (pions sans origine tracee)</span>"
+                verdict = "<span class='ko'>&#128680; A EXAMINER : pions retirables sans origine tracee</span>"
             else:
                 verdict = "<span class='neu'>&#9888;&#65039; traces &gt; poche (sorties anciennes non tracees)</span>"
             if r.get("fusion"):
