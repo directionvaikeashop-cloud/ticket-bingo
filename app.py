@@ -2742,11 +2742,47 @@ def reset_tournoi():
     # 5. Les ventes (PDFs achetés par l'organisateur) RESTENT INTACTES
     # On efface uniquement les tickets joueurs, pas les achats de l'organisateur
     
-    # 6. Effacer les commandes tickets pions EN ATTENTE de ce tournoi.
-    # 🔒 CORRECTION 10/07/2026 : les commandes VALIDEES sont CONSERVEES A VIE —
-    # ce sont les retraits (achats de tickets) qui doivent apparaitre sur les
-    # releves des joueurs. Argent reel = traçabilite obligatoire.
-    DB["commandes_tickets_pions"] = [c for c in DB.get("commandes_tickets_pions", []) if c.get("code_org") != code_org or c.get("statut") == "validee"]
+    # 6. Commandes tickets pions de ce tournoi :
+    #    - VALIDEES : conservees A VIE (traçabilite des achats — correction 10/07/2026)
+    #    - EN ATTENTE : la joueuse a DEJA ete debitee mais la vente n'a jamais ete
+    #      validee -> REMBOURSEMENT AUTOMATIQUE (10/07/2026). Ses pions reviennent
+    #      dans sa poche (reel/bonus selon ce qu'elle avait paye), une trace
+    #      "Remboursement" est ecrite pour son releve, et la commande est conservee
+    #      au statut "annulee_remboursee" (l'achat et le remboursement se voient tous
+    #      les deux : comptabilite equilibree).
+    _remb_detail = []
+    for c in DB.get("commandes_tickets_pions", []):
+        if c.get("code_org") == code_org and c.get("statut") == "en_attente":
+            cj = (c.get("code_joueur") or "").upper().strip()
+            montant = int(c.get("total_pions", 0) or 0)
+            if cj and montant > 0:
+                pr = c.get("paye_reel")
+                pb = c.get("paye_bonus")
+                if pr is None and pb is None:
+                    # Ancienne commande (repartition inconnue) : remboursement en
+                    # BONUS par prudence (jouable, non retirable en argent).
+                    pr, pb = 0, montant
+                pr = int(pr or 0)
+                pb = int(pb or 0)
+                if pr > 0:
+                    poche_r = DB.setdefault("pions_joueurs", {}).get(cj, {})
+                    _crediter_pions_montant(poche_r, pr)
+                    DB["pions_joueurs"][cj] = poche_r
+                if pb > 0:
+                    poche_b = DB.setdefault("pions_bonus_joueurs", {}).get(cj, {})
+                    _crediter_pions_montant(poche_b, pb)
+                    DB["pions_bonus_joueurs"][cj] = poche_b
+                _remb_detail.append({"code_joueur": cj, "montant": montant})
+            c["statut"] = "annulee_remboursee"
+            c["remboursee_le"] = datetime.datetime.now().isoformat()
+    if _remb_detail:
+        DB.setdefault("remboursements_tournoi", []).insert(0, {
+            "date": datetime.datetime.now().isoformat(),
+            "jeu": "Commande en attente (remise à zéro du tournoi)",
+            "code_org": code_org,
+            "detail": _remb_detail
+        })
+    DB["commandes_tickets_pions"] = [c for c in DB.get("commandes_tickets_pions", []) if c.get("code_org") != code_org or c.get("statut") in ("validee", "annulee_remboursee")]
     
     # 7. Supprimer l'annonce du jeu en cours
     DB["annonces_jeux"] = [a for a in DB.get("annonces_jeux", []) if a.get("code_org") != code_org]
@@ -3491,6 +3527,8 @@ def commander_ticket_pions():
         "prix": prix,
         "nb_tickets": nb_tickets,
         "total_pions": total,
+        "paye_bonus": montant_bonus,
+        "paye_reel": montant_reel,
         "statut": "en_attente",
         "date": datetime.datetime.now().isoformat()
     }
@@ -6870,6 +6908,99 @@ def releve_financier_org(code):
     html += "</body></html>"
     return html
 
+
+
+@app.route("/detecter-doubles-remboursements")
+def detecter_doubles_remboursements():
+    """DETECTEUR (10/07/2026) : repere les DOUBLES remboursements — la meme
+    joueuse creditee 2 fois ou plus du MEME montant le MEME jour, par des
+    circuits de remboursement differents (remboursement de jeu, credit admin,
+    remboursement au reset). Chaque double = de l'argent que l'organisateur
+    a perdu et qu'il faut lui rendre. Page en LECTURE SEULE : elle detecte,
+    c'est toi qui decides du dedommagement.
+    Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+
+    # Tous les credits "type remboursement" : (joueuse, jour, montant) -> [sources]
+    groupes = {}
+
+    def _noter(code_j, date_str, montant, source):
+        code_j = (code_j or "").upper().strip()
+        jour = str(date_str or "")[:10]
+        try:
+            montant = int(montant or 0)
+        except (ValueError, TypeError):
+            montant = 0
+        if not code_j or not jour or montant <= 0:
+            return
+        groupes.setdefault((code_j, jour, montant), []).append(source)
+
+    for rb in DB.get("remboursements_tournoi", []):
+        if isinstance(rb, dict):
+            src = "Remboursement jeu/reset : " + str(rb.get("jeu", "?")) + " (org " + str(rb.get("code_org", "?")) + ")"
+            for det in (rb.get("detail") or []):
+                if isinstance(det, dict):
+                    _noter(det.get("code_joueur"), rb.get("date"), det.get("montant"), src)
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par") or "") != "CONVERSION-QR":
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            if m > 0:
+                _noter(c.get("code_joueur"), c.get("date"), m,
+                       "Crédit admin : " + str(c.get("motif") or "sans motif") + " (par " + str(c.get("par", "?")) + ")")
+    for cm in DB.get("credits_masse", []):
+        if isinstance(cm, dict) and cm.get("profil", "joueur") == "joueur":
+            m = int(cm.get("nb_pions", 0) or 0) * int(cm.get("valeur_pion", 0) or 0)
+            if m > 0:
+                for cj in (cm.get("codes") or []):
+                    _noter(cj, cm.get("date"), m, "Crédit en masse : " + str(cm.get("motif") or "dédommagement"))
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    doubles = []
+    for (code_j, jour, montant), sources in groupes.items():
+        if len(sources) >= 2:
+            doubles.append({"code": code_j, "nom": noms.get(code_j, ""), "jour": jour,
+                            "montant": montant, "nb": len(sources), "sources": sources,
+                            "trop_percu": montant * (len(sources) - 1)})
+    doubles.sort(key=lambda d: d["trop_percu"], reverse=True)
+    total_trop = sum(d["trop_percu"] for d in doubles)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Doubles remboursements</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128269; Doubles remboursements</h1>"
+    html += "<div class='sub'>Meme joueuse + meme montant + meme jour, credites par 2 circuits ou plus. Chaque double = argent a rendre a l'organisateur.</div>"
+    if doubles:
+        html += "<div class='enc'><span class='ko' style='font-size:18px;font-weight:bold'>&#9888;&#65039; " + str(len(doubles)) + " double(s) detecte(s)</span><br>"
+        html += "Trop-percu total : <strong>" + format(total_trop, ",") + " XPF</strong> &mdash; a compenser aupres de l'organisateur concerne.</div>"
+        html += "<table><tr><th>Jour</th><th>Code</th><th>Nom</th><th class='dr'>Montant</th><th class='dr'>Fois</th><th class='dr'>Trop-percu</th><th>Circuits</th></tr>"
+        for d in doubles:
+            html += "<tr><td>" + d["jour"] + "</td>"
+            html += "<td><a href='/trace-pions?cle=" + _cle + "&code=" + d["code"] + "'>" + d["code"] + "</a></td>"
+            html += "<td>" + d["nom"] + "</td>"
+            html += "<td class='dr'>" + format(d["montant"], ",") + "</td>"
+            html += "<td class='dr'>" + str(d["nb"]) + "</td>"
+            html += "<td class='dr'><strong class='ko'>" + format(d["trop_percu"], ",") + "</strong></td>"
+            html += "<td style='font-size:11px;color:#8b949e'>" + "<br>".join(d["sources"]) + "</td></tr>"
+        html += "</table>"
+        html += "<p class='sub' style='margin-top:14px'>Chaque code ouvre sa trace complete pour verifier avant de corriger (retrait du trop-percu chez la joueuse ou dedommagement de l'organisateur, a ta main).</p>"
+    else:
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; Aucun double remboursement detecte</span><br>Aucune joueuse n'a recu deux fois le meme montant le meme jour par des circuits de remboursement.</div>"
+    html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Retour a l'audit des soldes</a></p>"
+    html += "</body></html>"
+    return html
 
 
 @app.route("/convertir-cadeaux-qr")
