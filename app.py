@@ -6954,6 +6954,75 @@ def releve_financier_org(code):
 
 
 
+@app.route("/transfert-poche-org")
+def transfert_poche_org():
+    """ADMIN (11/07/2026) : deplace les pions de la POCHE ORGANISATEUR d'un code
+    vers un autre. Sert notamment apres un changement de code : l'historique suit
+    automatiquement mais la poche de pions org doit etre deplacee a la main.
+    Ne DETRUIT rien : les pions passent d'une poche a l'autre, traces des deux cotes.
+    ?cle=ADMIN&de=ANCIEN&vers=NOUVEAU[&montant=N][&confirme=1]
+    Sans montant : deplace TOUTE la poche source."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    de = (request.args.get("de", "") or "").strip().upper()
+    vers = (request.args.get("vers", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+
+    def page(titre, corps, couleur="#1F4E79"):
+        return Response("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>" + titre + "</title></head><body style='margin:0;background:#0d1117;font-family:system-ui,sans-serif;color:#e6edf3;padding:18px'><div style='max-width:560px;margin:0 auto'><h1 style='font-size:20px;color:" + couleur + "'>" + titre + "</h1>" + corps + "</div></body></html>", mimetype="text/html; charset=utf-8")
+
+    if not de or not vers:
+        return page("Parametres manquants", "<p>Ajoute <b>&de=ANCIEN_CODE&vers=NOUVEAU_CODE</b>.</p>", "#f85149")
+
+    poche_src = dict(DB.get("pions_org", {}).get(de, {}))
+    solde_src = _xpf_total_pions(poche_src)
+    poche_dst_avant = _xpf_total_pions(DB.get("pions_org", {}).get(vers, {}))
+
+    try:
+        montant = int(request.args.get("montant", "0") or 0)
+    except ValueError:
+        montant = 0
+    if montant <= 0:
+        montant = solde_src  # tout par defaut
+
+    if solde_src <= 0:
+        return page("Poche source vide", "<p>La poche organisateur de <b>" + de + "</b> est a 0. Rien a transferer.</p>", "#f85149")
+    if montant > solde_src:
+        return page("Montant trop eleve", "<p>La poche de <b>" + de + "</b> contient <b>" + format(solde_src, ",") + " F</b>, tu demandes <b>" + format(montant, ",") + " F</b>. Reduis le montant.</p>", "#f85149")
+
+    if not confirme:
+        corps = "<div style='background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;font-size:14px'>"
+        corps += "<div>De (poche ORG) : <b style='font-family:monospace;color:#fca5a5'>" + de + "</b> &mdash; contient <b>" + format(solde_src, ",") + " F</b></div>"
+        corps += "<div style='margin-top:6px'>Vers (poche ORG) : <b style='font-family:monospace;color:#6ee7b7'>" + vers + "</b> &mdash; contient <b>" + format(poche_dst_avant, ",") + " F</b></div>"
+        corps += "<div style='margin-top:6px'>Montant a deplacer : <b style='font-size:18px;color:#58a6ff'>" + format(montant, ",") + " F</b></div>"
+        corps += "<div style='margin-top:6px;color:#8b949e'>Apres : " + de + " aura " + format(solde_src - montant, ",") + " F, " + vers + " aura " + format(poche_dst_avant + montant, ",") + " F</div></div>"
+        corps += "<a href='?cle=" + _cle + "&de=" + de + "&vers=" + vers + "&montant=" + str(montant) + "&confirme=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#128257; Confirmer le transfert de " + format(montant, ",") + " F</a>"
+        return page("Transfert poche organisateur", corps)
+
+    # CONFIRME : deplacer (par denomination, en preservant les coupures)
+    if _debiter_pions_montant(poche_src, montant):
+        DB.setdefault("pions_org", {})[de] = poche_src
+        poche_dst = dict(DB.get("pions_org", {}).get(vers, {}))
+        _crediter_pions_montant(poche_dst, montant)
+        DB.setdefault("pions_org", {})[vers] = poche_dst
+        DB.setdefault("transferts_poche_org", []).insert(0, {
+            "de": de, "vers": vers, "montant": montant, "par": _cle,
+            "date": datetime.datetime.now().isoformat()
+        })
+        save_data(immediat=True)
+        corps = "<div style='background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:10px;padding:16px;color:#6ee7b7;font-size:15px'>"
+        corps += "&#9989; <b>Transfert effectue !</b><br><br>"
+        corps += format(montant, ",") + " F deplaces de la poche org <b>" + de + "</b> vers <b>" + vers + "</b>.<br><br>"
+        corps += "Nouvelle poche de <b>" + vers + "</b> : <b>" + format(_xpf_total_pions(DB['pions_org'][vers]), ",") + " F</b><br>"
+        corps += "Poche de <b>" + de + "</b> : <b>" + format(_xpf_total_pions(DB['pions_org'][de]), ",") + " F</b></div>"
+        return page("Transfert reussi", corps, "#10b981")
+    return page("Echec", "<p>Le transfert n'a pas pu se faire (denominations non divisibles). Reessaie avec un montant multiple de 10.</p>", "#f85149")
+
+
 @app.route("/rapport-tournoi-org")
 def rapport_tournoi_org():
     """RAPPORT COMPLET (11/07/2026) : toutes les transactions liees a une
