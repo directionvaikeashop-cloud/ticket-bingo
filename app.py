@@ -7002,13 +7002,23 @@ def verif_comptable_org():
     gains_payes = 0
     nb_gains = 0
     gains_annules = 0
+    gains_vers_bloques = 0
+    nb_gains_bloques = 0
+    detail_gains_bloques = []
+    _bloques = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
     for g in DB.get("gains_finaux", []):
         if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes:
             if g.get("annule"):
                 gains_annules += _iv(g.get("montant_credite", 0))
             else:
-                gains_payes += _iv(g.get("montant_credite", 0))
+                m = _iv(g.get("montant_credite", 0))
+                gains_payes += m
                 nb_gains += 1
+                cg = (g.get("code_gagnant", "") or "").upper()
+                if cg in _bloques:
+                    gains_vers_bloques += m
+                    nb_gains_bloques += 1
+                    detail_gains_bloques.append((str(g.get("date", ""))[:16].replace("T", " "), cg, str(g.get("jeu", "?")), m))
     # SORTIES : remboursements
     remboursements = 0
     for rb in DB.get("remboursements_tournoi", []):
@@ -7084,7 +7094,18 @@ def verif_comptable_org():
         html += "Cet ecart n'est pas forcement une erreur — il faut l'expliquer par les operations de correction. Voir le detail des mouvements dans /rapport-tournoi-org.</div>"
 
     # SEPARATION CAISSE vs ARDOISE
-    html += "<h2 style='color:#1F4E79;margin-top:24px'>4. Ce qui revient a l'organisatrice</h2>"
+    html += "<h2 style='color:#1F4E79;margin-top:24px'>4. Controle anti-fraude : gains payes a des comptes bloques</h2>"
+    if nb_gains_bloques > 0:
+        html += "<div class='verdict warn'>&#9888;&#65039; <b>" + str(nb_gains_bloques) + " gain(s) pour un total de " + fmt(gains_vers_bloques) + " XPF</b> ont ete payes par cette organisatrice a des comptes qui sont AUJOURD'HUI bloques (reseau de fraude). Ces gains faisaient peut-etre partie du circuit frauduleux : ils gonflent artificiellement le total 'gains payes'. A examiner.</div>"
+        html += "<table><tr><td class='sect'>Date</td><td class='sect'>Gagnante (bloquee)</td><td class='sect'>Jeu</td><td class='sect dr'>Montant</td></tr>"
+        for (d, cg, jeu, m) in sorted(detail_gains_bloques, key=lambda x: -x[3]):
+            html += "<tr><td>" + d + "</td><td>" + cg + "</td><td>" + jeu + "</td><td class='dr neg'>" + fmt(m) + " XPF</td></tr>"
+        html += "</table>"
+        html += "<div class='meta'>Note : ces gains ont deja ete verses. S'ils sont frauduleux, l'argent est chez des comptes bloques (donc recuperable via le bilan fraude). Cela n'enleve rien a la caisse de l'organisatrice, mais explique une partie de l'ecart : une part des 'ventes' encaissees venait de pions frauduleux qui ont ensuite ete nettoyes.</div>"
+    else:
+        html += "<div class='verdict ok'>&#9989; <b>Aucun gain paye a un compte bloque.</b> Tous les gains de cette organisatrice ont ete verses a des joueuses legitimes. Son activite de paiement est saine.</div>"
+
+    html += "<h2 style='color:#1F4E79;margin-top:24px'>5. Ce qui revient a l'organisatrice</h2>"
     html += "<table>"
     html += "<tr><td>Caisse reelle actuelle (poche)</td><td class='dr'>" + fmt(poche_reelle) + " XPF</td></tr>"
     html += "<tr><td>Commande a credit a te rembourser (ardoise)</td><td class='dr neg'>-" + fmt(ardoise_due) + " XPF</td></tr>"
