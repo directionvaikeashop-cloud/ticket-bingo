@@ -6954,6 +6954,137 @@ def releve_financier_org(code):
 
 
 
+@app.route("/ajouter-dette-joueuse")
+def ajouter_dette_joueuse():
+    """ADMIN — Enregistre une dette de joueuse (avance especes a rembourser).
+    ?cle=ADMIN&code=CODE&montant=N[&motif=...][&executer=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    try:
+        montant = int(request.args.get("montant", "0") or 0)
+    except ValueError:
+        montant = 0
+    motif = (request.args.get("motif", "") or "").strip() or "Avance en espèces (retrait supérieur au solde) — à rembourser"
+    executer = (request.args.get("executer", "") or "") == "1"
+
+    def page(t, c, col="#1F4E79"):
+        return Response("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head><body style='margin:0;background:#0d1117;font-family:system-ui,sans-serif;color:#e6edf3;padding:18px'><div style='max-width:560px;margin:0 auto'><h1 style='font-size:20px;color:" + col + "'>" + t + "</h1>" + c + "</div></body></html>", mimetype="text/html; charset=utf-8")
+    if not code or montant <= 0:
+        return page("Parametres", "<p>Ajoute <b>&code=CODE&montant=N</b>.</p>", "#f85149")
+    nom = ""
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_acheteur") or "").upper() == code and t.get("acheteur"):
+            nom = str(t.get("acheteur")); break
+    if not executer:
+        corps = "<div style='background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px'>Enregistrer une dette de <b>" + format(montant, ",") + " F</b> pour <b>" + code + (" — " + nom if nom else "") + "</b><br><span style='color:#8b949e;font-size:13px'>" + motif + "</span></div>"
+        corps += "<a href='?cle=" + _cle + "&code=" + code + "&montant=" + str(montant) + "&motif=" + motif.replace(" ", "%20").replace("—", "-") + "&executer=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#9989; Enregistrer la dette</a>"
+        return page("Ajouter une dette — apercu", corps)
+    DB.setdefault("dettes_joueuses", []).insert(0, {
+        "id": "D" + datetime.datetime.now().strftime("%Y%m%d%H%M%S"),
+        "code_joueur": code, "nom": nom, "montant": montant,
+        "motif": motif, "statut": "du", "date": datetime.datetime.now().isoformat()})
+    save_data(immediat=True)
+    return page("Dette enregistree", "<div style='background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:10px;padding:16px;color:#6ee7b7'>&#9989; " + code + " te doit " + format(montant, ",") + " F. Voir <a href='/dettes-joueuses?cle=" + _cle + "' style='color:#58a6ff'>/dettes-joueuses</a>.</div>", "#10b981")
+
+
+@app.route("/requalifier-retrait")
+def requalifier_retrait():
+    """REQUALIFICATION — change le LIBELLE d'un debit admin deja effectue en
+    'Retrait especes (boutique)', SANS re-debiter. ?cle=ADMIN&code=CODE&montant=N[&jour=AAAA-MM-JJ][&executer=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    executer = (request.args.get("executer", "") or "") == "1"
+    jour = (request.args.get("jour", "") or "").strip()
+    try:
+        montant = int(request.args.get("montant", "0") or 0)
+    except ValueError:
+        montant = 0
+
+    def page(t, c, col="#1F4E79"):
+        return Response("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head><body style='margin:0;background:#0d1117;font-family:system-ui,sans-serif;color:#e6edf3;padding:18px'><div style='max-width:620px;margin:0 auto'><h1 style='font-size:20px;color:" + col + "'>" + t + "</h1>" + c + "</div></body></html>", mimetype="text/html; charset=utf-8")
+    if not code or montant <= 0:
+        return page("Parametres", "<p>Ajoute <b>&code=CODE&montant=N</b> (montant du retrait), option <b>&jour=AAAA-MM-JJ</b>.</p>", "#f85149")
+
+    cibles = []
+    for i, c in enumerate(DB.get("credits_admin", [])):
+        if not isinstance(c, dict) or (c.get("code_joueur", "") or "").upper() != code:
+            continue
+        m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        if m >= 0 or abs(m) != montant:
+            continue
+        if jour and str(c.get("date", ""))[:10] != jour:
+            continue
+        if "espèce" in str(c.get("motif", "") or "").lower() or "especes" in str(c.get("motif", "") or "").lower():
+            continue
+        cibles.append((i, c, m))
+    if not cibles:
+        return page("Aucune trace", "<p>Aucun debit admin de <b>" + format(montant, ",") + " F</b> trouve pour <b>" + code + "</b>" + ((" le " + jour) if jour else "") + " (ou deja requalifie).</p>", "#f85149")
+    if not executer:
+        corps = "<div style='background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;font-size:14px'><b>" + str(len(cibles)) + " trace(s)</b> pour <b>" + code + "</b> :<br><br>"
+        for (i, c, m) in cibles:
+            corps += "&bull; " + str(c.get("date", ""))[:16].replace("T", " ") + " : " + format(m, ",") + " F &mdash; &laquo; " + str(c.get("motif", "") or "Credit admin") + " &raquo;<br>"
+        corps += "<br>&rarr; deviendra <b style='color:#3fb950'>Retrait en especes (boutique)</b>. <span style='color:#8b949e'>Aucun pion touche.</span></div>"
+        corps += "<a href='?cle=" + _cle + "&code=" + code + "&montant=" + str(montant) + (("&jour=" + jour) if jour else "") + "&executer=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#9989; Requalifier</a>"
+        return page("Requalifier — apercu", corps)
+    n = 0
+    for (i, c, m) in cibles:
+        DB["credits_admin"][i]["motif"] = "Retrait en espèces (boutique)"
+        n += 1
+    save_data(immediat=True)
+    return page("Requalifie", "<div style='background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:10px;padding:16px;color:#6ee7b7'>&#9989; " + str(n) + " trace(s) de " + code + " requalifiee(s) en <b>Retrait especes (boutique)</b>.</div>", "#10b981")
+
+
+@app.route("/dettes-joueuses")
+def dettes_joueuses():
+    """ADMIN — Liste des dettes de joueuses (avances especes a rembourser).
+    ?cle=ADMIN[&payer=ID]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    payer = (request.args.get("payer", "") or "").strip()
+    msg = ""
+    if payer:
+        for d in DB.get("dettes_joueuses", []):
+            if d.get("id") == payer and d.get("statut") == "du":
+                d["statut"] = "paye"
+                d["date_paiement"] = datetime.datetime.now().isoformat()
+                save_data(immediat=True)
+                msg = "&#9989; " + d.get("code_joueur", "") + " a rembourse " + format(d.get("montant", 0), ",") + " F."
+                break
+    dettes = DB.get("dettes_joueuses", [])
+    dues = [d for d in dettes if d.get("statut") == "du"]
+    total_du = sum(int(d.get("montant", 0) or 0) for d in dues)
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Dettes joueuses</title><style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:720px;margin:0 auto}h1{color:#f0883e}table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}th{background:#161b22;border:1px solid #30363d;padding:9px;text-align:left;color:#8b949e}td{border:1px solid #30363d;padding:8px}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128181; Dettes des joueuses (avances a rembourser)</h1>"
+    if msg:
+        html += "<div style='background:#14532d;color:#bbf7d0;padding:12px;border-radius:8px;margin-bottom:12px'>" + msg + "</div>"
+    html += "<div style='background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:12px'>TOTAL DU : <b style='font-size:18px;color:#f0883e'>" + format(total_du, ",") + " XPF</b></div>"
+    if dues:
+        html += "<table><tr><th>Date</th><th>Joueuse</th><th>Motif</th><th style='text-align:right'>Montant</th><th>Action</th></tr>"
+        for d in dues:
+            html += "<tr><td>" + str(d.get("date", ""))[:10] + "</td><td><b>" + d.get("code_joueur", "") + "</b>" + ((" — " + d.get("nom", "")) if d.get("nom") else "") + "</td><td style='font-size:12px'>" + str(d.get("motif", "")) + "</td>"
+            html += "<td style='text-align:right;font-weight:bold'>" + format(d.get("montant", 0), ",") + " F</td>"
+            html += "<td><a href='?cle=" + _cle + "&payer=" + d.get("id", "") + "' onclick=\"return confirm('Marquer comme rembourse ?')\">&#9989; Rembourse</a></td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='color:#3fb950'>&#9989; Aucune dette en cours.</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/verif-comptable-org")
 def verif_comptable_org():
     """VERIFICATION COMPTABLE (11/07/2026) : rapprochement complet pour une
