@@ -7029,19 +7029,35 @@ def requalifier_retrait():
             continue
         if "espèce" in str(c.get("motif", "") or "").lower() or "especes" in str(c.get("motif", "") or "").lower():
             continue
-        cibles.append((i, c, m))
+        cibles.append(("credits_admin", i, c, -abs(m)))
+    # Chercher AUSSI dans corrections_pions (type "Correction" sur le releve)
+    for i, c in enumerate(DB.get("corrections_pions", [])):
+        if not isinstance(c, dict) or (c.get("code_joueur", "") or "").upper() != code:
+            continue
+        retire = int(c.get("montant_retire", 0) or 0)
+        if retire <= 0:
+            retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
+        if retire != montant:
+            continue
+        if jour and str(c.get("date", ""))[:10] != jour:
+            continue
+        if heure and str(c.get("date", ""))[11:16] != heure:
+            continue
+        if "espèce" in str(c.get("motif", "") or "").lower() or "especes" in str(c.get("motif", "") or "").lower():
+            continue
+        cibles.append(("corrections_pions", i, c, -retire))
     if not cibles:
-        return page("Aucune trace", "<p>Aucun debit admin de <b>" + format(montant, ",") + " F</b> trouve pour <b>" + code + "</b>" + ((" le " + jour) if jour else "") + " (ou deja requalifie).</p>", "#f85149")
+        return page("Aucune trace", "<p>Aucun debit de <b>" + format(montant, ",") + " F</b> trouve pour <b>" + code + "</b>" + ((" le " + jour) if jour else "") + ((" a " + heure) if heure else "") + " (ou deja requalifie).</p>", "#f85149")
     if not executer:
         corps = "<div style='background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;font-size:14px'><b>" + str(len(cibles)) + " trace(s)</b> pour <b>" + code + "</b> :<br><br>"
-        for (i, c, m) in cibles:
-            corps += "&bull; " + str(c.get("date", ""))[:16].replace("T", " ") + " : " + format(m, ",") + " F &mdash; &laquo; " + str(c.get("motif", "") or "Credit admin") + " &raquo;<br>"
+        for (src, i, c, m) in cibles:
+            corps += "&bull; " + str(c.get("date", ""))[:16].replace("T", " ") + " : " + format(m, ",") + " F &mdash; &laquo; " + str(c.get("motif", "") or "Correction") + " &raquo;<br>"
         corps += "<br>&rarr; deviendra <b style='color:#3fb950'>Retrait en especes (boutique)</b>. <span style='color:#8b949e'>Aucun pion touche.</span></div>"
         corps += "<a href='?cle=" + _cle + "&code=" + code + "&montant=" + str(montant) + (("&jour=" + jour) if jour else "") + (("&heure=" + heure) if heure else "") + "&executer=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#9989; Requalifier</a>"
         return page("Requalifier — apercu", corps)
     n = 0
-    for (i, c, m) in cibles:
-        DB["credits_admin"][i]["motif"] = "Retrait en espèces (boutique)"
+    for (src, i, c, m) in cibles:
+        DB[src][i]["motif"] = "Retrait en espèces (boutique)"
         n += 1
     save_data(immediat=True)
     return page("Requalifie", "<div style='background:rgba(16,185,129,.12);border:1px solid #10b981;border-radius:10px;padding:16px;color:#6ee7b7'>&#9989; " + str(n) + " trace(s) de " + code + " requalifiee(s) en <b>Retrait especes (boutique)</b>.</div>", "#10b981")
