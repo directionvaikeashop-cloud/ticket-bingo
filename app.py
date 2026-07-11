@@ -6954,6 +6954,122 @@ def releve_financier_org(code):
 
 
 
+@app.route("/rapport-tournoi-org")
+def rapport_tournoi_org():
+    """RAPPORT COMPLET (11/07/2026) : toutes les transactions liees a une
+    organisatrice, transaction par transaction, avec totaux. Regroupe :
+    ventes de pions aux joueuses, encaissements de tickets, gains payes aux
+    gagnantes, cagnottes, remboursements. Page imprimable (Ctrl+P -> PDF).
+    Les codes joueuses restent visibles ; le code org et la cle admin ne sont
+    pas exposes. Acces ADMIN : ?cle=CODE_ADMIN&org=CODE_ORG."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG a l'adresse</h1>", status=400, mimetype="text/html; charset=utf-8")
+
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    lignes = []  # (date, type, joueuse, detail, entree_pour_org, sortie_pour_org)
+
+    # 1. Ventes de pions aux joueuses (l'org encaisse) — transactions_joueur_org
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() == org:
+            m = _iv(t.get("montant_total", 0))
+            lignes.append((str(t.get("date", "")), "Vente pions", (t.get("code_joueur", "") or "").upper(),
+                           str(t.get("nb_pions", "?")) + " x " + str(t.get("valeur_pion", "?")) + " XPF", m, 0))
+
+    # 2. Encaissements de tickets (l'org encaisse la mise) — encaissements_org
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() == org:
+            m = _iv(e.get("montant", 0))
+            lignes.append((str(e.get("date", "")), "Vente ticket", (e.get("code_joueur", "") or "").upper(),
+                           str(e.get("jeu", "?")), m, 0))
+
+    # 3. Gains payes aux gagnantes (l'org paie) — gains_finaux
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() == org:
+            m = _iv(g.get("montant_credite", 0))
+            annul = g.get("annule")
+            lignes.append((str(g.get("date", "")), "Gain paye" + (" ANNULE" if annul else ""),
+                           (g.get("code_gagnant", "") or "").upper(),
+                           str(g.get("jeu", "?")) + (" (annule)" if annul else ""), 0, 0 if annul else m))
+
+    # 4. Remboursements effectues sur ses tournois
+    for rb in DB.get("remboursements_tournoi", []):
+        if isinstance(rb, dict) and (rb.get("code_org", "") or "").upper() == org:
+            for det in (rb.get("detail") or []):
+                if isinstance(det, dict):
+                    lignes.append((str(rb.get("date", "")), "Remboursement", (det.get("code_joueur", "") or "").upper(),
+                                   str(rb.get("jeu", "?")), 0, _iv(det.get("montant", 0))))
+
+    lignes.sort(key=lambda r: r[0])
+    tot_entrees = sum(r[4] for r in lignes)
+    tot_sorties = sum(r[5] for r in lignes)
+    solde_theorique = tot_entrees - tot_sorties
+
+    # Poche actuelle de l'org
+    poche = _xpf_total_pions(DB.get("pions_org", {}).get(org, {}))
+
+    # Comptage par type
+    nb_ventes_pions = sum(1 for r in lignes if r[1] == "Vente pions")
+    nb_tickets = sum(1 for r in lignes if r[1] == "Vente ticket")
+    nb_gains = sum(1 for r in lignes if r[1].startswith("Gain paye") and "ANNULE" not in r[1])
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Rapport tournoi</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:16px}"
+    html += ".cards{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}"
+    html += ".card{flex:1;min-width:150px;background:#F5F7FA;border:1px solid #ccc;border-radius:8px;padding:12px;text-align:center}"
+    html += ".card .v{font-size:20px;font-weight:bold;color:#1F4E79}.card .l{font-size:12px;color:#555}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}"
+    html += "td{border:1px solid #bbb;padding:6px}.dr{text-align:right;white-space:nowrap}"
+    html += ".pos{color:#1E7B34}.neg{color:#C00000}"
+    html += "tr:nth-child(even){background:#FAFBFC}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; Pour enregistrer : <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128202; Rapport d'activite — organisatrice " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT (N&deg; TAHITI B90121, Papeete) &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Document confidentiel</div>"
+
+    html += "<div class='cards'>"
+    html += "<div class='card'><div class='v pos'>+" + format(tot_entrees, ",") + "</div><div class='l'>ENCAISSE (ventes pions + tickets)</div></div>"
+    html += "<div class='card'><div class='v neg'>-" + format(tot_sorties, ",") + "</div><div class='l'>PAYE (gains + remboursements)</div></div>"
+    html += "<div class='card'><div class='v'>" + format(solde_theorique, ",") + "</div><div class='l'>SOLDE THEORIQUE (encaisse - paye)</div></div>"
+    html += "<div class='card'><div class='v'>" + format(poche, ",") + "</div><div class='l'>POCHE ACTUELLE (pions org)</div></div>"
+    html += "</div>"
+    html += "<div class='meta'>" + str(nb_ventes_pions) + " ventes de pions &middot; " + str(nb_tickets) + " ventes de tickets &middot; " + str(nb_gains) + " gains payes &middot; " + str(len(lignes)) + " transactions au total</div>"
+
+    if lignes:
+        html += "<table><tr><th style='width:120px'>Date</th><th style='width:110px'>Type</th><th style='width:90px'>Joueuse</th><th>Detail</th><th class='dr' style='width:85px'>Encaisse</th><th class='dr' style='width:85px'>Paye</th></tr>"
+        for (d, ty, jou, det, e, s) in lignes:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + jou + "</td><td>" + det + "</td>"
+            html += "<td class='dr pos'>" + ("+" + format(e, ",") if e else "") + "</td>"
+            html += "<td class='dr neg'>" + ("-" + format(s, ",") if s else "") + "</td></tr>"
+        html += "<tr style='background:#DEEAF6;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAUX</td>"
+        html += "<td class='dr pos'>+" + format(tot_entrees, ",") + "</td><td class='dr neg'>-" + format(tot_sorties, ",") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucune transaction trouvee pour cette organisatrice.</p>"
+
+    html += "<div style='margin-top:18px;font-size:13px'><strong>Lecture :</strong> le SOLDE THEORIQUE (" + format(solde_theorique, ",") + " XPF) represente ce que l'organisatrice devrait avoir en caisse (encaissements moins gains payes). La POCHE ACTUELLE (" + format(poche, ",") + " XPF) est ce qu'elle a reellement en pions sur la plateforme. Un ecart peut venir de retraits en especes deja effectues ou de decouverts completes de sa poche.</div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/dossier-reseau")
 def dossier_reseau():
     """DOSSIER DE PREUVE (11/07/2026) : genere le releve COMPLET de chaque code
