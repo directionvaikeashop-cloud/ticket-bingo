@@ -6910,6 +6910,81 @@ def releve_financier_org(code):
 
 
 
+@app.route("/correction-ecriture")
+def correction_ecriture():
+    """CORRECTION D'ECRITURE (10/07/2026) : annule SUR LE PAPIER des credits en
+    trop (ex: traces d'un double-clic dont les pions ne sont jamais entres dans
+    la poche) SANS toucher a aucune poche. Ecrit une contre-trace negative sur
+    le releve du code, et marque le groupe pour que l'outil de reprise des
+    doubles-clics ne le traite pas une deuxieme fois.
+    ?cle=ADMIN&code=LECODE&montant=15000&jour=2026-06-29&umontant=5000&motif=...[&executer=1]
+    - montant : total a annuler sur le papier
+    - jour + umontant + motif : identifient le groupe de doubles a marquer comme traite"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    code_v = (request.args.get("code", "") or "").strip().upper()
+    try:
+        montant = int(request.args.get("montant", "0") or 0)
+    except ValueError:
+        montant = 0
+    jour = (request.args.get("jour", "") or "").strip()
+    umontant = (request.args.get("umontant", "") or "").strip()
+    motif_g = (request.args.get("motif", "") or "").strip()
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Correction d'ecriture</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128221; Correction d'ecriture (papier seulement)</h1>"
+    if not code_v or montant <= 0 or montant % 100 != 0:
+        html += "<div class='enc'>Parametres requis : <strong>&amp;code=LECODE&amp;montant=15000</strong> (multiple de 100).</div></body></html>"
+        return html
+
+    cle_groupe = ""
+    if jour and umontant and motif_g:
+        cle_groupe = code_v + "|" + jour + "|" + umontant + "|" + motif_g
+    deja = cle_groupe and cle_groupe in DB.get("corrections_doubles_faites", [])
+
+    if executer and not deja:
+        DB.setdefault("credits_admin", []).insert(0, {
+            "code_joueur": code_v,
+            "nb_pions": -(montant // 100),
+            "valeur_pion": 100,
+            "par": "CORRECTION-ECRITURE",
+            "motif": "Annulation d'écriture — crédits en double (double-clic) annulés sur le relevé, aucune poche modifiée",
+            "date": datetime.datetime.now().isoformat()
+        })
+        if cle_groupe:
+            DB.setdefault("corrections_doubles_faites", []).append(cle_groupe)
+        save_data(immediat=True)
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; ECRITURE CORRIGEE</span><br>"
+        html += "Code <strong>" + code_v + "</strong> : <strong>-" + format(montant, ",") + " XPF</strong> annules sur le releve (papier). AUCUNE poche touchee.<br>"
+        html += "Le groupe de doubles est marque comme traite : l'outil de reprise ne le proposera plus.</div>"
+        html += "<p class='sub'><a href='/releve-financier-joueur/" + code_v + "?cle=" + _cle + "'>Voir son releve corrige</a> &middot; <a href='/corriger-doubles-clics?cle=" + _cle + "'>Outil doubles-clics</a></p>"
+    elif deja:
+        html += "<div class='enc'><span class='ok'>&#9989; Deja corrige</span> : ce groupe a deja ete traite, rien a faire.</div>"
+    else:
+        html += "<div class='enc'><strong>APERCU</strong> &mdash; rien n'a ete modifie.<br><br>"
+        html += "Code : <strong>" + code_v + "</strong><br>"
+        html += "Annulation sur le releve : <strong class='ko'>-" + format(montant, ",") + " XPF</strong> (contre-trace, AUCUNE poche touchee)<br>"
+        if cle_groupe:
+            html += "Groupe de doubles marque comme traite : <span style='font-size:11px;color:#8b949e'>" + cle_groupe + "</span><br>"
+        html += "</div>"
+        url_exec = "?cle=" + _cle + "&code=" + code_v + "&montant=" + str(montant)
+        if jour:
+            url_exec += "&jour=" + jour + "&umontant=" + umontant + "&motif=" + motif_g.replace(" ", "%20")
+        url_exec += "&executer=1"
+        html += "<a class='btn' href='" + url_exec + "' onclick=\"return confirm('Annuler " + format(montant, ",") + " XPF sur le releve de " + code_v + " (papier seulement) ?')\">&#128221; CORRIGER L'ECRITURE</a>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/quarantaine-code")
 def quarantaine_code():
     """QUARANTAINE (10/07/2026) : pour un code suspect (ex: code fantome ayant
