@@ -6954,6 +6954,148 @@ def releve_financier_org(code):
 
 
 
+@app.route("/verif-comptable-org")
+def verif_comptable_org():
+    """VERIFICATION COMPTABLE (11/07/2026) : rapprochement complet pour une
+    organisatrice. Compare ce qui est ENTRE dans sa caisse (ventes de pions +
+    encaissements de tickets) avec ce qui est SORTI (gains payes + remboursements),
+    tient compte de la commande a credit (ardoise), et verifie si le resultat
+    correspond a sa poche reelle actuelle. Affiche chaque ecart pour comprendre.
+    Peut agreger l'ancien code ET le nouveau (parametre &aussi=ANCIEN_CODE).
+    Page imprimable. Acces ADMIN : ?cle=CODE_ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG (et optionnellement &aussi=ANCIEN_CODE)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = [org] + ([aussi] if aussi else [])
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # ENTREES : ventes de pions aux joueuses
+    ventes_pions = 0
+    nb_ventes_pions = 0
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in codes:
+            ventes_pions += _iv(t.get("montant_total", 0))
+            nb_ventes_pions += 1
+    # ENTREES : encaissements de tickets (mises)
+    encaiss_tickets = 0
+    nb_tickets = 0
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes:
+            encaiss_tickets += _iv(e.get("montant", 0))
+            nb_tickets += 1
+    total_entrees = ventes_pions + encaiss_tickets
+
+    # SORTIES : gains payes (non annules)
+    gains_payes = 0
+    nb_gains = 0
+    gains_annules = 0
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes:
+            if g.get("annule"):
+                gains_annules += _iv(g.get("montant_credite", 0))
+            else:
+                gains_payes += _iv(g.get("montant_credite", 0))
+                nb_gains += 1
+    # SORTIES : remboursements
+    remboursements = 0
+    for rb in DB.get("remboursements_tournoi", []):
+        if isinstance(rb, dict) and (rb.get("code_org", "") or "").upper() in codes:
+            for det in (rb.get("detail") or []):
+                if isinstance(det, dict):
+                    remboursements += _iv(det.get("montant", 0))
+    total_sorties = gains_payes + remboursements
+
+    # ARDOISE (commande a credit) : pions/jeux fournis par l'admin, a rembourser
+    ardoise_due = 0
+    for c in DB.get("credits_organisateurs", []):
+        if isinstance(c, dict) and (c.get("code_org", "") or "").upper() in codes and c.get("statut") == "du":
+            ardoise_due += _iv(c.get("montant", 0))
+
+    # POCHE REELLE actuelle (sur tous les codes agreges)
+    poche_reelle = 0
+    for c in codes:
+        poche_reelle += _xpf_total_pions(DB.get("pions_org", {}).get(c, {}))
+
+    # RAISONNEMENT :
+    # Ce qui devrait etre en poche = entrees - sorties (l'argent des joueuses moins les gains)
+    # + les pions avances a credit (ils sont physiquement dans la poche jusqu'au remboursement)
+    poche_theorique = total_entrees - total_sorties
+    ecart = poche_reelle - poche_theorique
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Verification comptable</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:820px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:16px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:14px;margin:14px 0}"
+    html += "td{border:1px solid #ccc;padding:9px}.dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".sect{background:#E8EEF6;font-weight:bold;color:#1F4E79}"
+    html += ".pos{color:#1E7B34}.neg{color:#C00000}"
+    html += ".big{font-size:16px}"
+    html += ".verdict{border-radius:10px;padding:16px;margin:16px 0;font-size:15px}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;color:#1E7B34}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;color:#9C4A00}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; Pour enregistrer : <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#129518; Verification comptable — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Codes analyses : " + ", ".join(codes) + "</div>"
+
+    html += "<table>"
+    html += "<tr class='sect'><td colspan='2'>1. CE QUI EST ENTRE dans sa caisse (argent des joueuses)</td></tr>"
+    html += "<tr><td>Ventes de pions aux joueuses (" + str(nb_ventes_pions) + " ventes)</td><td class='dr pos'>+" + fmt(ventes_pions) + " XPF</td></tr>"
+    html += "<tr><td>Encaissements de tickets / mises (" + str(nb_tickets) + " tickets)</td><td class='dr pos'>+" + fmt(encaiss_tickets) + " XPF</td></tr>"
+    html += "<tr><td><b>Total ENTRE</b></td><td class='dr pos big'>+" + fmt(total_entrees) + " XPF</td></tr>"
+    html += "<tr class='sect'><td colspan='2'>2. CE QUI EST SORTI de sa caisse (paye aux joueuses)</td></tr>"
+    html += "<tr><td>Gains payes aux gagnantes (" + str(nb_gains) + " gains)</td><td class='dr neg'>-" + fmt(gains_payes) + " XPF</td></tr>"
+    html += "<tr><td>Remboursements</td><td class='dr neg'>-" + fmt(remboursements) + " XPF</td></tr>"
+    if gains_annules:
+        html += "<tr><td style='color:#888'>(Gains annules — non comptes)</td><td class='dr' style='color:#888'>" + fmt(gains_annules) + " XPF</td></tr>"
+    html += "<tr><td><b>Total SORTI</b></td><td class='dr neg big'>-" + fmt(total_sorties) + " XPF</td></tr>"
+    html += "<tr class='sect'><td colspan='2'>3. VERIFICATION</td></tr>"
+    html += "<tr><td>Poche qu'elle DEVRAIT avoir (entre - sorti)</td><td class='dr'>" + fmt(poche_theorique) + " XPF</td></tr>"
+    html += "<tr><td>Poche qu'elle a REELLEMENT (pions en caisse)</td><td class='dr'>" + fmt(poche_reelle) + " XPF</td></tr>"
+    html += "<tr><td><b>Ecart</b></td><td class='dr " + ("pos" if ecart == 0 else "neg") + " big'>" + ("+" if ecart > 0 else "") + fmt(ecart) + " XPF</td></tr>"
+    html += "</table>"
+
+    # VERDICT
+    if ecart == 0:
+        html += "<div class='verdict ok'>&#9989; <b>COMPTES EQUILIBRES.</b> Ce qui est entre moins ce qui est sorti correspond exactement a ce qu'elle a en caisse. Tout est coherent.</div>"
+    else:
+        html += "<div class='verdict warn'>&#9888;&#65039; <b>Ecart de " + fmt(abs(ecart)) + " XPF</b> entre le theorique et la poche reelle. "
+        if ecart < 0:
+            html += "Sa poche est PLUS BASSE que le calcul. Causes possibles : des pions ont ete retires de sa caisse (corrections, transferts annules lors du nettoyage fraude du 11/07), ou des gains payes hors systeme. "
+        else:
+            html += "Sa poche est PLUS HAUTE que le calcul. Causes possibles : des pions credites directement (bonus, avance a credit non tracee en vente), ou un encaissement non enregistre comme vente. "
+        html += "Cet ecart n'est pas forcement une erreur — il faut l'expliquer par les operations de correction. Voir le detail des mouvements dans /rapport-tournoi-org.</div>"
+
+    # SEPARATION CAISSE vs ARDOISE
+    html += "<h2 style='color:#1F4E79;margin-top:24px'>4. Ce qui revient a l'organisatrice</h2>"
+    html += "<table>"
+    html += "<tr><td>Caisse reelle actuelle (poche)</td><td class='dr'>" + fmt(poche_reelle) + " XPF</td></tr>"
+    html += "<tr><td>Commande a credit a te rembourser (ardoise)</td><td class='dr neg'>-" + fmt(ardoise_due) + " XPF</td></tr>"
+    html += "<tr class='sect'><td><b>Solde net revenant a l'organisatrice</b></td><td class='dr big'>" + fmt(poche_reelle - ardoise_due) + " XPF</td></tr>"
+    html += "</table>"
+    html += "<div class='meta'>La caisse contient l'argent encaisse des joueuses. Sur ce montant, " + fmt(ardoise_due) + " XPF correspondent aux jeux et pions avances par l'administration (a rembourser). Le reste (" + fmt(poche_reelle - ardoise_due) + " XPF) est le benefice net de l'organisatrice.</div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/transfert-poche-org")
 def transfert_poche_org():
     """ADMIN (11/07/2026) : deplace les pions de la POCHE ORGANISATEUR d'un code
