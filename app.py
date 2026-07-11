@@ -7005,6 +7005,7 @@ def requalifier_retrait():
     code = (request.args.get("code", "") or "").strip().upper()
     executer = (request.args.get("executer", "") or "") == "1"
     jour = (request.args.get("jour", "") or "").strip()
+    heure = (request.args.get("heure", "") or "").strip()
     try:
         montant = int(request.args.get("montant", "0") or 0)
     except ValueError:
@@ -7013,7 +7014,7 @@ def requalifier_retrait():
     def page(t, c, col="#1F4E79"):
         return Response("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head><body style='margin:0;background:#0d1117;font-family:system-ui,sans-serif;color:#e6edf3;padding:18px'><div style='max-width:620px;margin:0 auto'><h1 style='font-size:20px;color:" + col + "'>" + t + "</h1>" + c + "</div></body></html>", mimetype="text/html; charset=utf-8")
     if not code or montant <= 0:
-        return page("Parametres", "<p>Ajoute <b>&code=CODE&montant=N</b> (montant du retrait), option <b>&jour=AAAA-MM-JJ</b>.</p>", "#f85149")
+        return page("Parametres", "<p>Ajoute <b>&code=CODE&montant=N</b> (montant du retrait), option <b>&jour=AAAA-MM-JJ&heure=HH:MM</b>.</p>", "#f85149")
 
     cibles = []
     for i, c in enumerate(DB.get("credits_admin", [])):
@@ -7023,6 +7024,8 @@ def requalifier_retrait():
         if m >= 0 or abs(m) != montant:
             continue
         if jour and str(c.get("date", ""))[:10] != jour:
+            continue
+        if heure and str(c.get("date", ""))[11:16] != heure:
             continue
         if "espèce" in str(c.get("motif", "") or "").lower() or "especes" in str(c.get("motif", "") or "").lower():
             continue
@@ -7034,7 +7037,7 @@ def requalifier_retrait():
         for (i, c, m) in cibles:
             corps += "&bull; " + str(c.get("date", ""))[:16].replace("T", " ") + " : " + format(m, ",") + " F &mdash; &laquo; " + str(c.get("motif", "") or "Credit admin") + " &raquo;<br>"
         corps += "<br>&rarr; deviendra <b style='color:#3fb950'>Retrait en especes (boutique)</b>. <span style='color:#8b949e'>Aucun pion touche.</span></div>"
-        corps += "<a href='?cle=" + _cle + "&code=" + code + "&montant=" + str(montant) + (("&jour=" + jour) if jour else "") + "&executer=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#9989; Requalifier</a>"
+        corps += "<a href='?cle=" + _cle + "&code=" + code + "&montant=" + str(montant) + (("&jour=" + jour) if jour else "") + (("&heure=" + heure) if heure else "") + "&executer=1' style='display:block;text-align:center;background:#16a34a;color:#fff;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;margin-top:14px'>&#9989; Requalifier</a>"
         return page("Requalifier — apercu", corps)
     n = 0
     for (i, c, m) in cibles:
