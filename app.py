@@ -7181,15 +7181,24 @@ def audit_soldes():
         fusionnes.append(base)
     resultats = fusionnes
 
+    # === MONTANT A RISQUE (v4) : la seule chose qui compte pour un retrait.
+    # = la part de l'ecart NON couverte par le bonus, plafonnee a la poche reelle.
+    # Poche reelle vide => rien a retirer => risque 0, quel que soit l'ecart.
+    def _risque(r):
+        if r["ecart"] <= 0:
+            return 0
+        return max(0, min(r["ecart"] - r["poche_bonus"], r["poche_reel"]))
+
     voir_tous = (request.args.get("tous", "") or "").strip() == "1"
     nb_total = len(resultats)
     nb_ok = sum(1 for r in resultats if r["ecart"] == 0)
-    nb_bonus = sum(1 for r in resultats if 0 < r["ecart"] <= r["poche_bonus"])
-    nb_examiner = nb_total - nb_ok - nb_bonus
+    nb_examiner = sum(1 for r in resultats if _risque(r) > 0)
+    nb_sans_risque = nb_total - nb_ok - nb_examiner
+    montant_risque_total = sum(_risque(r) for r in resultats)
     if not voir_tous:
         resultats = [r for r in resultats if r["ecart"] != 0]
-    # Tri : les cas A EXAMINER d'abord (par taille d'ecart), les "sans risque" a la fin
-    resultats.sort(key=lambda r: (1 if 0 < r["ecart"] <= r["poche_bonus"] else 0, -abs(r["ecart"])))
+    # Tri : les cas A EXAMINER d'abord (par montant a risque), le reste ensuite
+    resultats.sort(key=lambda r: (0 if _risque(r) > 0 else 1, -_risque(r), -abs(r["ecart"])))
 
     html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit des soldes</title><style>"
     html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
@@ -7205,24 +7214,27 @@ def audit_soldes():
     html += "<div class='totaux' style='grid-template-columns:1fr 1fr 1fr 1fr'>"
     html += "<div><strong>Joueuses auditees</strong><br><span class='m'>" + str(nb_total) + "</span></div>"
     html += "<div><strong>Equilibrees</strong><br><span class='m ok'>" + str(nb_ok) + "</span></div>"
-    html += "<div><strong>Sans risque</strong><br><span class='m' style='color:#a78bfa'>" + str(nb_bonus) + "</span><br><span style='font-size:11px;color:#8b949e'>ecart couvert par le bonus non retirable</span></div>"
-    html += "<div><strong>A EXAMINER</strong><br><span class='m " + ("ko" if nb_examiner else "ok") + "'>" + str(nb_examiner) + "</span><br><span style='font-size:11px;color:#8b949e'>avant tout retrait d'argent</span></div>"
+    html += "<div><strong>Sans risque</strong><br><span class='m' style='color:#a78bfa'>" + str(nb_sans_risque) + "</span><br><span style='font-size:11px;color:#8b949e'>ecart couvert par le bonus ou rien a retirer</span></div>"
+    html += "<div><strong>A EXAMINER</strong><br><span class='m " + ("ko" if nb_examiner else "ok") + "'>" + str(nb_examiner) + "</span><br><span style='font-size:11px;color:#8b949e'>risque total : " + format(montant_risque_total, ",") + " XPF</span></div>"
     html += "</div>"
     if voir_tous:
         html += "<p><a href='?cle=" + _cle + "'>Voir seulement les ecarts</a></p>"
     else:
         html += "<p><a href='?cle=" + _cle + "&tous=1'>Voir toutes les joueuses (y compris equilibrees)</a></p>"
     if resultats:
-        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Entrees tracees</th><th class='dr'>Sorties tracees</th><th class='dr'>Solde trace</th><th class='dr'>Poche REELLE</th><th class='dr'>Poche BONUS</th><th class='dr'>Ecart</th><th>Lecture</th></tr>"
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Entrees tracees</th><th class='dr'>Sorties tracees</th><th class='dr'>Solde trace</th><th class='dr'>Poche REELLE</th><th class='dr'>Poche BONUS</th><th class='dr'>Ecart</th><th class='dr'>Montant A RISQUE</th><th>Lecture</th></tr>"
         for r in resultats:
+            rq = _risque(r)
             if r["ecart"] == 0:
                 verdict = "<span class='ok'>&#9989; equilibre</span>"
-            elif 0 < r["ecart"] <= r["poche_bonus"]:
-                verdict = "<span style='color:#a78bfa'>&#9989; sans risque : ecart couvert par le bonus (non retirable)</span>"
-            elif r["ecart"] > 0:
+            elif rq > 0:
                 verdict = "<span class='ko'>&#128680; A EXAMINER : pions retirables sans origine tracee</span>"
+            elif r["ecart"] > 0 and r["poche_reel"] == 0:
+                verdict = "<span style='color:#58a6ff'>&#8505;&#65039; historique incomplet — rien a retirer (sans risque)</span>"
+            elif r["ecart"] > 0:
+                verdict = "<span style='color:#a78bfa'>&#9989; sans risque : ecart couvert par le bonus (non retirable)</span>"
             else:
-                verdict = "<span class='neu'>&#9888;&#65039; traces &gt; poche (sorties anciennes non tracees)</span>"
+                verdict = "<span class='neu'>&#9888;&#65039; traces &gt; poche (sorties anciennes non tracees) — rien a payer au-dela de la poche</span>"
             if r.get("fusion"):
                 verdict += " <span style='color:#a78bfa'>&#128279; codes jumeaux fusionnes</span>"
             html += "<tr><td><a href='/releve-financier-joueur/" + r["code_lien"] + "?cle=" + _cle + "'>" + r["code"] + "</a></td>"
@@ -7232,7 +7244,8 @@ def audit_soldes():
             html += "<td class='dr'>" + format(r["trace"], ",") + "</td>"
             html += "<td class='dr'>" + format(r["poche_reel"], ",") + "</td>"
             html += "<td class='dr' style='color:#a78bfa'>" + format(r["poche_bonus"], ",") + "</td>"
-            html += "<td class='dr'><strong>" + format(r["ecart"], ",") + "</strong></td>"
+            html += "<td class='dr'>" + format(r["ecart"], ",") + "</td>"
+            html += "<td class='dr'><strong class='" + ("ko" if rq > 0 else "ok") + "'>" + format(rq, ",") + "</strong></td>"
             html += "<td>" + verdict + "</td></tr>"
         html += "</table>"
         html += "<p class='sub' style='margin-top:16px'>Chaque code est cliquable : il ouvre le releve detaille de la joueuse pour analyser l'ecart ligne par ligne.</p>"
