@@ -6943,6 +6943,50 @@ def bilan_fraude():
         if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
             noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
 
+    # === ACTIONS EN MASSE (uniquement sur les codes DEJA BLOQUES = deja juges) ===
+    _bloques_set = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+    msg_action = ""
+    if (request.args.get("annuler_tous", "") or "") == "1":
+        nb_a = 0
+        tot_a = 0
+        now = datetime.datetime.now().isoformat()
+        for t in DB.get("transferts_pions", []):
+            if isinstance(t, dict) and not t.get("annule_fraude") and (t.get("de") or "").upper() in _bloques_set:
+                t["annule_fraude"] = True
+                t["annule_fraude_date"] = now
+                t["annule_fraude_par"] = _cle
+                nb_a += 1
+                tot_a += int(t.get("montant", 0) or 0)
+        if nb_a:
+            DB.setdefault("annulations_fraude", []).insert(0, {
+                "code_fraudeur": "TOUS-LES-BLOQUES", "nb_transferts": nb_a,
+                "total": tot_a, "par": _cle, "date": now})
+            save_data(immediat=True)
+        msg_action = "&#9989; " + str(nb_a) + " transfert(s) de codes bloques annules (" + format(tot_a, ",") + " XPF)."
+    if (request.args.get("vider_bloques", "") or "") == "1":
+        nb_v = 0
+        tot_v = 0
+        now = datetime.datetime.now().isoformat()
+        for b in _bloques_set:
+            repris_b = 0
+            for nom_p in ("pions_joueurs", "pions_bonus_joueurs", "pions_org"):
+                if nom_p == "pions_org" and b not in DB.get("codes", {}):
+                    continue
+                poche = dict(DB.get(nom_p, {}).get(b, {}))
+                part = _xpf_total_pions(poche)
+                if part > 0 and _debiter_pions_montant(poche, part):
+                    DB.setdefault(nom_p, {})[b] = poche
+                    repris_b += part
+            if repris_b > 0:
+                DB.setdefault("corrections_pions", []).insert(0, {
+                    "code_joueur": b, "montant_retire": repris_b,
+                    "motif": "Pions de fraude retirés (compte banni — solde résiduel, bilan fraude)",
+                    "par": _cle, "date": now})
+                nb_v += 1
+                tot_v += repris_b
+        if nb_v:
+            save_data(immediat=True)
+        msg_action += " &#9989; " + str(nb_v) + " poche(s) residuelle(s) videe(s) (" + format(tot_v, ",") + " XPF)."
     # Transferts par emetteur (actifs / annules)
     emis_actifs = {}
     emis_annules = {}
@@ -7012,6 +7056,8 @@ def bilan_fraude():
     html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
     html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}</style></head><body>"
     html += "<h1>&#128737;&#65039; Bilan fraude — page de cloture</h1>"
+    if msg_action:
+        html += "<div style='background:#14532d;color:#bbf7d0;padding:14px 18px;border-radius:10px;margin-bottom:16px;font-weight:600'>" + msg_action + "</div>"
     html += "<div class='totaux'>"
     html += "<div><strong>Codes bloques</strong><br><span class='m'>" + str(len(set(bloques))) + "</span></div>"
     html += "<div><strong>Pions fraude repris</strong><br><span class='m ok'>" + format(total_repris, ",") + " XPF</span></div>"
@@ -7021,6 +7067,12 @@ def bilan_fraude():
 
     html += "<h2>1&#65039;&#8283; Etat des codes bloques</h2>"
     html += "<div class='sub'>Un code bloque est NEUTRALISE quand sa poche est a 0 ET tous ses transferts emis sont annules. Sinon, l'action restante est indiquee.</div>"
+    _tot_actifs_bloques = sum(r["actifs"] for r in lignes_b)
+    _tot_poches_bloques = sum(r["poche"] for r in lignes_b)
+    if _tot_actifs_bloques > 0:
+        html += "<a style='display:inline-block;margin:6px 8px 6px 0;padding:12px 20px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold' href='?cle=" + _cle + "&annuler_tous=1' onclick=\"return confirm('Annuler TOUS les transferts actifs emis par les codes bloques (" + format(_tot_actifs_bloques, ",") + " XPF) ?')\">&#128683; ANNULER TOUS LEURS TRANSFERTS (" + format(_tot_actifs_bloques, ",") + " XPF)</a>"
+    if _tot_poches_bloques > 0:
+        html += "<a style='display:inline-block;margin:6px 0;padding:12px 20px;background:#f0883e;color:#0d1117;border-radius:10px;text-decoration:none;font-weight:bold' href='?cle=" + _cle + "&vider_bloques=1' onclick=\"return confirm('Vider les poches residuelles des codes bloques (" + format(_tot_poches_bloques, ",") + " XPF) ?')\">&#129688; VIDER LEURS POCHES RESIDUELLES (" + format(_tot_poches_bloques, ",") + " XPF)</a>"
     if lignes_b:
         html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Poche restante</th><th class='dr'>Transferts emis ACTIFS</th><th class='dr'>Transferts annules</th><th class='dr'>Pions repris</th><th>Etat / Action</th></tr>"
         for r in lignes_b:
