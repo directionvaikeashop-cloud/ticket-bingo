@@ -6910,6 +6910,151 @@ def releve_financier_org(code):
 
 
 
+@app.route("/verifier-restitutions")
+def verifier_restitutions():
+    """RESTITUTION (11/07/2026) : croise les reprises AUTOMATIQUES d'aujourd'hui
+    (outil doubles-clics) avec les corrections MANUELLES deja faites en juin
+    (corrections_pions 'ERREUR DOUBLE'). Si un meme double-clic a ete corrige
+    DEUX fois (une fois a la main + une fois par l'outil), la joueuse a ete
+    trop debitee : on lui RESTITUE la difference, avec trace.
+    SANS parametre : SIMULATION. Avec &executer=1 : applique.
+    Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+    _PAR_OUTILS = ("CONVERSION-QR", "CORRECTION-DOUBLE", "CORRECTION-ECRITURE", "QUARANTAINE", "RESTITUTION")
+
+    # 1. Trop-percu LEGITIME par code (les vrais doubles d'origine)
+    groupes = {}
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict) or (c.get("par") or "") in _PAR_OUTILS:
+            continue
+        m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        if m <= 0:
+            continue
+        code_j = (c.get("code_joueur") or "").upper().strip()
+        jour = str(c.get("date") or "")[:10]
+        motif = (c.get("motif") or "sans motif").strip()
+        if code_j and jour:
+            groupes[(code_j, jour, m, motif)] = groupes.get((code_j, jour, m, motif), 0) + 1
+    trop = {}
+    for (code_j, jour, m, motif), nb in groupes.items():
+        if nb >= 2:
+            trop[code_j] = trop.get(code_j, 0) + m * (nb - 1)
+
+    # 2. Total CORRIGE par code = reprises auto (aujourd'hui) + corrections manuelles (juin)
+    auto = {}
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par") or "") == "CORRECTION-DOUBLE":
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            if m < 0:
+                cj = (c.get("code_joueur") or "").upper().strip()
+                auto[cj] = auto.get(cj, 0) + (-m)
+    manuel = {}
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict):
+            cj = (c.get("code_joueur") or "").upper().strip()
+            retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
+            if retire <= 0:
+                retire = int(c.get("montant_retire", 0) or 0)
+            if cj and retire > 0:
+                manuel[cj] = manuel.get(cj, 0) + retire
+
+    deja_faites = set(DB.get("restitutions_faites", []))
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    lignes_res = []
+    for cj in set(list(auto.keys()) + list(manuel.keys())):
+        if cj in deja_faites:
+            continue
+        total_corrige = auto.get(cj, 0) + manuel.get(cj, 0)
+        du = max(0, total_corrige - trop.get(cj, 0))
+        if du <= 0:
+            continue
+        est_org = cj in DB.get("codes", {})
+        reel_vide = (_xpf_total_pions(DB.get("pions_joueurs", {}).get(cj, {})) +
+                     _xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(cj, {}))) == 0
+        vers_org = est_org and reel_vide and auto.get(cj, 0) > 0
+        nom_aff = noms.get(cj, "")
+        if est_org:
+            nom_aff = (DB["codes"].get(cj, {}).get("nom", "") or nom_aff) + " (organisatrice)"
+        lignes_res.append({"code": cj, "nom": nom_aff, "trop": trop.get(cj, 0),
+                           "manuel": manuel.get(cj, 0), "auto": auto.get(cj, 0),
+                           "du": du, "vers_org": vers_org})
+    lignes_res.sort(key=lambda r: r["du"], reverse=True)
+    total_du = sum(r["du"] for r in lignes_res)
+
+    faits = []
+    if executer and lignes_res:
+        for r in lignes_res:
+            cj = r["code"]
+            du = r["du"]
+            if du % 100 == 0 and du > 0:
+                if r["vers_org"]:
+                    poche = DB.setdefault("pions_org", {}).setdefault(cj, {})
+                    _crediter_pions_montant(poche, du)
+                    DB["pions_org"][cj] = poche
+                else:
+                    poche = DB.setdefault("pions_joueurs", {}).setdefault(cj, {})
+                    _crediter_pions_montant(poche, du)
+                    DB["pions_joueurs"][cj] = poche
+                DB.setdefault("credits_admin", []).insert(0, {
+                    "code_joueur": cj,
+                    "nb_pions": du // 100,
+                    "valeur_pion": 100,
+                    "par": "RESTITUTION",
+                    "motif": "Restitution — double-clic corrigé deux fois (correction manuelle de juin + outil du 11/07)",
+                    "date": datetime.datetime.now().isoformat()
+                })
+                DB.setdefault("restitutions_faites", []).append(cj)
+                faits.append(r)
+        save_data(immediat=True)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Restitutions</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#3fb950}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#3fb950;color:#0d1117;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}</style></head><body>"
+    html += "<h1>&#128257; Restitutions (corrections comptees en double)</h1>"
+    html += "<div class='sub'>Un double-clic corrige a la main en juin PUIS repris par l'outil du 11/07 = joueuse trop debitee. On lui rend la difference.</div>"
+    if executer:
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; RESTITUTIONS EFFECTUEES</span><br>"
+        html += str(len(faits)) + " restitution(s) &middot; " + format(sum(r['du'] for r in faits), ",") + " XPF rendus.</div>"
+        liste = faits
+    else:
+        html += "<div class='enc'><strong>MODE SIMULATION</strong> &mdash; rien n'a ete modifie.<br>"
+        html += "A restituer : <strong>" + str(len(lignes_res)) + "</strong> code(s) &middot; <strong class='ok'>" + format(total_du, ",") + " XPF</strong></div>"
+        if lignes_res:
+            html += "<a class='btn' href='?cle=" + _cle + "&executer=1' onclick=\"return confirm('Restituer " + format(total_du, ",") + " XPF a " + str(len(lignes_res)) + " code(s) ?')\">&#128257; EXECUTER LES RESTITUTIONS (" + format(total_du, ",") + " XPF)</a>"
+        liste = lignes_res
+    if liste:
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Trop-percu d'origine</th><th class='dr'>Corrige a la main (juin)</th><th class='dr'>Repris par l'outil (11/07)</th><th class='dr'>A RESTITUER</th><th>Destination</th></tr>"
+        for r in liste:
+            html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
+            html += "<td>" + r["nom"] + "</td>"
+            html += "<td class='dr'>" + format(r["trop"], ",") + "</td>"
+            html += "<td class='dr'>" + format(r["manuel"], ",") + "</td>"
+            html += "<td class='dr'>" + format(r["auto"], ",") + "</td>"
+            html += "<td class='dr'><strong class='ok'>+" + format(r["du"], ",") + "</strong></td>"
+            html += "<td>" + ("poche ORGANISATEUR" if r["vers_org"] else "poche reelle joueuse") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='ok' style='font-size:16px'>&#127881; Aucune restitution necessaire : aucune correction comptee en double.</p>"
+    html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Audit des soldes</a></p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/correction-ecriture")
 def correction_ecriture():
     """CORRECTION D'ECRITURE (10/07/2026) : annule SUR LE PAPIER des credits en
@@ -7304,6 +7449,33 @@ def detecter_doubles_remboursements():
     doubles.sort(key=lambda d: d["trop_percu"], reverse=True)
     total_trop = sum(d["trop_percu"] for d in doubles)
 
+    # === DOUBLES GAINS : meme gagnante + meme jeu + meme montant + meme jour,
+    # paye 2 fois ou plus. L'heure exacte permet de trancher : meme seconde =
+    # double-clic certain ; heures differentes = peut-etre 2 vrais gains.
+    groupes_gains = {}
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict) or g.get("annule"):
+            continue
+        cg = (g.get("code_gagnant") or "").upper().strip()
+        jour_g = str(g.get("date") or "")[:10]
+        try:
+            mg = int(g.get("montant_gain", 0) or 0)
+        except (ValueError, TypeError):
+            mg = 0
+        if not cg or not jour_g or mg <= 0:
+            continue
+        cle_gg = (cg, jour_g, mg, str(g.get("jeu", "")), (g.get("code_org") or "").upper())
+        groupes_gains.setdefault(cle_gg, []).append(str(g.get("date") or "")[11:19])
+    doubles_gains = []
+    for (cg, jour_g, mg, jeu_g, org_g), heures in groupes_gains.items():
+        if len(heures) >= 2:
+            doubles_gains.append({"code": cg, "nom": noms.get(cg, ""), "jour": jour_g,
+                                  "montant": mg, "jeu": jeu_g, "org": org_g,
+                                  "nb": len(heures), "heures": sorted(heures),
+                                  "trop": mg * (len(heures) - 1)})
+    doubles_gains.sort(key=lambda d: d["trop"], reverse=True)
+    total_trop_gains = sum(d["trop"] for d in doubles_gains)
+
     html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Doubles remboursements</title><style>"
     html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#58a6ff}"
     html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
@@ -7329,6 +7501,28 @@ def detecter_doubles_remboursements():
         html += "<p class='sub' style='margin-top:14px'>Chaque code ouvre sa trace complete pour verifier avant de corriger (retrait du trop-percu chez la joueuse ou dedommagement de l'organisateur, a ta main).</p>"
     else:
         html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; Aucun double remboursement detecte</span><br>Aucune joueuse n'a recu deux fois le meme montant le meme jour par des circuits de remboursement.</div>"
+    html += "<h1 style='margin-top:34px'>&#127942; Gains payes en double</h1>"
+    html += "<div class='sub'>Meme gagnante + meme jeu + meme montant + meme jour, paye 2 fois ou plus. Regle de lecture : MEME SECONDE = double-clic certain ; heures differentes = peut-etre 2 vrais gains (a toi de juger).</div>"
+    if doubles_gains:
+        html += "<div class='enc'><span class='ko' style='font-size:18px;font-weight:bold'>&#9888;&#65039; " + str(len(doubles_gains)) + " gain(s) en double detecte(s)</span><br>"
+        html += "Trop-paye potentiel : <strong>" + format(total_trop_gains, ",") + " XPF</strong>. Pour corriger un vrai double : bouton Annuler sur la page du gain (lien dans la colonne Code).</div>"
+        html += "<table><tr><th>Jour</th><th>Heures exactes</th><th>Code</th><th>Nom</th><th>Jeu</th><th>Org</th><th class='dr'>Montant</th><th class='dr'>Fois</th><th class='dr'>Trop-paye</th></tr>"
+        for d in doubles_gains:
+            meme_sec = len(set(d["heures"])) < d["nb"]
+            heures_aff = " / ".join(d["heures"]) + (" <strong class='ko'>&#8592; MEME SECONDE</strong>" if meme_sec else "")
+            html += "<tr><td>" + d["jour"] + "</td>"
+            html += "<td style='font-size:11px'>" + heures_aff + "</td>"
+            html += "<td><a href='/annuler-gain?cle=" + _cle + "&code=" + d["code"] + "'>" + d["code"] + "</a></td>"
+            html += "<td>" + d["nom"] + "</td>"
+            html += "<td>" + d["jeu"] + "</td>"
+            html += "<td>" + d["org"] + "</td>"
+            html += "<td class='dr'>" + format(d["montant"], ",") + "</td>"
+            html += "<td class='dr'>" + str(d["nb"]) + "</td>"
+            html += "<td class='dr'><strong class='ko'>" + format(d["trop"], ",") + "</strong></td></tr>"
+        html += "</table>"
+        html += "<p class='sub' style='margin-top:14px'>&#9888;&#65039; Attention : annuler un gain corrige le RELEVE mais ne touche pas les poches. Si les pions du double ont vraiment ete credites a la joueuse, dis-le a Claude pour preparer la reprise physique.</p>"
+    else:
+        html += "<div class='enc'><span class='ok' style='font-size:16px;font-weight:bold'>&#9989; Aucun gain paye en double</span></div>"
     html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Retour a l'audit des soldes</a></p>"
     html += "</body></html>"
     return html
