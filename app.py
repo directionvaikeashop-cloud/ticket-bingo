@@ -6172,6 +6172,13 @@ def releve_complet_joueur(code):
         de = (tr.get("de", "") or "").upper()
         vers = (tr.get("vers", "") or "").upper()
         mt = int(tr.get("montant", 0) or 0)
+        if tr.get("annule_fraude"):
+            if de == code or vers == code:
+                lignes.append({"date": str(tr.get("date", ""))[:16].replace("T", " "),
+                               "type": "Transfert ANNULE", "montant": 0,
+                               "detail": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude " + (vers if de == code else de) + ")",
+                               "statut": "annule_fraude"})
+            continue
         org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
         dt = str(tr.get("date", ""))[:16].replace("T", " ")
         if de == code:
@@ -6477,6 +6484,12 @@ def releve_code(code):
         de = (tr.get("de", "") or "").upper()
         vers = (tr.get("vers", "") or "").upper()
         mt = int(tr.get("montant", 0) or 0)
+        if tr.get("annule_fraude"):
+            if de == code or vers == code:
+                transactions.append({"date": tr.get("date", "?"), "type": "Transfert ANNULE",
+                                     "description": "Transfert de " + format(mt, ",") + " F ANNULE par l'administration (fraude " + (vers if de == code else de) + ")",
+                                     "entree": 0, "sortie": 0})
+            continue
         org = (" - IP " + str(tr.get("ip"))) if tr.get("ip") else (" - operation administrateur" if tr.get("admin") else "")
         if de == code:
             transactions.append({"date": tr.get("date", "?"), "type": "Transfert emis",
@@ -6910,6 +6923,258 @@ def releve_financier_org(code):
 
 
 
+@app.route("/reparer-restitutions")
+def reparer_restitutions():
+    """REPARATION (11/07/2026) : les restitutions ont ete executees avec
+    l'ancienne version de l'outil (avant les verrous de securite). Cette page
+    recalcule pour chaque code ce que la version SECURISEE aurait verse, et
+    reprend UNIQUEMENT la difference versee en trop (ex: 'restitutions' faites
+    a des codes qui n'avaient que des vidages fraude ou des corrections sans
+    rapport avec un double-clic).
+    SANS parametre : SIMULATION. Avec &executer=1 : applique.
+    Acces ADMIN : ?cle=CODE_ADMIN."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+    _PAR_OUTILS = ("CONVERSION-QR", "CORRECTION-DOUBLE", "CORRECTION-ECRITURE", "QUARANTAINE", "RESTITUTION", "CORRECTION-RESTITUTION")
+
+    # Ce qui a ete VERSE par l'ancienne version
+    verse = {}
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par") or "") == "RESTITUTION":
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            if m > 0:
+                cj = (c.get("code_joueur") or "").upper().strip()
+                verse[cj] = verse.get(cj, 0) + m
+
+    # Ce que la version SECURISEE aurait verse (du_sur)
+    groupes = {}
+    for c in DB.get("credits_admin", []):
+        if not isinstance(c, dict) or (c.get("par") or "") in _PAR_OUTILS:
+            continue
+        m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+        if m <= 0:
+            continue
+        cj = (c.get("code_joueur") or "").upper().strip()
+        jour = str(c.get("date") or "")[:10]
+        motif = (c.get("motif") or "sans motif").strip()
+        if cj and jour:
+            groupes[(cj, jour, m, motif)] = groupes.get((cj, jour, m, motif), 0) + 1
+    trop = {}
+    for (cj, jour, m, motif), nb in groupes.items():
+        if nb >= 2:
+            trop[cj] = trop.get(cj, 0) + m * (nb - 1)
+    auto = {}
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("par") or "") == "CORRECTION-DOUBLE":
+            m = int(c.get("nb_pions", 0) or 0) * int(c.get("valeur_pion", 0) or 0)
+            if m < 0:
+                cj = (c.get("code_joueur") or "").upper().strip()
+                auto[cj] = auto.get(cj, 0) + (-m)
+    manuel_d = {}
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict) and "DOUBLE" in str(c.get("motif", "") or "").upper():
+            cj = (c.get("code_joueur") or "").upper().strip()
+            retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
+            if retire <= 0:
+                retire = int(c.get("montant_retire", 0) or 0)
+            if cj and retire > 0:
+                manuel_d[cj] = manuel_d.get(cj, 0) + retire
+    _bloques = set((b or "").upper() for b in DB.get("codes_bloques", []))
+
+    deja_rep = set(DB.get("reparations_restitutions_faites", []))
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    lignes_res = []
+    for cj, v in verse.items():
+        if cj in deja_rep:
+            continue
+        if cj in _bloques or auto.get(cj, 0) <= 0:
+            du_sur = 0
+        else:
+            du_sur = min(max(0, auto.get(cj, 0) + manuel_d.get(cj, 0) - trop.get(cj, 0)), auto.get(cj, 0))
+        errone = v - du_sur
+        if errone <= 0:
+            continue
+        est_org = cj in DB.get("codes", {})
+        pj = DB.get("pions_joueurs", {}).get(cj, {})
+        pb = DB.get("pions_bonus_joueurs", {}).get(cj, {})
+        po = DB.get("pions_org", {}).get(cj, {}) if est_org else {}
+        dispo = _xpf_total_pions(pj) + _xpf_total_pions(pb) + _xpf_total_pions(po)
+        recup = min(errone, dispo)
+        nom_aff = noms.get(cj, "")
+        if est_org:
+            nom_aff = (DB["codes"].get(cj, {}).get("nom", "") or nom_aff) + " (organisatrice)"
+        lignes_res.append({"code": cj, "nom": nom_aff, "est_org": est_org, "verse": v,
+                           "du_sur": du_sur, "errone": errone, "dispo": dispo,
+                           "recup": recup, "perte": errone - recup,
+                           "bloque": cj in _bloques})
+    lignes_res.sort(key=lambda r: r["errone"], reverse=True)
+    total_errone = sum(r["errone"] for r in lignes_res)
+    total_recup = sum(r["recup"] for r in lignes_res)
+
+    faits = []
+    if executer and lignes_res:
+        for r in lignes_res:
+            cj = r["code"]
+            reste = r["recup"]
+            repris = 0
+            if reste > 0:
+                for nom_p, dic in (("pions_joueurs", DB.get("pions_joueurs", {})),
+                                   ("pions_bonus_joueurs", DB.get("pions_bonus_joueurs", {})),
+                                   ("pions_org", DB.get("pions_org", {}) if r["est_org"] else {})):
+                    if reste <= 0:
+                        break
+                    poche = dict(dic.get(cj, {}))
+                    part = min(reste, _xpf_total_pions(poche))
+                    if part > 0 and _debiter_pions_montant(poche, part):
+                        DB.setdefault(nom_p, {})[cj] = poche
+                        repris += part
+                        reste -= part
+            if repris > 0 and repris % 100 == 0:
+                DB.setdefault("credits_admin", []).insert(0, {
+                    "code_joueur": cj,
+                    "nb_pions": -(repris // 100),
+                    "valeur_pion": 100,
+                    "par": "CORRECTION-RESTITUTION",
+                    "motif": "Annulation d'une restitution versée par erreur (outil du 11/07 avant sécurisation)",
+                    "date": datetime.datetime.now().isoformat()
+                })
+            DB.setdefault("reparations_restitutions_faites", []).append(cj)
+            r["repris"] = repris
+            faits.append(r)
+        save_data(immediat=True)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reparation restitutions</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#f0883e}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}</style></head><body>"
+    html += "<h1>&#128295; Reparation des restitutions erronees</h1>"
+    html += "<div class='sub'>Compare chaque restitution VERSEE (ancien outil) avec ce que la version SECURISEE aurait verse. Reprend uniquement la difference.</div>"
+    if executer:
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; REPARATION EFFECTUEE</span><br>"
+        html += str(len(faits)) + " code(s) &middot; " + format(sum(r.get('repris', 0) for r in faits), ",") + " XPF repris.</div>"
+        liste = faits
+    else:
+        html += "<div class='enc'><strong>MODE SIMULATION</strong> &mdash; rien n'a ete modifie.<br>"
+        html += "Restitutions erronees : <strong>" + str(len(lignes_res)) + "</strong> code(s) &middot; verse en trop : <strong class='ko'>" + format(total_errone, ",") + " XPF</strong> &middot; recuperable : <strong class='ok'>" + format(total_recup, ",") + " XPF</strong></div>"
+        if lignes_res:
+            html += "<a class='btn' href='?cle=" + _cle + "&executer=1' onclick=\"return confirm('Reprendre " + format(total_recup, ",") + " XPF verses par erreur ?')\">&#128295; EXECUTER LA REPARATION (" + format(total_recup, ",") + " XPF)</a>"
+        liste = lignes_res
+    if liste:
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Verse (ancien outil)</th><th class='dr'>Du (version sure)</th><th class='dr'>Verse EN TROP</th><th class='dr'>Dispo</th><th class='dr'>" + ("Repris" if executer else "Recuperable") + "</th><th>Note</th></tr>"
+        for r in liste:
+            note = ""
+            if r.get("bloque"):
+                note = "<span class='ko'>CODE BLOQUE (fraude)</span>"
+            elif r["du_sur"] == 0:
+                note = "corrections sans rapport avec un double"
+            html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
+            html += "<td>" + r["nom"] + "</td>"
+            html += "<td class='dr'>" + format(r["verse"], ",") + "</td>"
+            html += "<td class='dr'>" + format(r["du_sur"], ",") + "</td>"
+            html += "<td class='dr'><strong class='ko'>" + format(r["errone"], ",") + "</strong></td>"
+            html += "<td class='dr'>" + format(r["dispo"], ",") + "</td>"
+            html += "<td class='dr'><strong class='ok'>" + format(r.get("repris", r["recup"]), ",") + "</strong></td>"
+            html += "<td style='font-size:11px'>" + note + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='ok' style='font-size:16px'>&#127881; Aucune restitution erronee : l'ancien outil n'a rien verse en trop (ou tout est deja repare).</p>"
+    html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Audit des soldes</a></p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/annuler-transferts-fraude")
+def annuler_transferts_fraude():
+    """FRAUDE (11/07/2026) : annule TOUS les transferts EMIS par un code fraudeur
+    (ex: RT50CJ). Chaque transfert est marque 'annule_fraude' : il ne compte plus
+    dans les soldes traces (audit, releves, outils) et apparait sur le releve des
+    comptes receveurs comme 'Transfert ANNULE (fraude)' — la joueuse voit
+    clairement que cette entree a ete invalidee par l'administration.
+    NOTE : ceci corrige les TRACES. Les poches des receveurs ont normalement deja
+    ete traitees par /vider-soldes-bannis ou /restituer-legitime ; s'il reste des
+    pions de fraude en poche, l'audit les fera ressortir en 'A EXAMINER'.
+    SANS &executer=1 : apercu. ?cle=ADMIN&code=RT50CJ[&executer=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    code_f = (request.args.get("code", "") or "").strip().upper()
+    executer = (request.args.get("executer", "") or "").strip() == "1"
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Annulation transferts fraude</title><style>"
+    html += "body{font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px}h1{color:#f85149}"
+    html += ".sub{color:#8b949e;margin-bottom:16px}.ok{color:#3fb950}.ko{color:#f85149}"
+    html += ".enc{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}"
+    html += "th{background:#0d1117;border:1px solid #30363d;padding:10px;text-align:left;color:#8b949e}"
+    html += "td{border:1px solid #30363d;padding:8px}.dr{text-align:right}a{color:#58a6ff}"
+    html += ".btn{display:inline-block;margin:14px 0;padding:14px 26px;background:#f85149;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}</style></head><body>"
+    html += "<h1>&#128683; Annulation des transferts d'un fraudeur</h1>"
+    if not code_f:
+        html += "<div class='enc'>Ajoute <strong>&amp;code=LECODE</strong> (ex: RT50CJ) a l'adresse.</div></body></html>"
+        return html
+
+    vises = []
+    deja = 0
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de") or "").upper() == code_f:
+            if t.get("annule_fraude"):
+                deja += 1
+            else:
+                vises.append(t)
+    total_v = sum(int(t.get("montant", 0) or 0) for t in vises)
+
+    if executer and vises:
+        now = datetime.datetime.now().isoformat()
+        for t in vises:
+            t["annule_fraude"] = True
+            t["annule_fraude_date"] = now
+            t["annule_fraude_par"] = _cle
+        DB.setdefault("annulations_fraude", []).insert(0, {
+            "code_fraudeur": code_f, "nb_transferts": len(vises),
+            "total": total_v, "par": _cle, "date": now
+        })
+        save_data(immediat=True)
+        html += "<div class='enc'><span class='ok' style='font-size:18px;font-weight:bold'>&#9989; TRANSFERTS ANNULES</span><br>"
+        html += str(len(vises)) + " transfert(s) de <strong>" + code_f + "</strong> annules (" + format(total_v, ",") + " XPF).<br>"
+        html += "Ils n'entrent plus dans aucun solde trace et apparaissent 'ANNULE (fraude)' sur les releves des receveurs.</div>"
+        html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>Relancer l'audit pour voir l'effet</a></p>"
+    else:
+        html += "<div class='enc'><strong>APERCU</strong> pour le fraudeur <strong>" + code_f + "</strong> &mdash; rien n'a ete modifie.<br>"
+        html += "Transferts a annuler : <strong class='ko'>" + str(len(vises)) + "</strong> pour <strong class='ko'>" + format(total_v, ",") + " XPF</strong>"
+        if deja:
+            html += " &middot; deja annules : " + str(deja)
+        html += "</div>"
+        if vises:
+            html += "<table><tr><th>Date</th><th>Vers (receveur)</th><th class='dr'>Montant</th><th>IP</th></tr>"
+            for t in vises:
+                html += "<tr><td>" + str(t.get("date", ""))[:19].replace("T", " ") + "</td>"
+                html += "<td><a href='/trace-pions?cle=" + _cle + "&code=" + (t.get("vers") or "?") + "'>" + (t.get("vers") or "?") + "</a></td>"
+                html += "<td class='dr'>" + format(int(t.get("montant", 0) or 0), ",") + "</td>"
+                html += "<td style='font-size:11px;color:#8b949e'>" + str(t.get("ip", "") or "") + "</td></tr>"
+            html += "</table>"
+            html += "<a class='btn' href='?cle=" + _cle + "&code=" + code_f + "&executer=1' onclick=\"return confirm('Annuler " + str(len(vises)) + " transferts de " + code_f + " (" + format(total_v, ",") + " XPF) ?')\">&#128683; ANNULER CES TRANSFERTS</a>"
+        else:
+            html += "<p class='ok'>Aucun transfert actif a annuler pour ce code.</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/verifier-restitutions")
 def verifier_restitutions():
     """RESTITUTION (11/07/2026) : croise les reprises AUTOMATIQUES d'aujourd'hui
@@ -6957,6 +7222,11 @@ def verifier_restitutions():
     manuel = {}
     for c in DB.get("corrections_pions", []):
         if isinstance(c, dict):
+            # 🔒 VERROU : seules les corrections dont le motif mentionne un DOUBLE
+            # comptent ici. Les vidages fraude ('Pions de fraude retirés'), retraits
+            # CCP et autres corrections n'ont RIEN a voir avec les doubles-clics.
+            if "DOUBLE" not in str(c.get("motif", "") or "").upper():
+                continue
             cj = (c.get("code_joueur") or "").upper().strip()
             retire = int(c.get("solde_avant", 0) or 0) - int(c.get("solde_apres", 0) or 0)
             if retire <= 0:
@@ -6971,11 +7241,16 @@ def verifier_restitutions():
             noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
 
     lignes_res = []
-    for cj in set(list(auto.keys()) + list(manuel.keys())):
-        if cj in deja_faites:
+    # 🔒 VERROUS : on ne restitue QU'AUX codes que l'outil du 11/07 a repris
+    # (jamais a un code seulement corrige a la main), JAMAIS a un code bloque
+    # (fraude), et JAMAIS plus que ce que l'outil a repris.
+    _bloques = set((b or "").upper() for b in DB.get("codes_bloques", []))
+    for cj in auto.keys():
+        if cj in deja_faites or cj in _bloques:
             continue
         total_corrige = auto.get(cj, 0) + manuel.get(cj, 0)
         du = max(0, total_corrige - trop.get(cj, 0))
+        du = min(du, auto.get(cj, 0))
         if du <= 0:
             continue
         est_org = cj in DB.get("codes", {})
@@ -7590,7 +7865,7 @@ def convertir_cadeaux_qr():
                 if isinstance(det, dict):
                     _addr(det.get("code_joueur"), det.get("montant", 0))
     for t in DB.get("transferts_pions", []):
-        if isinstance(t, dict):
+        if isinstance(t, dict) and not t.get("annule_fraude"):
             _addr(t.get("vers"), t.get("montant", 0))
 
     # 2. Candidates : inscrites QR "semaine", EXACTEMENT 500 F reels, ZERO
@@ -7746,7 +8021,7 @@ def audit_soldes():
             _add(ent, cj, 500)
             _cadeau_vu.add(cj)
     for t in DB.get("transferts_pions", []):
-        if isinstance(t, dict):
+        if isinstance(t, dict) and not t.get("annule_fraude"):
             _add(sor, t.get("de"), t.get("montant", 0))
             _add(ent, t.get("vers"), t.get("montant", 0))
 
@@ -8078,6 +8353,12 @@ def releve_financier_joueur(code):
         de = (t.get("de", "") or "").upper()
         vers = (t.get("vers", "") or "").upper()
         montant = int(t.get("montant", 0) or 0)
+        if t.get("annule_fraude"):
+            if de == code or vers == code:
+                lignes.append({"date": t.get("date", "?"), "type": "Transfert ANNULÉ",
+                               "desc": "Transfert de " + format(montant, ",") + " F ANNULÉ par l'administration (fraude — compte " + (vers if de == code else de) + ")",
+                               "entree": 0, "sortie": 0})
+            continue
         origine = ""
         if t.get("ip"):
             origine = " · IP " + str(t.get("ip"))
@@ -9600,6 +9881,10 @@ def trace_pions():
                 mv.append((c.get("date", ""), "Correction", c.get("motif", "Correction admin"),
                            -_i(c.get("montant_retire"))))
         for t in DB.get("transferts_pions", []):
+            if t.get("annule_fraude"):
+                if (t.get("de") or "").upper() == code or (t.get("vers") or "").upper() == code:
+                    mv.append((t.get("date", ""), "Transfert ANNULÉ", "fraude — annulé par l'administration", 0))
+                continue
             if (t.get("de") or "").upper() == code:
                 mv.append((t.get("date", ""), "Transfert ENVOYÉ", f"→ vers {t.get('vers','?')}", -_i(t.get("montant"))))
             if (t.get("vers") or "").upper() == code:
