@@ -6987,6 +6987,18 @@ def bilan_fraude():
         if nb_v:
             save_data(immediat=True)
         msg_action += " &#9989; " + str(nb_v) + " poche(s) residuelle(s) videe(s) (" + format(tot_v, ",") + " XPF)."
+    _clot = (request.args.get("cloturer", "") or "").strip().upper()
+    if _clot:
+        DB.setdefault("emetteurs_clotures", [])
+        if _clot not in DB["emetteurs_clotures"]:
+            DB["emetteurs_clotures"].append(_clot)
+            save_data(immediat=True)
+        msg_action += " &#9989; " + _clot + " cloture comme legitime (transferts juges normaux)."
+    _rouv = (request.args.get("rouvrir", "") or "").strip().upper()
+    if _rouv and _rouv in DB.get("emetteurs_clotures", []):
+        DB["emetteurs_clotures"] = [x for x in DB["emetteurs_clotures"] if x != _rouv]
+        save_data(immediat=True)
+        msg_action += " &#128260; " + _rouv + " reouvert pour examen."
     # Transferts par emetteur (actifs / annules)
     emis_actifs = {}
     emis_annules = {}
@@ -7035,14 +7047,36 @@ def bilan_fraude():
     lignes_b.sort(key=lambda r: (r["ok"], -(r["poche"] + r["actifs"])))
 
     # SECTION 2 : emetteurs de transferts NON bloques (a examiner)
+    # Croisement IP automatique : les IP de chaque emetteur (connexions +
+    # transferts) sont comparees a TOUTES les IP du reseau bloque.
+    ips_par_code = {}
+    for j in DB.get("journal_connexions", []):
+        cj = (j.get("code") or "").upper().strip()
+        ip_j = (j.get("ip") or "").strip()
+        if cj and ip_j:
+            ips_par_code.setdefault(cj, set()).add(ip_j)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict):
+            ip_t = (t.get("ip") or "").strip()
+            if ip_t:
+                for k in ("de", "vers"):
+                    ck = (t.get(k) or "").upper().strip()
+                    if ck:
+                        ips_par_code.setdefault(ck, set()).add(ip_t)
+    ips_reseau = set()
+    for b in set(bloques):
+        ips_reseau |= ips_par_code.get(b, set())
+
+    clotures = set((x or "").upper() for x in DB.get("emetteurs_clotures", []))
     lignes_e = []
     for de, m in emis_actifs.items():
-        if de in bloques:
+        if de in bloques or de in clotures:
             continue
-        est_org = de in DB.get("codes", {})
+        communes = sorted(ips_par_code.get(de, set()) & ips_reseau)
         lignes_e.append({"code": de, "nom": noms.get(de, ""), "montant": m,
-                         "est_org": est_org})
-    lignes_e.sort(key=lambda r: -r["montant"])
+                         "est_org": de in DB.get("codes", {}),
+                         "communes": communes})
+    lignes_e.sort(key=lambda r: (0 if r["communes"] else 1, -r["montant"]))
 
     total_repris = sum(repris_fraude.values())
     total_annules = sum(emis_annules.values())
@@ -7097,17 +7131,26 @@ def bilan_fraude():
         html += "<p class='ok'>Aucun code bloque.</p>"
 
     html += "<h2>2&#65039;&#8283; Emetteurs de transferts NON bloques</h2>"
-    html += "<div class='sub'>Le transfert de pions entre comptes etait LE vecteur de la fraude. Chaque emetteur non bloque merite un examen : soit c'est legitime (a toi de juger), soit on le bloque et on annule.</div>"
+    html += "<div class='sub'>Le transfert de pions entre comptes etait LE vecteur de la fraude. Le verdict IP compare automatiquement leurs adresses a celles du reseau bloque. Attention : une IP mobile (Vini/Vodafone) peut etre partagee par de nombreuses personnes — le verdict est un INDICE, pas une preuve. Si un emetteur est legitime a tes yeux, clique 'Cloturer'.</div>"
     if lignes_e:
-        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Total transfere (actif)</th><th>Outils</th></tr>"
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Total transfere (actif)</th><th>Verdict IP</th><th>Outils</th></tr>"
         for r in lignes_e:
+            if r["communes"]:
+                verdict_ip = "<span class='ko'>&#128680; IP partagee avec le reseau : " + ", ".join(r["communes"][:3]) + ("..." if len(r["communes"]) > 3 else "") + "</span>"
+            else:
+                verdict_ip = "<span class='ok'>&#9989; aucun lien IP detecte avec le reseau</span>"
             html += "<tr><td><a href='/trace-pions?cle=" + _cle + "&code=" + r["code"] + "'>" + r["code"] + "</a></td>"
             html += "<td>" + r["nom"] + (" (organisatrice)" if r["est_org"] else "") + "</td>"
             html += "<td class='dr'><strong>" + format(r["montant"], ",") + "</strong></td>"
-            html += "<td style='font-size:12px'><a href='/empreinte?cle=" + _cle + "&code=" + r["code"] + "'>empreinte IP</a> &middot; <a href='/annuler-transferts-fraude?cle=" + _cle + "&code=" + r["code"] + "'>annuler transferts</a> &middot; <a href='/anti-fraude?cle=" + _cle + "&codes=" + r["code"] + "'>bloquer</a></td></tr>"
+            html += "<td style='font-size:11px'>" + verdict_ip + "</td>"
+            html += "<td style='font-size:12px'><a href='/empreinte?cle=" + _cle + "&code=" + r["code"] + "'>empreinte</a> &middot; <a href='/annuler-transferts-fraude?cle=" + _cle + "&code=" + r["code"] + "'>annuler</a> &middot; <a href='/anti-fraude?cle=" + _cle + "&codes=" + r["code"] + "'>bloquer</a> &middot; <a style='color:#3fb950;font-weight:bold' href='?cle=" + _cle + "&cloturer=" + r["code"] + "' onclick=\"return confirm('Cloturer " + r["code"] + " comme LEGITIME ? Ses transferts sont juges normaux.')\">&#9989; Cloturer (legitime)</a></td></tr>"
         html += "</table>"
     else:
-        html += "<p class='ok'>&#9989; Aucun emetteur actif non bloque : tous les transferts du systeme sont soit legitimes annules, soit emis par des codes deja traites.</p>"
+        html += "<p class='ok'>&#9989; Aucun emetteur a examiner : tous ont ete traites ou cloturés comme legitimes.</p>"
+    if clotures:
+        html += "<div class='sub' style='margin-top:14px'>Emetteurs cloturés comme legitimes : "
+        html += " &middot; ".join("<span style='color:#3fb950'>" + c + "</span> (<a href='?cle=" + _cle + "&rouvrir=" + c + "' style='font-size:11px'>rouvrir</a>)" for c in sorted(clotures))
+        html += "</div>"
 
     html += "<p class='sub' style='margin-top:24px'>Quand toutes les lignes sont vertes, le dossier fraude est CLOS. &#128274;</p>"
     html += "<p class='sub'><a href='/audit-soldes?cle=" + _cle + "'>&larr; Audit des soldes</a></p>"
