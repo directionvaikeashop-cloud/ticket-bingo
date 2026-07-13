@@ -7031,6 +7031,113 @@ def sauvegardes():
     return html
 
 
+@app.route("/impact-complice-caisse")
+def impact_complice_caisse():
+    """ANALYSE IMPACT (13/07/2026) : calcule l'impact d'un ou plusieurs comptes
+    complices sur la caisse d'une organisatrice. Pour chaque complice : ce que
+    l'org a 'encaisse' de lui (mises sur tickets) vs ce que l'org lui a 'donne'
+    (gains payes + pions recharges). Si l'org lui a donne plus qu'il n'a paye,
+    la difference est sortie de la caisse -> explique une partie de l'ecart.
+    ?cle=ADMIN&org=CODE&complices=A,B,C"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    complices_param = (request.args.get("complices", "") or "").strip().upper()
+    if not org or not complices_param:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE&complices=A,B,C</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes_org = set([org] + ([aussi] if aussi else []))
+    complices = [c.strip() for c in complices_param.split(",") if c.strip()]
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    def fmt(n): return format(n, ",")
+
+    resultats = []
+    total_encaisse_complices = 0
+    total_donne_complices = 0
+    for cx in complices:
+        # Ce que l'org a "encaisse" de ce complice (mises sur tickets)
+        encaisse = 0
+        for e in DB.get("encaissements_org", []):
+            if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes_org and (e.get("code_joueur", "") or "").upper() == cx:
+                encaisse += _iv(e.get("montant", 0))
+        # Ce que l'org a paye en GAINS a ce complice
+        gains = 0
+        for g in DB.get("gains_finaux", []):
+            if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes_org and (g.get("code_gagnant", "") or "").upper() == cx and not g.get("annule"):
+                gains += _iv(g.get("montant_credite", 0))
+        # Ce que l'org lui a distribue en PIONS (recharges)
+        recharges = 0
+        for t in DB.get("transactions_joueur_org", []):
+            if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in codes_org and (t.get("code_joueur", "") or "").upper() == cx:
+                recharges += _iv(t.get("montant_total", 0))
+        donne = gains + recharges
+        impact = donne - encaisse  # ce qui est sorti net de la caisse pour ce complice
+        total_encaisse_complices += encaisse
+        total_donne_complices += donne
+        resultats.append((cx, encaisse, gains, recharges, donne, impact))
+
+    impact_total = total_donne_complices - total_encaisse_complices
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Impact complices</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:8px;text-align:left}td{border:1px solid #bbb;padding:7px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.neg{color:#C00000}"
+    html += ".sect{background:#FDECEA;font-weight:bold;color:#C00000}.big{font-size:16px}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128200; Impact des comptes complices sur la caisse — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<p style='font-size:14px'>Pour chaque complice : ce que l'org a <b>encaisse</b> de lui (ses mises) vs ce qu'elle lui a <b>donne</b> (gains + recharges de pions). Si l'org a donne plus qu'encaisse, la difference est sortie de sa caisse.</p>"
+
+    html += "<table><tr><th>Complice</th><th class='dr'>Encaisse (ses mises)</th><th class='dr'>Gains recus</th><th class='dr'>Pions recharges</th><th class='dr'>Total donne</th><th class='dr'>Impact caisse</th></tr>"
+    for (cx, encaisse, gains, recharges, donne, impact) in resultats:
+        html += "<tr><td>" + cx + (" — " + nomde(cx) if nomde(cx) else "") + "</td>"
+        html += "<td class='dr'>" + fmt(encaisse) + " F</td><td class='dr'>" + fmt(gains) + " F</td><td class='dr'>" + fmt(recharges) + " F</td>"
+        html += "<td class='dr'>" + fmt(donne) + " F</td><td class='dr neg'>-" + fmt(impact) + " F</td></tr>"
+    html += "<tr class='sect'><td>TOTAL</td><td class='dr'>" + fmt(total_encaisse_complices) + " F</td><td class='dr'>-</td><td class='dr'>-</td><td class='dr'>" + fmt(total_donne_complices) + " F</td><td class='dr big'>-" + fmt(impact_total) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<div class='warn'>&#9888;&#65039; <b>Lecture :</b> l'impact caisse = ce que l'org a donne a ses complices MOINS ce qu'ils ont vraiment paye. "
+    html += "Ces comptes ont recu <b>" + fmt(total_donne_complices) + " F</b> (gains + recharges) de la caisse de l'org, mais n'ont mise que <b>" + fmt(total_encaisse_complices) + " F</b>. "
+    html += "La difference de <b>" + fmt(impact_total) + " F</b> est sortie de la caisse au profit des complices &mdash; ce qui explique une partie de l'ecart constate.</div>"
+
+    html += "<h2>Rappel de l'ecart</h2>"
+    html += "<div class='meta' style='font-size:14px'>Ecart constate dans la caisse de VAHINE : <b>78 360 F</b>.<br>"
+    html += "Impact des complices calcule ci-dessus : <b>" + fmt(impact_total) + " F</b>.<br>"
+    if abs(impact_total - 78360) < 15000:
+        html += "&#9989; Ces montants sont proches : l'ecart s'explique en grande partie par les gains et recharges verses aux comptes complices."
+    else:
+        html += "Difference restante a expliquer : <b>" + fmt(78360 - impact_total) + " F</b> (autres pistes : deblock, CCP...)."
+    html += "</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/reconstitution-caisse-org")
 def reconstitution_caisse_org():
     """RECONSTITUTION (13/07/2026) : reconstitue la caisse d'une organisatrice pour
