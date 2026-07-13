@@ -6954,6 +6954,148 @@ def releve_financier_org(code):
 
 
 
+@app.route("/audit-poche-org")
+def audit_poche_org():
+    """AUDIT POCHE ORG (13/07/2026) : passe au crible TOUS les mouvements de la
+    poche organisateur d'un code, et separe l'activite NORMALE (ravitaillement
+    des joueuses en pions = ventes, encaissement de tickets, paiement de gains)
+    des mouvements ATYPIQUES (transferts, credits admin recus, sorties non
+    justifiees par l'activite de tournoi). Objectif : detecter si l'organisatrice
+    a fait autre chose que son role legitime. ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG (option &aussi=ANCIEN)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # === ACTIVITE NORMALE (attendue pour une organisatrice) ===
+    nb_ravito = 0; tot_ravito = 0     # ventes de pions aux joueuses
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in codes:
+            nb_ravito += 1; tot_ravito += _iv(t.get("montant_total", 0))
+    nb_tickets = 0; tot_tickets = 0   # encaissements tickets
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes:
+            nb_tickets += 1; tot_tickets += _iv(e.get("montant", 0))
+    nb_gains = 0; tot_gains = 0        # gains payes
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes and not g.get("annule"):
+            nb_gains += 1; tot_gains += _iv(g.get("montant_credite", 0))
+
+    # === MOUVEMENTS ATYPIQUES (a examiner) ===
+    # a) Credits de poche org recus (ravitaillement stock) : normal si par admin, suspect sinon
+    credits_poche = []
+    for c in DB.get("credits_poche_org", []):
+        if isinstance(c, dict) and (c.get("code_org", "") or "").upper() in codes:
+            credits_poche.append((str(c.get("date", "")), _iv(c.get("montant", 0)), str(c.get("motif", "") or ""), str(c.get("par", "?")), str(c.get("ip", "") or "")))
+    # b) Transferts de poche org -> org (nos outils du 11/07)
+    transf_poche = []
+    for t in DB.get("transferts_poche_org", []):
+        if isinstance(t, dict) and ((t.get("de", "") or "").upper() in codes or (t.get("vers", "") or "").upper() in codes):
+            transf_poche.append((str(t.get("date", "")), (t.get("de", "") or "").upper(), (t.get("vers", "") or "").upper(), _iv(t.get("montant", 0)), str(t.get("par", "?"))))
+    # c) Credits admin recus sur un compte joueuse portant ce code (si le code org sert aussi de joueuse)
+    credits_admin = []
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() in codes:
+            m = _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))
+            credits_admin.append((str(c.get("date", "")), m, str(c.get("motif", "") or ""), str(c.get("par", "?"))))
+    # d) Transferts de pions (poche joueuse) impliquant ce code
+    transf_joueur = []
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and ((t.get("de", "") or "").upper() in codes or (t.get("vers", "") or "").upper() in codes):
+            transf_joueur.append((str(t.get("date", "")), (t.get("de", "") or "").upper(), (t.get("vers", "") or "").upper(), _iv(t.get("montant", 0)), t.get("annule_fraude")))
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit poche org</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:24px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:16px}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin:12px 0}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;white-space:nowrap}.gris{color:#888}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Audit de la poche organisateur — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Codes : " + ", ".join(sorted(codes)) + "</div>"
+
+    html += "<h2>1. Activite NORMALE d'organisatrice (attendue)</h2>"
+    html += "<table><tr><th>Type d'operation</th><th class='dr'>Nombre</th><th class='dr'>Montant</th></tr>"
+    html += "<tr><td>Ravitaillement des joueuses en pions (ventes)</td><td class='dr'>" + str(nb_ravito) + "</td><td class='dr'>" + fmt(tot_ravito) + " F</td></tr>"
+    html += "<tr><td>Encaissement de tickets (mises)</td><td class='dr'>" + str(nb_tickets) + "</td><td class='dr'>" + fmt(tot_tickets) + " F</td></tr>"
+    html += "<tr><td>Gains payes aux gagnantes</td><td class='dr'>" + str(nb_gains) + "</td><td class='dr'>" + fmt(tot_gains) + " F</td></tr>"
+    html += "</table>"
+    html += "<div class='ok'>&#9989; Ces trois types d'operations sont l'activite LEGITIME d'une organisatrice : vendre des pions, encaisser des tickets, payer les gagnantes.</div>"
+
+    html += "<h2>2. Mouvements ATYPIQUES (a examiner)</h2>"
+
+    # a) credits poche org
+    html += "<h3 style='color:#9C4A00'>a) Ravitaillements de son stock (credits de poche org)</h3>"
+    if credits_poche:
+        html += "<table><tr><th>Date</th><th class='dr'>Montant</th><th>Motif</th><th>Par</th><th>IP</th></tr>"
+        for (d, m, mo, par, ip) in sorted(credits_poche):
+            suspect = par.upper() not in DB.get("codes", {}) or not DB.get("codes", {}).get(par.upper(), {}).get("admin")
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + mo + "</td><td" + (" style='color:#C00000;font-weight:bold'" if suspect else "") + ">" + par + "</td><td class='gris'>" + ip + "</td></tr>"
+        html += "</table><div class='meta'>Normal si &laquo; Par &raquo; = un code admin (tu l'as ravitaillee). Suspect si credite par un autre code.</div>"
+    else:
+        html += "<p class='gris'>Aucun credit de poche enregistre.</p>"
+
+    # b) transferts poche org
+    html += "<h3 style='color:#9C4A00'>b) Transferts de poche organisateur</h3>"
+    if transf_poche:
+        html += "<table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th><th>Par</th></tr>"
+        for (d, de, vers, m, par) in sorted(transf_poche):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + par + "</td></tr>"
+        html += "</table><div class='meta'>Les transferts par un code admin (nos outils du 11/07 pour recuperer sa poche) sont legitimes.</div>"
+    else:
+        html += "<p class='gris'>Aucun transfert de poche org.</p>"
+
+    # c) credits admin
+    html += "<h3 style='color:#9C4A00'>c) Credits admin recus (si ce code a aussi servi de compte joueuse)</h3>"
+    if credits_admin:
+        html += "<table><tr><th>Date</th><th class='dr'>Montant</th><th>Motif</th><th>Par</th></tr>"
+        for (d, m, mo, par) in sorted(credits_admin):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + mo + "</td><td>" + par + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='gris'>Aucun credit admin sur ce code (normal pour un pur compte organisateur).</p>"
+
+    # d) transferts pions joueur
+    html += "<h3 style='color:#9C4A00'>d) Transferts de pions (poche joueuse) impliquant ce code</h3>"
+    if transf_joueur:
+        html += "<table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, a) in sorted(transf_joueur):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("annule fraude" if a else "actif") + "</td></tr>"
+        html += "</table><div class='warn'>&#9888;&#65039; Un code purement organisateur ne devrait PAS faire de transferts de pions entre joueuses. Toute ligne ici est a examiner.</div>"
+    else:
+        html += "<p class='gris'>Aucun transfert de pions joueuse sur ce code &mdash; c'est le comportement NORMAL d'un compte purement organisateur.</p>"
+
+    html += "<h2>Conclusion</h2>"
+    if not transf_joueur and not credits_admin:
+        html += "<div class='ok'>&#9989; Le compte ORGANISATEUR de " + str(nom_org) + " n'a fait QUE son activite legitime : ravitailler les joueuses en pions, encaisser des tickets, payer les gains. Aucun transfert de pions atypique ni credit admin suspect sur ce code organisateur.<br><br>Autrement dit : la fraude n'a PAS transite par sa poche d'organisatrice, mais par ses comptes JOUEUSES separes (RT50CJ et le reseau). Sa comptabilite d'organisatrice reste donc telle qu'auditee.</div>"
+    else:
+        html += "<div class='warn'>&#9888;&#65039; Des mouvements atypiques ont ete detectes sur ce code (transferts de pions ou credits admin). Voir les sections ci-dessus : ces operations sortent du role normal d'une organisatrice et doivent etre examinees une par une.</div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/audit-fraude-org")
 def audit_fraude_org():
     """AUDIT FRAUDE (11/07/2026) : audite l'ensemble des comptes lies a une meme
