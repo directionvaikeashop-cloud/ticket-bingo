@@ -7031,6 +7031,118 @@ def sauvegardes():
     return html
 
 
+@app.route("/audit-joueuses-tournoi")
+def audit_joueuses_tournoi():
+    """AUDIT PAR JOUEUSE (13/07/2026) : pour chaque joueuse ayant participe au
+    tournoi d'une organisatrice, compare ce qu'elle a REELLEMENT paye en tickets
+    (encaissements a l'org) avec ses ENTREES de pions (achats + credits + gains
+    recus). Objectif : reperer les joueuses qui ont joue BEAUCOUP plus que ce
+    qu'elles ont mis / recu &mdash; signe possible de jeux non debites (temoignages
+    'j'ai paye mais mes pions n'ont pas baisse'). ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes_org = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # Par joueuse : total tickets payes chez cette org (= ce qu'elle a joue)
+    joue = {}
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes_org:
+            cj = (e.get("code_joueur", "") or "").upper()
+            joue[cj] = joue.get(cj, 0) + _iv(e.get("montant", 0))
+
+    # Par joueuse : entrees de pions (achats valides + credits admin + pions recus org + gains)
+    entrees = {}
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and c.get("statut") == "validee":
+            cj = (c.get("code_joueur", "") or "").upper()
+            m = _iv(c.get("montant_net", 0)) or _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))
+            entrees[cj] = entrees.get(cj, 0) + m
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict):
+            cj = (t.get("code_joueur", "") or "").upper()
+            entrees[cj] = entrees.get(cj, 0) + _iv(t.get("montant_total", 0))
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict):
+            cj = (c.get("code_joueur", "") or "").upper()
+            m = _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))
+            if m > 0:
+                entrees[cj] = entrees.get(cj, 0) + m
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and not g.get("annule"):
+            cj = (g.get("code_gagnant", "") or "").upper()
+            entrees[cj] = entrees.get(cj, 0) + _iv(g.get("montant_credite", 0))
+
+    # Analyse : joueuses qui ont JOUE plus que leurs entrees (signe de jeux non debites)
+    lignes = []
+    for cj, total_joue in joue.items():
+        ent = entrees.get(cj, 0)
+        # ratio : joue vs entrees. Si joue >> entrees, suspect.
+        ecart = total_joue - ent
+        lignes.append((cj, total_joue, ent, ecart))
+    # trier par ecart decroissant (les plus suspectes en haut)
+    lignes.sort(key=lambda r: -r[3])
+
+    def fmt(n): return format(n, ",")
+
+    total_joue_all = sum(r[1] for r in lignes)
+    total_ent_all = sum(r[2] for r in lignes)
+    nb_suspectes = sum(1 for r in lignes if r[3] > 500)
+    total_ecart_positif = sum(r[3] for r in lignes if r[3] > 0)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit joueuses tournoi</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;white-space:nowrap;font-weight:bold}"
+    html += ".sus{background:#FFF4E5}.tres{background:#FDECEA;color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128270; Audit des joueuses — tournoi " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(lignes)) + " joueuses</div>"
+    html += "<p style='font-size:14px'>Pour chaque joueuse : ce qu'elle a <b>joue</b> (tickets payes chez l'org) compare a ses <b>entrees de pions</b> (achats + credits + gains). Si une joueuse a joue BEAUCOUP plus que ses entrees, cela peut indiquer des jeux valides sans debit reel de ses pions.</p>"
+
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>A joue (tickets)</th><th class='dr'>Entrees pions</th><th class='dr'>Ecart</th></tr>"
+    for (cj, total_joue, ent, ecart) in lignes:
+        cls = "tres" if ecart > 20000 else ("sus" if ecart > 500 else "")
+        html += "<tr class='" + cls + "'><td>" + (nomde(cj) or "—") + "</td><td>" + cj + "</td><td class='dr'>" + fmt(total_joue) + " F</td><td class='dr'>" + fmt(ent) + " F</td><td class='dr'>" + ("+" if ecart > 0 else "") + fmt(ecart) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<h2>Synthese</h2>"
+    html += "<div class='meta' style='font-size:14px'>Total joue (tous) : <b>" + fmt(total_joue_all) + " F</b> &middot; Total entrees pions : <b>" + fmt(total_ent_all) + " F</b><br>"
+    html += "Joueuses ayant joue plus que leurs entrees : <b>" + str(nb_suspectes) + "</b> &middot; Ecart positif cumule : <b>" + fmt(total_ecart_positif) + " F</b></div>"
+    html += "<div style='background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin-top:10px;font-size:14px'>"
+    html += "&#9888;&#65039; <b>Lecture :</b> un ecart positif important signifie qu'une joueuse a joue plus de tickets que ce que ses entrees de pions justifient. "
+    html += "Cela peut correspondre aux temoignages (jeux payes sans debit de pions). Attention : un petit ecart peut aussi venir de pions bonus, de reports, ou de l'ordre des operations. Les lignes en rouge (ecart > 20 000 F) meritent une verification du releve detaille.</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/audit-ecart-pions")
 def audit_ecart_pions():
     """AUDIT ECART (13/07/2026) : cherche l'origine de l'ecart de caisse d'une
