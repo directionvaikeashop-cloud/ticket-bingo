@@ -7031,6 +7031,108 @@ def sauvegardes():
     return html
 
 
+@app.route("/gains-a-payer")
+def gains_a_payer():
+    """RELEVE DES GAINS A PAYER (13/07/2026) : pour une organisatrice, liste tous
+    les gains remportes par les joueuses dans SON tournoi, avec le nom, le code,
+    le montant et le total. Sert a savoir qui doit etre paye et par qui.
+    ?cle=ADMIN&org=CODE[&aussi=ANCIEN][&lieu=texte libre du lieu de paiement]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    lieu = (request.args.get("lieu", "") or "").strip()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    bloques = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+    deja_soldees = {"EY6K47", "OXUZRO", "NR5FUW"}
+
+    par_joueuse = {}
+    total = 0
+    nb = 0
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict) or (g.get("code_org", "") or "").upper() not in codes:
+            continue
+        if g.get("annule"):
+            continue
+        cg = (g.get("code_gagnant", "") or "").upper()
+        m = _iv(g.get("montant_credite", 0))
+        if cg not in par_joueuse:
+            par_joueuse[cg] = {"total": 0, "nb": 0}
+        par_joueuse[cg]["total"] += m
+        par_joueuse[cg]["nb"] += 1
+        total += m
+        nb += 1
+
+    classement = sorted(par_joueuse.items(), key=lambda x: -x[1]["total"])
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Gains a payer</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += ".lieu{background:#DEEAF6;border:2px solid #1F4E79;border-radius:10px;padding:14px;margin:14px 0;font-size:15px;font-weight:bold;color:#1F4E79}"
+    html += ".tot{background:#1F4E79;color:#fff;border-radius:10px;padding:16px;margin:14px 0;font-size:18px;font-weight:bold;text-align:center}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:8px;text-align:left}td{border:1px solid #bbb;padding:7px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".bloq{background:#FDECEA;color:#C00000;font-weight:bold}.solde{background:#FFF4E5;color:#9C4A00}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#127942; Gains a payer — tournoi de " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(nb) + " gains &middot; " + str(len(classement)) + " gagnantes</div>"
+    if lieu:
+        html += "<div class='lieu'>&#128205; Lieu de paiement : " + lieu + "</div>"
+    html += "<div class='tot'>TOTAL DES GAINS A PAYER : " + format(total, ",") + " XPF</div>"
+
+    if classement:
+        html += "<table><tr><th>Gagnante</th><th>Code</th><th class='dr'>Nb gains</th><th class='dr'>Total a recevoir</th><th>Note</th></tr>"
+        for cg, v in classement:
+            note = ""
+            cls = ""
+            if cg in bloques:
+                note = "COMPTE BLOQUE (fraude) — NE PAS PAYER"; cls = "bloq"
+            elif cg in deja_soldees:
+                note = "Deja soldee en especes"; cls = "solde"
+            html += "<tr class='" + cls + "'><td>" + (noms.get(cg, "") or "—") + "</td><td>" + cg + "</td><td class='dr'>" + str(v["nb"]) + "</td><td class='dr'>" + format(v["total"], ",") + " F</td><td style='font-size:11px'>" + note + "</td></tr>"
+        html += "</table>"
+
+        total_net = sum(v["total"] for cg, v in classement if cg not in bloques and cg not in deja_soldees)
+        total_bloq = sum(v["total"] for cg, v in classement if cg in bloques)
+        total_solde = sum(v["total"] for cg, v in classement if cg in deja_soldees)
+        html += "<table style='margin-top:16px'>"
+        html += "<tr><td><b>Total a payer aux gagnantes legitimes</b></td><td class='dr'>" + format(total_net, ",") + " F</td></tr>"
+        if total_bloq:
+            html += "<tr class='bloq'><td>Dont comptes bloques (a NE PAS payer)</td><td class='dr'>" + format(total_bloq, ",") + " F</td></tr>"
+        if total_solde:
+            html += "<tr class='solde'><td>Dont deja soldees en especes</td><td class='dr'>" + format(total_solde, ",") + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun gain enregistre pour ce tournoi.</p>"
+
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/audit-poche-org")
 def audit_poche_org():
     """AUDIT POCHE ORG (13/07/2026) : passe au crible TOUS les mouvements de la
