@@ -6954,6 +6954,83 @@ def releve_financier_org(code):
 
 
 
+@app.route("/sauvegardes")
+def sauvegardes():
+    """ADMIN — Cree et liste des sauvegardes completes de la base. Permet de
+    restaurer en cas de probleme apres une operation importante.
+    ?cle=ADMIN[&creer=1][&restaurer=NOM_FICHIER]"""
+    global DB
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    DB = load_data()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+
+    import shutil, glob
+    dossier = "/data/backups"
+    try:
+        os.makedirs(dossier, exist_ok=True)
+    except Exception:
+        pass
+
+    creer = (request.args.get("creer", "") or "") == "1"
+    restaurer = (request.args.get("restaurer", "") or "").strip()
+    msg = ""
+
+    if creer:
+        try:
+            nom = "backup_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".json"
+            shutil.copy(DATA_FILE, os.path.join(dossier, nom))
+            msg = "&#9989; Sauvegarde creee : <b>" + nom + "</b>"
+        except Exception as e:
+            msg = "&#10060; Erreur : " + str(e)
+
+    if restaurer:
+        try:
+            src = os.path.join(dossier, os.path.basename(restaurer))
+            if os.path.exists(src):
+                # Sauvegarde de securite AVANT restauration
+                secu = "avant_restauration_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".json"
+                shutil.copy(DATA_FILE, os.path.join(dossier, secu))
+                shutil.copy(src, DATA_FILE)
+                DB = load_data()
+                msg = "&#9989; Base restauree depuis <b>" + os.path.basename(restaurer) + "</b>. (Une sauvegarde de l'etat precedent a ete faite : " + secu + ")"
+            else:
+                msg = "&#10060; Fichier introuvable : " + restaurer
+        except Exception as e:
+            msg = "&#10060; Erreur restauration : " + str(e)
+
+    fichiers = []
+    try:
+        for f in sorted(glob.glob(os.path.join(dossier, "*.json")), reverse=True):
+            taille = os.path.getsize(f)
+            fichiers.append((os.path.basename(f), taille))
+    except Exception:
+        pass
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Sauvegardes</title><style>"
+    html += "body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:760px;margin:0 auto}h1{color:#58a6ff}"
+    html += ".box{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:12px 0}"
+    html += "a.btn{display:inline-block;background:#238636;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold}"
+    html += "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}th{background:#0d1117;border:1px solid #30363d;padding:8px;text-align:left;color:#8b949e}td{border:1px solid #30363d;padding:8px}"
+    html += "a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128190; Sauvegardes de la base</h1>"
+    if msg:
+        html += "<div class='box' style='border-color:#238636'>" + msg + "</div>"
+    html += "<div class='box'><b>Creer une sauvegarde maintenant</b> (avant toute grosse operation) :<br><br>"
+    html += "<a class='btn' href='?cle=" + _cle + "&creer=1'>&#128190; Creer une sauvegarde</a></div>"
+    if fichiers:
+        html += "<div class='box'><b>Sauvegardes existantes (" + str(len(fichiers)) + ")</b><table><tr><th>Fichier</th><th>Taille</th><th>Restaurer</th></tr>"
+        for (nom, taille) in fichiers:
+            html += "<tr><td>" + nom + "</td><td>" + format(taille, ",") + " o</td>"
+            html += "<td><a href='?cle=" + _cle + "&restaurer=" + nom + "' onclick=\"return confirm('RESTAURER cette sauvegarde ? La base actuelle sera remplacee (une copie de securite sera faite avant).')\">&#8617;&#65039; Restaurer</a></td></tr>"
+        html += "</table></div>"
+    else:
+        html += "<div class='box' style='color:#8b949e'>Aucune sauvegarde pour le moment.</div>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/audit-poche-org")
 def audit_poche_org():
     """AUDIT POCHE ORG (13/07/2026) : passe au crible TOUS les mouvements de la
