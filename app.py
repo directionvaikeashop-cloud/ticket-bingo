@@ -7031,6 +7031,80 @@ def sauvegardes():
     return html
 
 
+@app.route("/liste-comptes-bloques")
+def liste_comptes_bloques():
+    """LISTE (13/07/2026) : affiche tous les comptes bloques avec leur nom, solde
+    (poche + bonus), IP, et un indicateur s'ils font partie du reseau de fraude
+    VAHINE connu. Sert a preparer la reactivation : distinguer les fraudeurs
+    (a vider + neutraliser) des comptes a reactiver normalement. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+
+    bloques = [b for b in DB.get("codes_bloques", []) if b]
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # reseau de fraude VAHINE connu
+    reseau = {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY", "H1I5G9"}
+    ip_de = {}
+    for j in DB.get("journal_connexions", []):
+        cj = (j.get("code") or "").upper().strip()
+        ipj = (j.get("ip") or "").strip()
+        if cj and ipj:
+            ip_de.setdefault(cj, set()).add(ipj)
+
+    def fmt(n): return format(n, ",")
+
+    lignes = []
+    total_solde_bloques = 0
+    for b in bloques:
+        cb = (b or "").upper()
+        poche = _xpf_total_pions(DB.get("pions_joueurs", {}).get(cb, {}))
+        bonus = _xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(cb, {}))
+        total = poche + bonus
+        total_solde_bloques += total
+        est_reseau = cb in reseau
+        ips = sorted(ip_de.get(cb, set()))
+        lignes.append((cb, nomde(cb), poche, bonus, total, est_reseau, ips))
+    lignes.sort(key=lambda r: (not r[5], -r[4]))
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Comptes bloques</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:920px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".fraude{background:#FDECEA;color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128683; Comptes bloques — vue d'ensemble</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(bloques)) + " comptes bloques</div>"
+    html += "<p style='font-size:14px'>Liste de tous les comptes actuellement bloques. Les lignes en rouge appartiennent au reseau de fraude VAHINE connu. Utilise cette liste pour decider lesquels vider/neutraliser (fraudeurs) et lesquels reactiver normalement.</p>"
+
+    html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Poche</th><th class='dr'>Bonus</th><th class='dr'>Total</th><th>Reseau ?</th><th>IP</th></tr>"
+    for (cb, nom, poche, bonus, total, est_reseau, ips) in lignes:
+        cls = "fraude" if est_reseau else ""
+        html += "<tr class='" + cls + "'><td><b>" + cb + "</b></td><td>" + (nom or "—") + "</td><td class='dr'>" + fmt(poche) + "</td><td class='dr'>" + fmt(bonus) + "</td><td class='dr'>" + fmt(total) + " F</td><td>" + ("&#9888;&#65039; OUI" if est_reseau else "non") + "</td><td style='font-size:10px'>" + (", ".join(ips[:2]) if ips else "—") + "</td></tr>"
+    html += "<tr style='background:#EEE;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAL des soldes bloques</td><td class='dr'>" + fmt(total_solde_bloques) + " F</td><td colspan='2'></td></tr>"
+    html += "</table>"
+
+    html += "<div class='meta' style='margin-top:14px;font-size:14px'>&#128161; Prochaine etape : dis-moi quels codes sont des <b>fraudeurs</b> (a vider + neutraliser) et lesquels sont a <b>reactiver normalement</b>. Les lignes rouges (reseau VAHINE) sont les candidates evidentes pour la neutralisation.</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/impact-complice-caisse")
 def impact_complice_caisse():
     """ANALYSE IMPACT (13/07/2026) : calcule l'impact d'un ou plusieurs comptes
