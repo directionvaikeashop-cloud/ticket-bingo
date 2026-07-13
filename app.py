@@ -7031,6 +7031,108 @@ def sauvegardes():
     return html
 
 
+@app.route("/audit-ecart-pions")
+def audit_ecart_pions():
+    """AUDIT ECART (13/07/2026) : cherche l'origine de l'ecart de caisse d'une
+    organisatrice. Compare, pour son tournoi : le total des mises encaissees
+    (encaissements_org) vs le total reellement debite des pions des joueuses
+    (commandes_tickets_pions validees). Si des mises ont ete encaissees SANS
+    debit de pions correspondant (ou l'inverse), ca revele l'ecart : des jeux
+    encaisses en direct/especes sans passer par le systeme, ou des bugs de debit.
+    ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # 1. Total ENCAISSE (mises creditees a l'org) via encaissements_org
+    total_encaisse = 0
+    nb_encaiss = 0
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes:
+            total_encaisse += _iv(e.get("montant", 0))
+            nb_encaiss += 1
+
+    # 2. Total des commandes de tickets VALIDEES (ce qui aurait du etre debite des joueuses)
+    total_commandes_validees = 0
+    nb_cmd_validees = 0
+    total_commandes_non_validees = 0
+    nb_cmd_non_val = 0
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and (c.get("code_org", "") or "").upper() in codes:
+            m = _iv(c.get("total_pions", 0))
+            if c.get("statut") == "validee":
+                total_commandes_validees += m
+                nb_cmd_validees += 1
+            else:
+                total_commandes_non_validees += m
+                nb_cmd_non_val += 1
+
+    # 3. Mises encaissees marquees "mise_creditee_org" sans commande ? (approche par difference)
+    ecart = total_encaisse - total_commandes_validees
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit ecart pions</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:820px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}"
+    html += "td{border:1px solid #ccc;padding:9px}.dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".sect{background:#E8EEF6;font-weight:bold;color:#1F4E79}"
+    html += ".big{font-size:16px}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin:12px 0}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128270; Audit de l'ecart de caisse — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Codes : " + ", ".join(sorted(codes)) + "</div>"
+    html += "<p style='font-size:14px'>Cet audit compare ce qui a ete <b>encaisse</b> (mises reversees a l'organisatrice) avec ce qui a ete reellement <b>debite</b> des pions des joueuses (commandes de tickets validees). Un ecart peut reveler des jeux encaisses sans debit de pions.</p>"
+
+    html += "<table>"
+    html += "<tr class='sect'><td colspan='2'>Comparaison encaissements / debits</td></tr>"
+    html += "<tr><td>Total ENCAISSE (mises creditees a l'org) &mdash; " + str(nb_encaiss) + " encaissements</td><td class='dr'>" + fmt(total_encaisse) + " F</td></tr>"
+    html += "<tr><td>Total des commandes de tickets VALIDEES (pions debites) &mdash; " + str(nb_cmd_validees) + " commandes</td><td class='dr'>" + fmt(total_commandes_validees) + " F</td></tr>"
+    html += "<tr class='sect'><td>ECART (encaisse - debite)</td><td class='dr big " + ("" if ecart == 0 else "") + "'>" + ("+" if ecart > 0 else "") + fmt(ecart) + " F</td></tr>"
+    html += "</table>"
+
+    if nb_cmd_non_val:
+        html += "<div class='meta'>Note : " + str(nb_cmd_non_val) + " commande(s) non validee(s) pour un total de " + fmt(total_commandes_non_validees) + " F (en attente ou abandonnees).</div>"
+
+    html += "<h2>Interpretation</h2>"
+    if ecart == 0:
+        html += "<div class='ok'>&#9989; Encaissements et debits correspondent exactement. Chaque mise encaissee a bien un debit de pions en face. Aucun jeu encaisse &laquo; hors systeme &raquo;.</div>"
+    elif ecart > 0:
+        html += "<div class='warn'>&#9888;&#65039; <b>Il a ete ENCAISSE " + fmt(ecart) + " F de plus que ce qui a ete debite des pions des joueuses.</b><br><br>"
+        html += "Cela signifie que des mises ont ete creditees a l'organisatrice SANS qu'un debit de pions correspondant n'apparaisse. Deux explications possibles :<br>"
+        html += "&bull; Des joueuses ont paye leur jeu (en especes ou autrement) et l'organisatrice a valide le ticket sans que leurs pions baissent &mdash; ce qui correspond aux temoignages recueillis.<br>"
+        html += "&bull; Ou un dysfonctionnement technique a credite la mise sans debiter la joueuse.<br><br>"
+        html += "Dans les deux cas, cet ecart de <b>" + fmt(ecart) + " F</b> pourrait expliquer une partie de la difference constatee dans la caisse.</div>"
+    else:
+        html += "<div class='warn'>&#9888;&#65039; <b>Il a ete DEBITE " + fmt(abs(ecart)) + " F de plus que ce qui a ete encaisse a l'organisatrice.</b><br><br>"
+        html += "Des pions de joueuses ont ete debites sans que la mise ne soit reversee a l'organisatrice. A examiner : commandes validees dont la mise n'a pas ete creditee, ou remboursements.</div>"
+
+    html += "<div class='meta' style='margin-top:14px'>Rappel : la caisse reelle de l'organisatrice est de 92 300 F. Cet audit aide a comprendre d'ou vient la difference entre le theorique et le reel.</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/test-transferts-reseau")
 def test_transferts_reseau():
     """TEST DECISIF (13/07/2026) : pour une liste de comptes, verifie si chacun a
