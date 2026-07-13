@@ -7031,6 +7031,124 @@ def sauvegardes():
     return html
 
 
+@app.route("/distributions-pions-org")
+def distributions_pions_org():
+    """ANALYSE DISTRIBUTIONS (13/07/2026) : liste tous les pions que l'organisatrice
+    a distribues a ses joueuses, repartis par MODE DE PAIEMENT. Distingue ce qui a
+    ete PAYE par la joueuse (especes, virement...) de ce qui a pu etre offert/deblock.
+    Permet de voir si l'org a distribue des pions gratuits (cadeaux/fraude) ou si
+    tout correspond a des paiements. ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # Toutes les distributions org -> joueur
+    par_mode = {}
+    par_joueuse = {}
+    total = 0
+    nb = 0
+    lignes = []
+    for t in DB.get("transactions_joueur_org", []):
+        if not isinstance(t, dict) or (t.get("code_org", "") or "").upper() not in codes:
+            continue
+        mode = str(t.get("mode_paiement", "") or "?").strip() or "?"
+        m = _iv(t.get("montant_total", 0))
+        cj = (t.get("code_joueur", "") or "").upper()
+        par_mode[mode] = par_mode.get(mode, 0) + m
+        par_joueuse[cj] = par_joueuse.get(cj, 0) + m
+        total += m
+        nb += 1
+        lignes.append((str(t.get("date", "")), cj, mode, m))
+
+    # Encaissements tickets (pour comparaison)
+    total_encaisse_tickets = 0
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes:
+            total_encaisse_tickets += _iv(e.get("montant", 0))
+
+    def fmt(n): return format(n, ",")
+
+    # Modes consideres "payes" vs "gratuits/deblock"
+    modes_payes = ["espèces", "especes", "virement", "carte", "cash", "ccp", "bt"]
+    total_paye = sum(v for k, v in par_mode.items() if any(mp in k.lower() for mp in modes_payes))
+    total_deblock = sum(v for k, v in par_mode.items() if "deblock" in k.lower() or "débloc" in k.lower())
+    total_autre = total - total_paye - total_deblock
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Distributions pions org</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:860px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:8px;text-align:left}td{border:1px solid #bbb;padding:7px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".sect{background:#E8EEF6;font-weight:bold;color:#1F4E79}.big{font-size:16px}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin:12px 0}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#127920; Distributions de pions — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(nb) + " distributions</div>"
+    html += "<p style='font-size:14px'>Tous les pions que l'organisatrice a distribues a ses joueuses, par mode de paiement. Objectif : verifier si les distributions correspondent a des paiements (normal) ou a des pions offerts.</p>"
+
+    html += "<h2>Repartition par mode de paiement</h2>"
+    html += "<table><tr><th>Mode de paiement</th><th class='dr'>Montant distribue</th></tr>"
+    for mode, m in sorted(par_mode.items(), key=lambda x: -x[1]):
+        html += "<tr><td>" + mode + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+    html += "<tr class='sect'><td>TOTAL DISTRIBUE</td><td class='dr big'>" + fmt(total) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<h2>Analyse</h2>"
+    html += "<table>"
+    html += "<tr><td>Distribue contre PAIEMENT (especes, virement...)</td><td class='dr'>" + fmt(total_paye) + " F</td></tr>"
+    if total_deblock:
+        html += "<tr><td>Distribue en DEBLOCK (pions debloques)</td><td class='dr'>" + fmt(total_deblock) + " F</td></tr>"
+    if total_autre:
+        html += "<tr><td>Autre / non classe</td><td class='dr'>" + fmt(total_autre) + " F</td></tr>"
+    html += "</table>"
+
+    # Interpretation
+    if total_deblock > 0:
+        html += "<div class='warn'>&#9888;&#65039; <b>" + fmt(total_deblock) + " F</b> ont ete distribues en mode &laquo; deblock &raquo; (pions debloques). Selon ton fonctionnement, le deblock peut etre : soit des pions payes autrement, soit des pions avances. A verifier si ces pions ont bien ete payes par les joueuses.</div>"
+    else:
+        html += "<div class='ok'>&#9989; Toutes les distributions correspondent a des modes de paiement classiques. Aucune distribution &laquo; deblock &raquo; suspecte.</div>"
+
+    html += "<div class='meta' style='margin-top:12px;font-size:14px'>Pour rappel : total encaisse en tickets par l'org = <b>" + fmt(total_encaisse_tickets) + " F</b>. Total distribue en pions = <b>" + fmt(total) + " F</b>. Les joueuses achetent des pions (distribution) puis les jouent en tickets (encaissement) : les deux montants sont lies mais pas identiques (une partie des pions vient aussi des gains).</div>"
+
+    html += "<h2>Detail des distributions les plus importantes</h2>"
+    gros = sorted(par_joueuse.items(), key=lambda x: -x[1])[:15]
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Total pions recus de l'org</th></tr>"
+    for cj, m in gros:
+        html += "<tr><td>" + (nomde(cj) or "—") + "</td><td>" + cj + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/audit-joueuses-tournoi")
 def audit_joueuses_tournoi():
     """AUDIT PAR JOUEUSE (13/07/2026) : pour chaque joueuse ayant participe au
