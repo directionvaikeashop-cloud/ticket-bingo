@@ -7031,6 +7031,104 @@ def sauvegardes():
     return html
 
 
+@app.route("/enquete-ip")
+def enquete_ip():
+    """ENQUETE PAR IP (13/07/2026) : liste TOUS les comptes qui se sont connectes
+    depuis une ou plusieurs adresses IP donnees. Revele les comptes multiples
+    d'une meme personne / d'un meme reseau. Pour chaque compte : nom, statut
+    (bloque ou actif), nombre de connexions, et ses gains totaux.
+    ?cle=ADMIN&ip=IP1[,IP2,...]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    ip_param = (request.args.get("ip", "") or "").strip()
+    if not ip_param:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &ip=ADRESSE_IP (ou plusieurs : IP1,IP2)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    ips = set(i.strip() for i in ip_param.split(",") if i.strip())
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    bloques = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+
+    # Comptes par IP (depuis le journal des connexions)
+    comptes = {}  # code -> {ips:set, connexions:int}
+    for j in DB.get("journal_connexions", []):
+        ipj = (j.get("ip") or "").strip()
+        cj = (j.get("code") or "").upper().strip()
+        if ipj in ips and cj:
+            comptes.setdefault(cj, {"ips": set(), "cx": 0})
+            comptes[cj]["ips"].add(ipj)
+            comptes[cj]["cx"] += 1
+    # Aussi via les transferts (IP)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("ip") or "").strip() in ips:
+            for k in ("de", "vers"):
+                ck = (t.get(k, "") or "").upper()
+                if ck:
+                    comptes.setdefault(ck, {"ips": set(), "cx": 0})
+                    comptes[ck]["ips"].add((t.get("ip") or "").strip())
+
+    # Gains totaux par compte
+    gains_par = {}
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and not g.get("annule"):
+            cg = (g.get("code_gagnant", "") or "").upper()
+            gains_par[cg] = gains_par.get(cg, 0) + _iv(g.get("montant_credite", 0))
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Enquete IP</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:8px;text-align:left}td{border:1px solid #bbb;padding:7px}"
+    html += ".dr{text-align:right;white-space:nowrap;font-weight:bold}"
+    html += ".bloq{background:#FDECEA;color:#C00000;font-weight:bold}.actif{background:#FFF9C4}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128225; Enquete par IP</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; IP analysees : " + ", ".join(sorted(ips)) + "</div>"
+
+    if comptes:
+        # trier : actifs non bloques d'abord (les plus interessants), puis par gains
+        items = sorted(comptes.items(), key=lambda x: (x[0] in bloques, -gains_par.get(x[0], 0)))
+        nb_actifs = sum(1 for c in comptes if c not in bloques)
+        nb_bloques = sum(1 for c in comptes if c in bloques)
+        html += "<div class='meta'><b>" + str(len(comptes)) + " comptes</b> connectes depuis ces IP : <b style='color:#C00000'>" + str(nb_bloques) + " deja bloques</b>, <b style='color:#9C4A00'>" + str(nb_actifs) + " encore actifs</b>.</div>"
+        html += "<table><tr><th>Code</th><th>Nom</th><th>Statut</th><th class='dr'>Connexions</th><th class='dr'>Gains totaux</th></tr>"
+        for code, info in items:
+            est_bloque = code in bloques
+            cls = "bloq" if est_bloque else ("actif" if gains_par.get(code, 0) > 0 else "")
+            html += "<tr class='" + cls + "'><td><b>" + code + "</b></td><td>" + (nomde(code) or "—") + "</td><td>" + ("&#128683; BLOQUE" if est_bloque else "actif") + "</td><td class='dr'>" + str(info["cx"]) + "</td><td class='dr'>" + fmt(gains_par.get(code, 0)) + " F</td></tr>"
+        html += "</table>"
+        # total gains des comptes encore actifs
+        tot_actifs_gains = sum(gains_par.get(c, 0) for c in comptes if c not in bloques)
+        html += "<div class='meta' style='margin-top:12px;font-size:14px'>&#9888;&#65039; Total des gains des comptes <b>encore actifs</b> connectes depuis ces IP : <b>" + fmt(tot_actifs_gains) + " F</b>. Ces comptes partagent le reseau mais ne sont pas encore bloques &mdash; a examiner.</div>"
+    else:
+        html += "<p>Aucun compte trouve pour ces IP dans le journal des connexions.</p>"
+
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/tracer-compte")
 def tracer_compte():
     """TRAÇAGE COMPLET (13/07/2026) : sort le profil complet d'un compte suspect :
