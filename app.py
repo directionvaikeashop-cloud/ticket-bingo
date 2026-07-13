@@ -7031,6 +7031,107 @@ def sauvegardes():
     return html
 
 
+@app.route("/stripe-par-org")
+def stripe_par_org():
+    """PAIEMENTS STRIPE (13/07/2026) : calcule tous les paiements par carte (Stripe)
+    lies a une organisatrice. Ces paiements sont encaisses par l'ADMINISTRATION
+    (compte Stripe), PAS par la poche de l'organisatrice. Distingue la part qui
+    revient a l'organisatrice de la part administration/cagnotte.
+    ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    paiements = DB.get("paiements_stripe", [])
+    if isinstance(paiements, dict):
+        paiements = list(paiements.values())
+
+    lignes = []
+    total = 0
+    tot_part_org = 0
+    tot_part_cagnotte = 0
+    tot_part_tb = 0
+    par_type = {}
+    for p in paiements:
+        if not isinstance(p, dict):
+            continue
+        if (p.get("code_org", "") or "").upper() not in codes:
+            continue
+        if p.get("statut") and p.get("statut") != "paye":
+            continue
+        m = _iv(p.get("montant", 0)) or _iv(p.get("total", 0))
+        typ = str(p.get("type", "?"))
+        par_type[typ] = par_type.get(typ, 0) + m
+        total += m
+        po = _iv(p.get("part_org", 0)); pc = _iv(p.get("part_cagnotte", 0)); ptb = _iv(p.get("part_ticket_bingo", 0))
+        tot_part_org += po; tot_part_cagnotte += pc; tot_part_tb += ptb
+        lignes.append((str(p.get("date", "")), typ, str(p.get("jeu", "") or p.get("description", "") or ""), str(p.get("acheteur", "") or ""), m, po, pc, ptb))
+
+    lignes.sort(key=lambda r: r[0])
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Stripe par org</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#635BFF;border-bottom:3px solid #635BFF;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += ".cards{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}"
+    html += ".card{flex:1;min-width:150px;background:#F5F3FF;border:1px solid #635BFF;border-radius:8px;padding:12px;text-align:center}"
+    html += ".card .v{font-size:19px;font-weight:bold;color:#635BFF}.card .l{font-size:11px;color:#555}"
+    html += ".tot{background:#635BFF;color:#fff;border-radius:10px;padding:16px;margin:14px 0;font-size:18px;font-weight:bold;text-align:center}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#EEE;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;white-space:nowrap}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#F5F3FF;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128179; Paiements par carte (Stripe) — tournoi de " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(lignes)) + " paiements Stripe</div>"
+    html += "<div style='background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0;font-size:14px'>&#9888;&#65039; <b>Important :</b> ces paiements par carte ont ete encaisses sur le compte Stripe de l'ADMINISTRATION (toi), et non dans la poche de l'organisatrice. L'argent reel de ces transactions est deja chez toi.</div>"
+
+    html += "<div class='tot'>TOTAL ENCAISSE PAR CARTE (STRIPE) : " + fmt(total) + " XPF</div>"
+
+    if tot_part_org or tot_part_cagnotte or tot_part_tb:
+        html += "<div class='cards'>"
+        html += "<div class='card'><div class='v'>" + fmt(tot_part_org) + " F</div><div class='l'>Part ORGANISATRICE (a lui reverser)</div></div>"
+        html += "<div class='card'><div class='v'>" + fmt(tot_part_cagnotte) + " F</div><div class='l'>Part CAGNOTTE (gains joueuses)</div></div>"
+        html += "<div class='card'><div class='v'>" + fmt(tot_part_tb) + " F</div><div class='l'>Part TICKET BINGO (commission)</div></div>"
+        html += "</div>"
+
+    if par_type:
+        html += "<div class='meta'>Repartition par type : " + " &middot; ".join([t + " : " + fmt(v) + " F" for t, v in par_type.items()]) + "</div>"
+
+    if lignes:
+        html += "<table><tr><th>Date</th><th>Type</th><th>Jeu / description</th><th>Acheteur</th><th class='dr'>Montant</th><th class='dr'>Part org</th><th class='dr'>Cagnotte</th></tr>"
+        for (d, typ, desc, ach, m, po, pc, ptb) in lignes:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + typ + "</td><td>" + desc[:30] + "</td><td>" + ach[:18] + "</td><td class='dr'>" + fmt(m) + "</td><td class='dr'>" + (fmt(po) if po else "") + "</td><td class='dr'>" + (fmt(pc) if pc else "") + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAL</td><td class='dr'>" + fmt(total) + "</td><td class='dr'>" + fmt(tot_part_org) + "</td><td class='dr'>" + fmt(tot_part_cagnotte) + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun paiement Stripe trouve pour ce tournoi (les paiements etaient peut-etre tous en especes/direct).</p>"
+
+    html += "<h2 style='color:#635BFF'>Ce que ca implique</h2>"
+    html += "<div class='meta' style='font-size:14px'>Les " + fmt(total) + " F encaisses par carte sont deja sur ton compte Stripe. Si des joueuses de ce tournoi ont paye par carte et doivent etre remboursees, l'argent existe deja chez toi &mdash; tu n'as pas besoin de le reclamer a l'organisatrice. En revanche, la part organisatrice (" + fmt(tot_part_org) + " F) est ce que tu devrais normalement lui reverser pour son travail : a mettre en balance avec ce qu'elle te doit.</div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/gains-a-payer")
 def gains_a_payer():
     """RELEVE DES GAINS A PAYER (13/07/2026) : pour une organisatrice, liste tous
