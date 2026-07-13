@@ -7031,6 +7031,134 @@ def sauvegardes():
     return html
 
 
+@app.route("/tracer-compte")
+def tracer_compte():
+    """TRAÇAGE COMPLET (13/07/2026) : sort le profil complet d'un compte suspect :
+    ses adresses IP, tous ses mouvements (achats, gains, transferts emis/recus avec
+    contreparties), et ses IP PARTAGEES avec d'autres comptes (indice de comptes
+    multiples d'une meme personne). ?cle=ADMIN&code=CODE"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &code=CODE</h1>", status=400, mimetype="text/html; charset=utf-8")
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomcode(c):
+        c = (c or "").upper()
+        n = noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+        return c + (" — " + n if n else "")
+
+    nom = noms.get(code, "") or (DB.get("codes", {}).get(code, {}) or {}).get("nom", "")
+    bloque = code in set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+
+    # IP de ce compte
+    ips = set()
+    for j in DB.get("journal_connexions", []):
+        if (j.get("code") or "").upper().strip() == code and (j.get("ip") or "").strip():
+            ips.add((j.get("ip") or "").strip())
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("ip") or "").strip():
+            if (t.get("de", "") or "").upper() == code or (t.get("vers", "") or "").upper() == code:
+                ips.add((t.get("ip") or "").strip())
+
+    # Comptes partageant une IP
+    comptes_meme_ip = {}
+    for j in DB.get("journal_connexions", []):
+        ipj = (j.get("ip") or "").strip()
+        cj = (j.get("code") or "").upper().strip()
+        if ipj in ips and cj and cj != code:
+            comptes_meme_ip.setdefault(ipj, set()).add(cj)
+
+    # Mouvements
+    mv = []
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code and c.get("statut") == "validee":
+            mv.append((str(c.get("date", "")), "Achat pions", "", _iv(c.get("montant_net", 0)) or _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))))
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_joueur", "") or "").upper() == code:
+            mv.append((str(t.get("date", "")), "Pions recus (org)", "de " + nomcode(t.get("code_org", "?")), _iv(t.get("montant_total", 0))))
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() == code:
+            mv.append((str(g.get("date", "")), "Gain" + (" ANNULE" if g.get("annule") else ""), str(g.get("jeu", "?")) + " (org " + nomcode(g.get("code_org", "?")) + ")", 0 if g.get("annule") else _iv(g.get("montant_credite", 0))))
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_joueur", "") or "").upper() == code:
+            mv.append((str(e.get("date", "")), "Achat tickets", str(e.get("jeu", "?")), -_iv(e.get("montant", 0))))
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper(); vers = (t.get("vers", "") or "").upper()
+        m = _iv(t.get("montant", 0))
+        an = " [ANNULE fraude]" if t.get("annule_fraude") else ""
+        if de == code:
+            mv.append((str(t.get("date", "")), "Transfert EMIS" + an, "vers " + nomcode(vers) + (" · IP " + str(t.get("ip")) if t.get("ip") else ""), 0 if t.get("annule_fraude") else -m))
+        if vers == code:
+            mv.append((str(t.get("date", "")), "Transfert RECU" + an, "de " + nomcode(de), 0 if t.get("annule_fraude") else m))
+    for c in DB.get("credits_admin", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+            m = _iv(c.get("nb_pions", 0)) * _iv(c.get("valeur_pion", 0))
+            mv.append((str(c.get("date", "")), "Credit admin" if m >= 0 else "Debit admin", str(c.get("motif", "") or ""), m))
+    mv.sort(key=lambda r: r[0])
+
+    pj = _xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {}))
+    pb = _xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(code, {}))
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Tracage compte</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += ".ips{background:#FFF7E6;border:1px solid #E8C77B;border-radius:8px;padding:12px;margin:10px 0;font-size:13px}"
+    html += ".warn{background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin:10px 0;font-size:13px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;white-space:nowrap;font-weight:bold}.neg{color:#C00000}.pos{color:#1E7B34}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128270; Traçage complet — " + code + (" (" + nom + ")" if nom else "") + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Statut : " + ("&#128683; BLOQUE" if bloque else "actif") + "</div>"
+
+    html += "<div class='ips'><b>Adresses IP de ce compte :</b> " + (", ".join(sorted(ips)) if ips else "aucune enregistree") + "</div>"
+
+    if comptes_meme_ip:
+        html += "<div class='warn'><b>&#9888;&#65039; Comptes partageant une IP avec " + code + " (comptes possiblement lies / meme personne) :</b><br>"
+        for ip, cpts in comptes_meme_ip.items():
+            html += "&bull; IP " + ip + " : " + ", ".join(nomcode(c) for c in sorted(cpts)) + "<br>"
+        html += "</div>"
+    else:
+        html += "<div class='meta'>Aucun autre compte ne partage d'IP avec celui-ci (dans le journal des connexions).</div>"
+
+    html += "<h2>Tous les mouvements</h2>"
+    if mv:
+        html += "<table><tr><th>Date</th><th>Type</th><th>Detail</th><th class='dr'>Montant</th></tr>"
+        for (d, ty, det, m) in mv:
+            cls = "pos" if m > 0 else ("neg" if m < 0 else "")
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + det + "</td><td class='dr " + cls + "'>" + (("+" if m > 0 else "") + fmt(m) if m else "0") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun mouvement trace.</p>"
+
+    html += "<div class='meta' style='margin-top:12px'>Soldes actuels : poche <b>" + fmt(pj) + " F</b> &middot; bonus <b>" + fmt(pb) + " F</b></div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/transferts-sortants-org")
 def transferts_sortants_org():
     """TRAÇAGE (13/07/2026) : recherche TOUS les mouvements ou le(s) code(s) d'une
