@@ -6954,6 +6954,216 @@ def releve_financier_org(code):
 
 
 
+@app.route("/audit-fraude-org")
+def audit_fraude_org():
+    """AUDIT FRAUDE (11/07/2026) : audite l'ensemble des comptes lies a une meme
+    personne (ex: une organisatrice qui possede aussi des comptes joueuses du
+    reseau). Croise : transferts entre ses comptes, gains qu'elle s'est verses a
+    elle-meme (org -> ses propres comptes joueuses), encaissements suspects.
+    ?cle=ADMIN&comptes=CODE1,CODE2,CODE3 (tous les codes de la personne)
+    Page imprimable."""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    comptes_param = (request.args.get("comptes", "") or "").strip().upper()
+    if not comptes_param:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &comptes=CODE1,CODE2,CODE3 (tous les codes de la personne)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    comptes = [c.strip() for c in comptes_param.split(",") if c.strip()]
+    comptes_set = set(comptes)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # 1. TRANSFERTS impliquant ses comptes (emis/recus), en distinguant internes
+    transf_internes = []   # entre ses propres comptes (auto-alimentation)
+    transf_entrants = []   # depuis un compte tiers vers un de ses comptes
+    transf_sortants = []   # depuis un de ses comptes vers un tiers
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper()
+        vers = (t.get("vers", "") or "").upper()
+        m = _iv(t.get("montant", 0))
+        annul = t.get("annule_fraude")
+        if de in comptes_set and vers in comptes_set:
+            transf_internes.append((str(t.get("date", "")), de, vers, m, annul))
+        elif vers in comptes_set:
+            transf_entrants.append((str(t.get("date", "")), de, vers, m, annul))
+        elif de in comptes_set:
+            transf_sortants.append((str(t.get("date", "")), de, vers, m, annul))
+
+    # 2. GAINS qu'elle s'est verses : org (un de ses codes) -> gagnant (un de ses codes)
+    auto_gains = []
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict):
+            continue
+        org = (g.get("code_org", "") or "").upper()
+        gag = (g.get("code_gagnant", "") or "").upper()
+        if org in comptes_set and gag in comptes_set:
+            auto_gains.append((str(g.get("date", "")), org, gag, _iv(g.get("montant_credite", 0)), g.get("annule"), str(g.get("jeu", "?"))))
+
+    # 3. Ses comptes qui ont acheté des tickets chez son PROPRE tournoi (mises qui reviennent)
+    auto_encaiss = []
+    for e in DB.get("encaissements_org", []):
+        if not isinstance(e, dict):
+            continue
+        org = (e.get("code_org", "") or "").upper()
+        jou = (e.get("code_joueur", "") or "").upper()
+        if org in comptes_set and jou in comptes_set:
+            auto_encaiss.append((str(e.get("date", "")), org, jou, _iv(e.get("montant", 0)), str(e.get("jeu", "?"))))
+
+    # Totaux
+    tot_internes = sum(m for (_, _, _, m, a) in transf_internes)
+    tot_entrants = sum(m for (_, _, _, m, a) in transf_entrants)
+    tot_auto_gains = sum(m for (_, _, _, m, a, j) in auto_gains if not a)
+    tot_auto_encaiss = sum(m for (_, _, _, m, j) in auto_encaiss)
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Audit fraude</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:26px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:16px}"
+    html += ".alert{background:#FDECEA;border:2px solid #C00000;border-radius:10px;padding:14px;margin:14px 0;font-size:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.neg{color:#C00000}.gris{color:#888}"
+    html += ".card{display:inline-block;background:#F5F7FA;border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin:6px}"
+    html += ".card .v{font-size:19px;font-weight:bold;color:#C00000}.card .l{font-size:11px;color:#555}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128680; AUDIT FRAUDE — comptes lies</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Comptes audites : <b>" + ", ".join(comptes) + "</b></div>"
+    html += "<div class='alert'>&#9888;&#65039; Cet audit part de l'hypothese que TOUS les comptes listes ci-dessus appartiennent a la MEME personne. Il revele les operations ou ces comptes se sont alimentes entre eux ou se sont verse des gains &mdash; ce qui, entre comptes d'une meme personne dont un organisateur, constitue une auto-attribution de fonds.</div>"
+
+    html += "<div style='text-align:center'>"
+    html += "<div class='card'><div class='v'>" + fmt(tot_internes) + " F</div><div class='l'>Transferts INTERNES (entre ses comptes)</div></div>"
+    html += "<div class='card'><div class='v'>" + fmt(tot_entrants) + " F</div><div class='l'>Transferts RECUS de tiers</div></div>"
+    html += "<div class='card'><div class='v'>" + fmt(tot_auto_gains) + " F</div><div class='l'>Gains qu'elle s'est verses a elle-meme</div></div>"
+    html += "<div class='card'><div class='v'>" + fmt(tot_auto_encaiss) + " F</div><div class='l'>Mises de ses comptes chez son tournoi</div></div>"
+    html += "</div>"
+
+    # 1. Transferts internes
+    html += "<h2>1. Transferts entre ses propres comptes (auto-alimentation)</h2>"
+    if transf_internes:
+        html += "<table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, a) in sorted(transf_internes):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("annule fraude" if a else "actif") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='gris'>Aucun transfert direct entre les comptes listes.</p>"
+
+    # 2. Gains auto-verses
+    html += "<h2>2. Gains qu'elle s'est verses (son tournoi &rarr; ses comptes)</h2>"
+    if auto_gains:
+        html += "<table><tr><th>Date</th><th>Tournoi (org)</th><th>Gagnant</th><th>Jeu</th><th class='dr'>Montant</th></tr>"
+        for (d, org, gag, m, a, jeu) in sorted(auto_gains):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + org + "</td><td>" + gag + "</td><td>" + jeu + "</td><td class='dr " + ("gris" if a else "neg") + "'>" + fmt(m) + " F" + (" (annule)" if a else "") + "</td></tr>"
+        html += "</table>"
+        html += "<div class='meta'>&#9888;&#65039; Ces gains sont verses par son propre tournoi a ses propres comptes joueuses : elle gagne ses propres cagnottes.</div>"
+    else:
+        html += "<p class='gris'>Aucun gain verse de son tournoi vers ses comptes listes.</p>"
+
+    # 3. Auto-encaissements
+    html += "<h2>3. Mises de ses comptes joueuses dans son propre tournoi</h2>"
+    if auto_encaiss:
+        html += "<table><tr><th>Date</th><th>Tournoi (org)</th><th>Compte joueuse</th><th>Jeu</th><th class='dr'>Mise</th></tr>"
+        s = 0
+        for (d, org, jou, m, jeu) in sorted(auto_encaiss):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + org + "</td><td>" + jou + "</td><td>" + jeu + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+            s += m
+        html += "<tr style='background:#DEEAF6;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAL</td><td class='dr'>" + fmt(s) + " F</td></tr></table>"
+    else:
+        html += "<p class='gris'>Aucune mise de ses comptes dans son propre tournoi.</p>"
+
+    # 4. Transferts entrants de tiers (le reseau qui l'alimente)
+    html += "<h2>4. Transferts recus de comptes tiers (le reseau qui alimente ses comptes)</h2>"
+    if transf_entrants:
+        html += "<table><tr><th>Date</th><th>De (tiers)</th><th>Vers (son compte)</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, a) in sorted(transf_entrants):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("annule fraude" if a else "actif") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p class='gris'>Aucun transfert entrant de tiers.</p>"
+
+    html += "<h2>Synthese</h2>"
+    html += "<div class='alert'>Cet audit documente les flux internes et auto-attributions des comptes de cette personne. "
+    html += "Total des gains qu'elle s'est verses (actifs) : <b>" + fmt(tot_auto_gains) + " F</b>. "
+    html += "Total des transferts recus du reseau : <b>" + fmt(tot_entrants) + " F</b>. "
+    html += "Ces montants representent des fonds obtenus par manipulation de son propre tournoi et par le reseau de comptes complices.</div>"
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/liens-releves")
+def liens_releves():
+    """ADMIN — Genere les liens de releve a envoyer aux joueuses/organisatrices.
+    Chaque lien utilise le PROPRE code de la personne comme cle (pas la cle admin) :
+    la personne voit uniquement son releve, ne peut rien modifier. 
+    ?cle=ADMIN[&codes=A,B,C pour des liens precis]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve. Ajoute ?cle=TON_CODE_ADMIN.", status=403, mimetype="text/plain; charset=utf-8")
+    base = request.host_url.rstrip("/")
+    codes_param = (request.args.get("codes", "") or "").strip()
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Liens releves</title><style>"
+    html += "body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:760px;margin:0 auto}h1{color:#58a6ff}"
+    html += ".sub{color:#8b949e;margin-bottom:16px;font-size:14px}"
+    html += ".box{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "input{width:100%;padding:12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:15px;box-sizing:border-box}"
+    html += ".lien{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;margin:6px 0;color:#3fb950}"
+    html += "button{background:#238636;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:bold;cursor:pointer;margin-top:8px}"
+    html += ".row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #21262d}"
+    html += "a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128279; Liens de releve a envoyer</h1>"
+    html += "<div class='sub'>Chaque lien utilise le CODE de la personne comme cle : elle voit seulement SON releve, ne peut rien modifier, et ta cle admin n'apparait jamais. Copie le lien et envoie-le par message.</div>"
+
+    # Generateur : tape un code
+    html += "<div class='box'><b>Generer un lien pour un code :</b><br>"
+    html += "<input id='c' placeholder='Tape le code de la joueuse (ex: EY6K47)' oninput='gen()' style='margin-top:8px'>"
+    html += "<div id='out'></div></div>"
+    html += "<script>var base='" + base + "';"
+    html += "function gen(){var c=document.getElementById('c').value.trim().toUpperCase();var o=document.getElementById('out');"
+    html += "if(c.length<4){o.innerHTML='';return;}"
+    html += "var url=base+'/releve-financier-joueur/'+c+'?cle='+c;"
+    html += "o.innerHTML=\"<div class='lien'>\"+url+\"</div><button onclick=\\\"navigator.clipboard.writeText('\"+url+\"');this.textContent='Copie !'\\\">Copier le lien</button>\";}"
+    html += "</script>"
+
+    # Liste optionnelle
+    if codes_param:
+        html += "<div class='box'><b>Liens demandes :</b>"
+        for c in codes_param.split(","):
+            c = c.strip().upper()
+            if not c:
+                continue
+            url = base + "/releve-financier-joueur/" + c + "?cle=" + c
+            nom = noms.get(c, "")
+            html += "<div class='row'><span>" + c + (" — " + nom if nom else "") + "</span></div>"
+            html += "<div class='lien'>" + url + "</div>"
+        html += "</div>"
+
+    html += "<div class='sub' style='margin-top:16px'>Astuce : ajoute <b>&codes=CODE1,CODE2,CODE3</b> a l'adresse pour generer plusieurs liens d'un coup.</div>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/ajouter-dette-joueuse")
 def ajouter_dette_joueuse():
     """ADMIN — Enregistre une dette de joueuse (avance especes a rembourser).
