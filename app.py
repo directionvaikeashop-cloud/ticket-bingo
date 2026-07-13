@@ -7031,6 +7031,141 @@ def sauvegardes():
     return html
 
 
+@app.route("/controle-gagnantes")
+def controle_gagnantes():
+    """CONTROLE GLOBAL (13/07/2026) : prend toutes les gagnantes d'un tournoi et
+    croise leurs adresses IP pour reperer les comptes lies (partage d'IP entre
+    gagnantes, ou avec un reseau connu). Classe chaque gagnante : ISOLEE (propre)
+    ou LIEE (partage une IP -> a examiner). ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes_org = set([org] + ([aussi] if aussi else []))
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    bloques = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+
+    # Gagnantes du tournoi (gains non annules)
+    gagnantes = {}
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes_org and not g.get("annule"):
+            cg = (g.get("code_gagnant", "") or "").upper()
+            gagnantes[cg] = gagnantes.get(cg, 0) + _iv(g.get("montant_credite", 0))
+
+    # IP de chaque compte (toutes sources)
+    ip_de = {}
+    for j in DB.get("journal_connexions", []):
+        cj = (j.get("code") or "").upper().strip()
+        ipj = (j.get("ip") or "").strip()
+        if cj and ipj:
+            ip_de.setdefault(cj, set()).add(ipj)
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("ip") or "").strip():
+            for k in ("de", "vers"):
+                ck = (t.get(k, "") or "").upper()
+                if ck:
+                    ip_de.setdefault(ck, set()).add((t.get("ip") or "").strip())
+
+    # IP du reseau connu (VAHINE + comptes deja identifies)
+    reseau_connu = codes_org | {"RT50CJ", "UURZ4Y", "H1I5G9", "QGVXNI", "397LAI", "JKNTZY"}
+    ips_reseau = set()
+    for c in reseau_connu:
+        ips_reseau |= ip_de.get(c, set())
+
+    # Construire un index IP -> comptes gagnants (pour detecter les partages entre gagnantes)
+    ip_vers_gagnantes = {}
+    for cg in gagnantes:
+        for ip in ip_de.get(cg, set()):
+            ip_vers_gagnantes.setdefault(ip, set()).add(cg)
+
+    # Classer chaque gagnante
+    lignes = []
+    for cg, montant in gagnantes.items():
+        ips = ip_de.get(cg, set())
+        partage_reseau = bool(ips & ips_reseau)
+        # partage avec une autre gagnante ?
+        autres = set()
+        for ip in ips:
+            autres |= (ip_vers_gagnantes.get(ip, set()) - {cg})
+        est_bloque = cg in bloques
+        if est_bloque:
+            statut = "BLOQUE"
+        elif partage_reseau:
+            statut = "LIEE AU RESEAU"
+        elif autres:
+            statut = "PARTAGE IP"
+        else:
+            statut = "ISOLEE"
+        lignes.append((montant, cg, statut, sorted(ips), sorted(autres)))
+    lignes.sort(key=lambda r: (r[2] == "ISOLEE", -r[0]))
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Controle gagnantes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:920px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;white-space:nowrap;font-weight:bold}"
+    html += ".bloq{background:#FDECEA;color:#C00000;font-weight:bold}"
+    html += ".lie{background:#FCE4D6;color:#C55A11;font-weight:bold}"
+    html += ".part{background:#FFF9C4;color:#9C6500}"
+    html += ".ok{background:#E8F5E9;color:#1E7B34}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#9989; Controle des gagnantes — tournoi " + str(nomde(org) or org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(gagnantes)) + " gagnantes analysees</div>"
+
+    tot_isolee = sum(m for (m, cg, st, i, a) in lignes if st == "ISOLEE")
+    tot_lie = sum(m for (m, cg, st, i, a) in lignes if st in ("LIEE AU RESEAU", "BLOQUE"))
+    tot_part = sum(m for (m, cg, st, i, a) in lignes if st == "PARTAGE IP")
+
+    html += "<div class='meta' style='font-size:14px'>"
+    html += "&#128994; <b>Propres (isolees) : " + fmt(tot_isolee) + " F</b> &nbsp;&middot;&nbsp; "
+    html += "&#128992; <b>Liees au reseau / bloquees : " + fmt(tot_lie) + " F</b> &nbsp;&middot;&nbsp; "
+    html += "&#128993; <b>Partage IP (a verifier) : " + fmt(tot_part) + " F</b></div>"
+
+    html += "<table><tr><th>Gagnante</th><th>Code</th><th class='dr'>Gains</th><th>Statut</th><th>IP / liens</th></tr>"
+    for (montant, cg, statut, ips, autres) in lignes:
+        cls = {"BLOQUE": "bloq", "LIEE AU RESEAU": "lie", "PARTAGE IP": "part", "ISOLEE": "ok"}.get(statut, "")
+        detail = ", ".join(ips[:3])
+        if autres:
+            detail += " &mdash; partage avec : " + ", ".join((a + (" (" + nomde(a) + ")" if nomde(a) else "")) for a in autres[:4])
+        html += "<tr class='" + cls + "'><td>" + (nomde(cg) or "—") + "</td><td>" + cg + "</td><td class='dr'>" + fmt(montant) + " F</td><td>" + statut + "</td><td style='font-size:11px'>" + detail + "</td></tr>"
+    html += "</table>"
+
+    html += "<h2 style='color:#1F4E79;margin-top:20px'>Conclusion</h2>"
+    if tot_lie == 0 and tot_part == 0:
+        html += "<div class='ok' style='border:2px solid #1E7B34;border-radius:10px;padding:14px'>&#9989; Toutes les gagnantes restantes sont ISOLEES (aucun partage d'IP). Les " + fmt(tot_isolee) + " F de gains sont propres.</div>"
+    else:
+        html += "<div style='background:#FFF4E5;border:2px solid #C55A11;border-radius:10px;padding:14px;font-size:14px'>&#9888;&#65039; Il reste des gagnantes liees au reseau (" + fmt(tot_lie) + " F) ou partageant une IP (" + fmt(tot_part) + " F). Seuls les <b>" + fmt(tot_isolee) + " F</b> des gagnantes ISOLEES sont surement propres. Les autres sont a examiner (voir lignes orange/jaune).</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/enquete-ip")
 def enquete_ip():
     """ENQUETE PAR IP (13/07/2026) : liste TOUS les comptes qui se sont connectes
