@@ -7031,6 +7031,98 @@ def sauvegardes():
     return html
 
 
+@app.route("/test-transferts-reseau")
+def test_transferts_reseau():
+    """TEST DECISIF (13/07/2026) : pour une liste de comptes, verifie si chacun a
+    RECU un transfert venant d'un compte du reseau de fraude. C'est le critere qui
+    distingue un vrai fraudeur (a recu de l'argent du reseau) d'une joueuse
+    honnete qui partage seulement une IP d'operateur mobile.
+    ?cle=ADMIN&codes=A,B,C&reseau=RT50CJ,UURZ4Y,... (comptes du reseau connu)"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    codes_param = (request.args.get("codes", "") or "").strip().upper()
+    if not codes_param:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &codes=A,B,C (comptes a tester)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    a_tester = [c.strip() for c in codes_param.split(",") if c.strip()]
+
+    # Reseau connu (par defaut : tous les comptes bloques + les identifies)
+    reseau_param = (request.args.get("reseau", "") or "").strip().upper()
+    if reseau_param:
+        reseau = set(c.strip() for c in reseau_param.split(",") if c.strip())
+    else:
+        reseau = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+        reseau |= {"RT50CJ", "UURZ4Y", "H1I5G9", "QGVXNI"}
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # Pour chaque compte a tester : lister les transferts recus depuis le reseau
+    resultats = {}
+    for code in a_tester:
+        recus = []
+        for t in DB.get("transferts_pions", []):
+            if not isinstance(t, dict):
+                continue
+            if (t.get("vers", "") or "").upper() == code:
+                de = (t.get("de", "") or "").upper()
+                if de in reseau:
+                    recus.append((str(t.get("date", "")), de, _iv(t.get("montant", 0)), t.get("annule_fraude")))
+        resultats[code] = recus
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Test transferts reseau</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += ".card{border-radius:10px;padding:14px;margin:10px 0;font-size:14px}"
+    html += ".fraude{background:#FDECEA;border:2px solid #C00000}"
+    html += ".propre{background:#E8F5E9;border:2px solid #1E7B34}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#9878;&#65039; Test decisif — transferts recus du reseau</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<p style='font-size:14px'>Critere : un compte qui a <b>recu un transfert d'un compte du reseau</b> est implique dans la fraude. Un compte sans aucun transfert du reseau, meme s'il partage une IP d'operateur, est <b>presume honnete</b>.</p>"
+
+    nb_fraude = 0; nb_propre = 0
+    for code in a_tester:
+        recus = resultats[code]
+        titre = code + (" — " + nomde(code) if nomde(code) else "")
+        if recus:
+            nb_fraude += 1
+            html += "<div class='card fraude'>&#128683; <b>" + titre + "</b> a RECU des transferts du reseau :<table><tr><th>Date</th><th>De</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+            for (d, de, m, an) in sorted(recus):
+                html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("annule" if an else "actif") + "</td></tr>"
+            html += "</table><b>&rarr; IMPLIQUE DANS LE RESEAU.</b></div>"
+        else:
+            nb_propre += 1
+            html += "<div class='card propre'>&#9989; <b>" + titre + "</b> : AUCUN transfert recu du reseau. Presume <b>joueuse honnete</b> (partage d'IP = meme operateur mobile, pas complicite).</div>"
+
+    html += "<h2 style='color:#1F4E79'>Conclusion</h2>"
+    html += "<div class='meta' style='font-size:15px'><b>" + str(nb_fraude) + "</b> compte(s) implique(s) dans le reseau &middot; <b>" + str(nb_propre) + "</b> compte(s) presume(s) honnete(s).</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/controle-gagnantes")
 def controle_gagnantes():
     """CONTROLE GLOBAL (13/07/2026) : prend toutes les gagnantes d'un tournoi et
