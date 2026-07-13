@@ -3469,6 +3469,10 @@ def commander_ticket_pions():
     DB = load_data()
     d = request.json
     code_joueur = d.get("code_joueur", "").upper()
+    # NEUTRALISATION (13/07/2026) : un compte du reseau de fraude reactive mais
+    # neutralise peut consulter son releve, mais ne peut plus jouer.
+    if code_joueur in set((x or "").upper() for x in DB.get("comptes_neutralises", [])):
+        return jsonify({"ok": False, "msg": "Ce compte est en lecture seule et ne peut plus participer aux jeux."}), 403
     jeu = d.get("jeu", "")
     prix = int(d.get("prix", 0))
     nb_tickets = int(d.get("nb_tickets", 1))
@@ -7027,6 +7031,117 @@ def sauvegardes():
         html += "</table></div>"
     else:
         html += "<div class='box' style='color:#8b949e'>Aucune sauvegarde pour le moment.</div>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/reactiver-comptes-bloques")
+def reactiver_comptes_bloques():
+    """REACTIVATION EN MASSE (13/07/2026) : reactive tous les comptes bloques, leur
+    attribue un NOUVEAU code (l'historique complet suit vers le nouveau code, les
+    releves restent visibles). Les comptes du reseau de fraude (parametre &fraude=)
+    sont reactivees mais NEUTRALISEES : ne peuvent plus jouer ni transferer.
+    Genere la table anciens->nouveaux codes. Apercu sans &confirme=1.
+    ?cle=ADMIN[&fraude=A,B,C][&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+    fraude_param = (request.args.get("fraude", "") or "").strip().upper()
+    fraudeurs = set(c.strip() for c in fraude_param.split(",") if c.strip()) if fraude_param else {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY"}
+
+    bloques = [(b or "").upper() for b in DB.get("codes_bloques", []) if b]
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # Champs joueur ou un code peut apparaitre
+    CHAMPS_JOUEUR = ("code_joueur", "code_acheteur", "code_gagnant", "code", "de", "vers", "code_destinataire")
+
+    def fmt(n): return format(n, ",")
+
+    # Generer les nouveaux codes (deterministe par apercu : on regenere a la confirmation)
+    mapping = []
+    for cb in bloques:
+        est_fraudeur = cb in fraudeurs
+        nouveau = "TB" + gen_code(6)
+        mapping.append((cb, nomde(cb), nouveau, est_fraudeur))
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reactivation comptes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1E7B34;border-bottom:3px solid #1E7B34;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8F5E9;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".neu{background:#FDECEA;color:#C00000}.new{font-family:monospace;font-weight:bold;color:#1E7B34}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8F5E9;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+
+    if not confirme:
+        html += "<h1>&#128260; Reactivation des comptes bloques — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(bloques)) + " comptes &middot; " + str(len(fraudeurs)) + " a neutraliser</div>"
+        html += "<p style='font-size:14px'>Voici ce qui va se passer. <b>Rien n'est encore applique.</b> Chaque compte sera reactive et recevra un nouveau code (l'historique suit, les releves restent visibles). Les comptes en rouge (reseau de fraude) seront neutralises : reactives mais sans possibilite de jouer ni transferer.</p>"
+        html += "<table><tr><th>Ancien code</th><th>Nom</th><th>Nouveau code (exemple)</th><th>Traitement</th></tr>"
+        for (cb, nom, nouveau, est_fraudeur) in mapping:
+            cls = "neu" if est_fraudeur else ""
+            html += "<tr class='" + cls + "'><td><b>" + cb + "</b></td><td>" + (nom or "—") + "</td><td class='new'>" + nouveau + "</td><td>" + ("&#128683; Neutralise" if est_fraudeur else "&#9989; Reactive normal") + "</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FFF4E5;border:2px solid #E8830C;border-radius:8px;padding:12px;font-size:13px'>&#9888;&#65039; Les nouveaux codes ci-dessus sont des EXEMPLES. Les codes definitifs seront generes a la confirmation. Note-les bien apres confirmation.</div>"
+        lien = "/reactiver-comptes-bloques?cle=" + _cle + ("&fraude=" + fraude_param if fraude_param else "") + "&confirme=1"
+        html += "<a class='btn noprint' href='" + lien + "'>&#9989; CONFIRMER la reactivation des " + str(len(bloques)) + " comptes</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME : on applique ===
+    resultats = []
+    for cb in bloques:
+        est_fraudeur = cb in fraudeurs
+        nouveau = "TB" + gen_code(6)
+        # 1. deplacer l'historique : tous les champs joueur ancien->nouveau
+        nb_maj = 0
+        for k, v in DB.items():
+            if isinstance(v, list):
+                for it in v:
+                    if isinstance(it, dict):
+                        for f in CHAMPS_JOUEUR:
+                            if (it.get(f) or "").upper() == cb:
+                                it[f] = nouveau; nb_maj += 1
+        # 2. deplacer les soldes (pions_joueurs, bonus) meme si 0
+        for dico in ("pions_joueurs", "pions_bonus_joueurs"):
+            if cb in DB.get(dico, {}):
+                DB[dico][nouveau] = DB[dico].pop(cb)
+        # 3. deplacer l'entree codes si existe
+        if cb in DB.get("codes", {}):
+            DB["codes"][nouveau] = _copy.deepcopy(DB["codes"][cb])
+            DB["codes"][cb]["actif"] = False
+        # 4. debloquer : retirer l'ancien ET le nouveau des bloques
+        DB["codes_bloques"] = [x for x in DB.get("codes_bloques", []) if (x or "").upper() not in (cb, nouveau)]
+        # 5. si fraudeur : neutraliser le NOUVEAU code (peut se connecter voir son releve, mais pas jouer/transferer)
+        if est_fraudeur:
+            DB.setdefault("comptes_neutralises", [])
+            if nouveau not in DB["comptes_neutralises"]:
+                DB["comptes_neutralises"].append(nouveau)
+        resultats.append((cb, nomde(cb), nouveau, est_fraudeur, nb_maj))
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Comptes reactives !</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; " + str(len(resultats)) + " comptes traites</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>&#9989; Tous les comptes sont reactives avec un nouveau code. L'historique a suivi, les releves restent visibles. Les comptes du reseau de fraude sont neutralises (pas de jeu ni transfert).<br><br>&#128273; <b>IMPORTANT : imprime cette page (Ctrl+P) et note les nouveaux codes. C'est la SEULE fois ou ils s'affichent.</b></div>"
+    html += "<table><tr><th>Ancien code</th><th>Nom</th><th>NOUVEAU CODE</th><th>Statut</th></tr>"
+    for (cb, nom, nouveau, est_fraudeur, nb_maj) in resultats:
+        cls = "neu" if est_fraudeur else ""
+        html += "<tr class='" + cls + "'><td>" + cb + "</td><td>" + (nom or "—") + "</td><td class='new' style='font-size:15px'>" + nouveau + "</td><td>" + ("&#128683; Neutralise (fraude)" if est_fraudeur else "&#9989; Actif") + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
     html += "</body></html>"
     return html
 
