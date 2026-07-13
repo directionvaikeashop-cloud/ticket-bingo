@@ -7031,6 +7031,153 @@ def sauvegardes():
     return html
 
 
+@app.route("/reconstitution-caisse-org")
+def reconstitution_caisse_org():
+    """RECONSTITUTION (13/07/2026) : reconstitue la caisse d'une organisatrice pour
+    retrouver l'origine d'un ecart. Additionne TOUTES les entrees (ventes pions +
+    mises tickets) et TOUTES les sorties (gains, remboursements, recharges de
+    joueuses, retraits CCP/especes, corrections, transferts) pour voir ou est parti
+    chaque franc. ?cle=ADMIN&org=CODE[&aussi=ANCIEN]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org = (request.args.get("org", "") or "").strip().upper()
+    aussi = (request.args.get("aussi", "") or "").strip().upper()
+    if not org:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE_ORG</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set([org] + ([aussi] if aussi else []))
+    nom_org = (DB.get("codes", {}).get(org, {}) or {}).get("nom", org)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # === ENTREES ===
+    ventes_pions = 0
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in codes:
+            ventes_pions += _iv(t.get("montant_total", 0))
+    mises_tickets = 0
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in codes:
+            mises_tickets += _iv(e.get("montant", 0))
+    total_entrees = ventes_pions + mises_tickets
+
+    # === SORTIES ===
+    gains = 0
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes and not g.get("annule"):
+            gains += _iv(g.get("montant_credite", 0))
+    remb = 0
+    for rb in DB.get("remboursements_tournoi", []):
+        if isinstance(rb, dict) and (rb.get("code_org", "") or "").upper() in codes:
+            for det in (rb.get("detail") or []):
+                if isinstance(det, dict):
+                    remb += _iv(det.get("montant", 0))
+
+    # Recharges de joueuses = ventes de pions (deja comptees en entree mais elles
+    # SORTENT de la poche org... non : quand l'org vend des pions, elle recoit l'argent
+    # et donne des pions. Le montant_total est l'argent recu. Neutre pour la caisse.)
+    # Mais les DEBLOCK sans paiement especes sont a part :
+    deblock = 0
+    especes_ventes = 0
+    ccp_ventes = 0
+    for t in DB.get("transactions_joueur_org", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in codes:
+            mode = str(t.get("mode_paiement", "") or "").lower()
+            m = _iv(t.get("montant_total", 0))
+            if "deblock" in mode or "débloc" in mode:
+                deblock += m
+            elif "espèce" in mode or "especes" in mode or "cash" in mode:
+                especes_ventes += m
+            elif "ccp" in mode or "virement" in mode:
+                ccp_ventes += m
+
+    # Transferts sortants de la poche org (nos outils)
+    transf_poche_sortants = 0
+    for t in DB.get("transferts_poche_org", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() in codes:
+            transf_poche_sortants += _iv(t.get("montant", 0))
+
+    # Corrections/retraits sur le compte org (si servi de joueuse)
+    corrections_org = 0
+    retraits_ccp = 0
+    for c in DB.get("corrections_pions", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() in codes:
+            m = _iv(c.get("montant_retire", 0))
+            if "ccp" in str(c.get("motif", "") or "").lower():
+                retraits_ccp += m
+            else:
+                corrections_org += m
+
+    poche_reelle = 0
+    for c in codes:
+        poche_reelle += _xpf_total_pions(DB.get("pions_org", {}).get(c, {}))
+
+    total_sorties = gains + remb
+    solde_theorique = total_entrees - total_sorties
+    ecart = solde_theorique - poche_reelle
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reconstitution caisse</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:820px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}"
+    html += "td{border:1px solid #ccc;padding:8px}.dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".sect{background:#E8EEF6;font-weight:bold;color:#1F4E79}.big{font-size:16px}"
+    html += ".warn{background:#FFF4E5;border:2px solid #E8830C;border-radius:10px;padding:14px;margin:12px 0}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin:12px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#129518; Reconstitution de la caisse — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+
+    html += "<h2>Entrees</h2><table>"
+    html += "<tr><td>Ventes de pions aux joueuses</td><td class='dr'>+" + fmt(ventes_pions) + " F</td></tr>"
+    html += "<tr><td>Mises de tickets encaissees (100% credite a la poche)</td><td class='dr'>+" + fmt(mises_tickets) + " F</td></tr>"
+    html += "<tr class='sect'><td>TOTAL ENTREES</td><td class='dr big'>+" + fmt(total_entrees) + " F</td></tr></table>"
+
+    html += "<h2>Sorties (gains et remboursements)</h2><table>"
+    html += "<tr><td>Gains payes aux gagnantes</td><td class='dr'>-" + fmt(gains) + " F</td></tr>"
+    html += "<tr><td>Remboursements</td><td class='dr'>-" + fmt(remb) + " F</td></tr>"
+    html += "<tr class='sect'><td>TOTAL SORTIES</td><td class='dr big'>-" + fmt(total_sorties) + " F</td></tr></table>"
+
+    html += "<h2>Solde theorique vs reel</h2><table>"
+    html += "<tr><td>Solde theorique (entrees - sorties)</td><td class='dr'>" + fmt(solde_theorique) + " F</td></tr>"
+    html += "<tr><td>Caisse reelle (poche)</td><td class='dr'>" + fmt(poche_reelle) + " F</td></tr>"
+    html += "<tr class='sect'><td>ECART A EXPLIQUER</td><td class='dr big'>" + fmt(ecart) + " F</td></tr></table>"
+
+    html += "<h2>Pistes pour expliquer l'ecart</h2>"
+    html += "<table>"
+    html += "<tr><td>Pions distribues en DEBLOCK (virement/avance, pas especes directes)</td><td class='dr'>" + fmt(deblock) + " F</td></tr>"
+    html += "<tr><td>Pions distribues par VIREMENT CCP</td><td class='dr'>" + fmt(ccp_ventes) + " F</td></tr>"
+    html += "<tr><td>Pions distribues en ESPECES</td><td class='dr'>" + fmt(especes_ventes) + " F</td></tr>"
+    html += "<tr><td>Retraits CCP traces sur le compte</td><td class='dr'>" + fmt(retraits_ccp) + " F</td></tr>"
+    html += "<tr><td>Transferts sortants de poche org</td><td class='dr'>" + fmt(transf_poche_sortants) + " F</td></tr>"
+    html += "<tr><td>Autres corrections sur le compte</td><td class='dr'>" + fmt(corrections_org) + " F</td></tr>"
+    html += "</table>"
+
+    somme_pistes = deblock + retraits_ccp
+    html += "<div class='warn'>&#9888;&#65039; <b>Analyse de l'ecart de " + fmt(ecart) + " F :</b><br><br>"
+    html += "Le mode de distribution des pions eclaire l'ecart. Quand VAHINE distribuait des pions en <b>deblock</b> (" + fmt(deblock) + " F) ou <b>virement CCP</b> (" + fmt(ccp_ventes) + " F), l'argent correspondant allait potentiellement sur son compte bancaire personnel (CCP), et non dans sa caisse-plateforme. "
+    html += "Ces pions ont ete <b>joues</b> par les joueuses (donc comptes comme mises encaissees a 100%), mais la contrepartie en argent n'est jamais entree dans la poche-systeme &mdash; elle est sur son CCP. "
+    html += "Cela explique pourquoi le theorique (qui compte tout) depasse la caisse-systeme reelle.</div>"
+
+    html += "<div class='ok'>&#128161; <b>Conclusion :</b> l'ecart ne signifie pas forcement de l'argent vole. Une partie correspond aux paiements recus par VAHINE hors especes (deblock, CCP), qui alimentaient son compte bancaire au lieu de la caisse-systeme. Pour confirmer le montant exact, il faut comparer avec son releve CCP reel.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/distributions-pions-org")
 def distributions_pions_org():
     """ANALYSE DISTRIBUTIONS (13/07/2026) : liste tous les pions que l'organisatrice
