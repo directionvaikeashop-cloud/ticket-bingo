@@ -7031,6 +7031,129 @@ def sauvegardes():
     return html
 
 
+@app.route("/transferts-sortants-org")
+def transferts_sortants_org():
+    """TRAÇAGE (13/07/2026) : recherche TOUS les mouvements ou le(s) code(s) d'une
+    organisatrice apparai(ssen)t comme SOURCE d'un depart d'argent vers un autre
+    compte, EN DEHORS des gains normaux payes aux gagnantes. Objectif : detecter
+    si son compte a servi a envoyer des pions ailleurs (complices, comptes lies),
+    deguises ou non. Balaie : transferts de pions, transferts de poche org,
+    credits qu'elle aurait emis vers d'autres, deductions inexpliquees.
+    ?cle=ADMIN&org=CODE1[,CODE2,...] (un ou plusieurs codes de la personne)"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    org_param = (request.args.get("org", "") or "").strip().upper()
+    if not org_param:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &org=CODE (ou plusieurs : CODE1,CODE2)</h1>", status=400, mimetype="text/html; charset=utf-8")
+    codes = set(c.strip() for c in org_param.split(",") if c.strip())
+    nom_org = ""
+    for c in codes:
+        n = (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+        if n:
+            nom_org = n; break
+    if not nom_org:
+        nom_org = list(codes)[0]
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomcode(c):
+        c = (c or "").upper()
+        n = noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+        return c + (" — " + n if n else "")
+
+    sorties = []  # (date, type, destinataire, montant, etat, source_table)
+
+    # 1. Transferts de pions (poche joueuse) OU son code est source
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() in codes:
+            vers = (t.get("vers", "") or "").upper()
+            sorties.append((str(t.get("date", "")), "Transfert de pions", vers, _iv(t.get("montant", 0)),
+                            "ANNULE fraude" if t.get("annule_fraude") else "actif", "transferts_pions"))
+
+    # 2. Transferts de poche org OU son code est source
+    for t in DB.get("transferts_poche_org", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() in codes:
+            vers = (t.get("vers", "") or "").upper()
+            par = str(t.get("par", "?"))
+            # legitime si fait par un admin
+            legit = par.upper() in DB.get("codes", {}) and DB.get("codes", {}).get(par.upper(), {}).get("admin")
+            sorties.append((str(t.get("date", "")), "Transfert poche org" + (" (par admin)" if legit else ""), vers, _iv(t.get("montant", 0)),
+                            "legitime (admin)" if legit else "A EXAMINER", "transferts_poche_org"))
+
+    # 3. Gains : normalement sortie legitime. On les liste SEPAREMENT pour comparaison,
+    #    en signalant ceux verses a un compte AUJOURD'HUI bloque.
+    bloques = set((b or "").upper() for b in DB.get("codes_bloques", []) if b)
+    gains_vers_bloques = []
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in codes and not g.get("annule"):
+            cg = (g.get("code_gagnant", "") or "").upper()
+            if cg in bloques:
+                gains_vers_bloques.append((str(g.get("date", "")), cg, _iv(g.get("montant_credite", 0)), str(g.get("jeu", "?"))))
+
+    sorties.sort(key=lambda r: r[0])
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Transferts sortants org</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:24px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += ".ok{background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin:12px 0}"
+    html += ".warn{background:#FDECEA;border:2px solid #C00000;border-radius:10px;padding:14px;margin:12px 0;font-size:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;white-space:nowrap;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Traçage des sorties d'argent — " + str(nom_org) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Codes analyses : " + ", ".join(sorted(codes)) + "</div>"
+    html += "<p style='font-size:14px'>Recherche de tous les departs d'argent depuis ses comptes vers d'autres comptes, <b>en dehors des gains normaux</b>. Permet de verifier si son compte a servi a transferer des pions ailleurs.</p>"
+
+    html += "<h2>1. Transferts sortants (hors gains)</h2>"
+    if sorties:
+        html += "<table><tr><th>Date</th><th>Type</th><th>Vers (destinataire)</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, ty, dest, m, etat, src) in sorties:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + ty + "</td><td>" + nomcode(dest) + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + etat + "</td></tr>"
+        html += "</table>"
+        # total des sorties a examiner (hors legitimes admin)
+        tot_exam = sum(m for (d, ty, dest, m, etat, src) in sorties if "legitime" not in etat and "ANNULE" not in etat)
+        if tot_exam:
+            html += "<div class='warn'>&#9888;&#65039; Total des sorties <b>A EXAMINER</b> (hors transferts admin legitimes et hors deja annules) : <b>" + fmt(tot_exam) + " F</b>. Ces mouvements sortent du role normal d'une organisatrice.</div>"
+        else:
+            html += "<div class='ok'>&#9989; Toutes les sorties listees sont soit des operations admin legitimes (nos outils du 11/07), soit deja annulees pour fraude. Aucune sortie suspecte active.</div>"
+    else:
+        html += "<div class='ok'>&#9989; AUCUN transfert sortant depuis ses comptes (hors gains). Son compte organisateur n'a jamais servi a envoyer des pions vers d'autres comptes. C'est le comportement normal d'une organisatrice.</div>"
+
+    html += "<h2>2. Gains verses a des comptes aujourd'hui bloques</h2>"
+    if gains_vers_bloques:
+        html += "<table><tr><th>Date</th><th>Gagnant (bloque)</th><th>Jeu</th><th class='dr'>Montant</th></tr>"
+        tot_gb = 0
+        for (d, cg, m, jeu) in sorted(gains_vers_bloques):
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + nomcode(cg) + "</td><td>" + jeu + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+            tot_gb += m
+        html += "<tr style='background:#FDECEA;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL vers comptes bloques</td><td class='dr'>" + fmt(tot_gb) + " F</td></tr></table>"
+        html += "<div class='warn'>&#9888;&#65039; Ces gains ont ete verses par son tournoi a des comptes aujourd'hui bloques (reseau de fraude). Meme s'ils passent pour des &laquo; gains &raquo;, ils alimentaient le reseau.</div>"
+    else:
+        html += "<div class='ok'>&#9989; Aucun gain verse a un compte bloque depuis ce tournoi.</div>"
+
+    html += "<p style='margin-top:22px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/stripe-par-org")
 def stripe_par_org():
     """PAIEMENTS STRIPE (13/07/2026) : calcule tous les paiements par carte (Stripe)
