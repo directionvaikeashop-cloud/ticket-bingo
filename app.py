@@ -7123,7 +7123,47 @@ def stripe_par_org():
         html += "<tr style='background:#EEE;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAL</td><td class='dr'>" + fmt(total) + "</td><td class='dr'>" + fmt(tot_part_org) + "</td><td class='dr'>" + fmt(tot_part_cagnotte) + "</td></tr>"
         html += "</table>"
     else:
-        html += "<p>Aucun paiement Stripe trouve pour ce tournoi (les paiements etaient peut-etre tous en especes/direct).</p>"
+        html += "<p>Aucun paiement Stripe rattache au code de cette organisatrice.</p>"
+
+    # === PERIODE DES TOURNOIS DE VAHINE (dans la base) ===
+    dates_tournois = []
+    for src in ("tournois_termines", "tournois_programmes", "encaissements_org", "gains_finaux"):
+        for x in DB.get(src, []):
+            if isinstance(x, dict) and (x.get("code_org", "") or "").upper() in codes and x.get("date"):
+                dates_tournois.append(str(x.get("date"))[:19])
+    html += "<h2 style='color:#635BFF'>Periode d'activite de " + str(nom_org) + "</h2>"
+    if dates_tournois:
+        dmin = min(dates_tournois); dmax = max(dates_tournois)
+        html += "<div class='meta' style='font-size:14px'>Premiere activite : <b>" + dmin.replace("T", " ") + "</b> &middot; Derniere activite : <b>" + dmax.replace("T", " ") + "</b></div>"
+    else:
+        html += "<div class='meta'>Aucune date d'activite trouvee.</div>"
+        dmin = None; dmax = None
+
+    # === TOUS les paiements Stripe sur cette periode (toutes org confondues) ===
+    html += "<h2 style='color:#635BFF'>Tous les paiements Stripe sur cette periode (toutes organisatrices)</h2>"
+    html += "<div class='meta'>Pour ne rien rater : les paiements par carte qui pourraient concerner ce tournoi meme s'ils sont rattaches a un autre code (ou a aucun).</div>"
+    periode_lignes = []
+    total_periode = 0
+    if dates_tournois:
+        d0 = dmin[:10]; d1 = dmax[:10]
+        for p in paiements:
+            if not isinstance(p, dict):
+                continue
+            dp = str(p.get("date", ""))[:10]
+            if d0 <= dp <= d1:
+                m = _iv(p.get("montant", 0)) or _iv(p.get("total", 0))
+                periode_lignes.append((str(p.get("date", "")), str(p.get("type", "?")), (p.get("code_org", "") or "—"), str(p.get("acheteur", "") or p.get("description", "") or ""), m))
+                total_periode += m
+    if periode_lignes:
+        periode_lignes.sort(key=lambda r: r[0])
+        html += "<table><tr><th>Date</th><th>Type</th><th>Code org</th><th>Acheteur/desc</th><th class='dr'>Montant</th></tr>"
+        for (d, typ, co, ach, m) in periode_lignes:
+            surligne = " style='background:#FFF9C4'" if co.upper() in codes else ""
+            html += "<tr" + surligne + "><td>" + d[:16].replace("T", " ") + "</td><td>" + typ + "</td><td>" + co + "</td><td>" + ach[:24] + "</td><td class='dr'>" + fmt(m) + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAL periode</td><td class='dr'>" + fmt(total_periode) + "</td></tr></table>"
+        html += "<div class='meta'>Les lignes surlignees en jaune sont rattachees au code de " + str(nom_org) + ". Les autres concernent d'autres tournois mais se sont produites pendant la meme periode.</div>"
+    else:
+        html += "<p>Aucun paiement Stripe sur toute la periode d'activite &mdash; ni pour ce tournoi, ni pour aucun autre. Cela confirme que les paiements se faisaient en especes/direct.</p>"
 
     html += "<h2 style='color:#635BFF'>Ce que ca implique</h2>"
     html += "<div class='meta' style='font-size:14px'>Les " + fmt(total) + " F encaisses par carte sont deja sur ton compte Stripe. Si des joueuses de ce tournoi ont paye par carte et doivent etre remboursees, l'argent existe deja chez toi &mdash; tu n'as pas besoin de le reclamer a l'organisatrice. En revanche, la part organisatrice (" + fmt(tot_part_org) + " F) est ce que tu devrais normalement lui reverser pour son travail : a mettre en balance avec ce qu'elle te doit.</div>"
