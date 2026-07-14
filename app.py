@@ -1592,6 +1592,19 @@ def enregistrer_ticket():
     # plus tard lors de l'annonce + validation de la commande en pions). Corrige 12/06/2026.
     if not d.get("acheteur"):
         return jsonify({"ok": False, "msg": "Le nom de la joueuse est obligatoire"}), 400
+    # IDENTIFIANTS OBLIGATOIRES (14/07/2026) : pour toute NOUVELLE inscription joueuse
+    # (pas de code existant fourni, pas de vente de jeu), exiger telephone + email.
+    # Cela empeche la creation de comptes fantomes anonymes.
+    _code_dmd = (d.get("code_acheteur") or "").strip()
+    _est_nouvelle_inscription = (not _code_dmd) and (not (d.get("jeu") or "").strip()) and (not (d.get("pdf_url") or "").strip())
+    if _est_nouvelle_inscription:
+        _tel = (d.get("telephone") or "").strip()
+        _email = (d.get("email") or "").strip()
+        _chiffres = "".join(c for c in _tel if c.isdigit())
+        if len(_chiffres) < 6:
+            return jsonify({"ok": False, "msg": "Le numéro de téléphone de la joueuse est obligatoire."}), 400
+        if "@" not in _email or "." not in _email.split("@")[-1] or len(_email) < 6:
+            return jsonify({"ok": False, "msg": "L'adresse email de la joueuse est obligatoire."}), 400
     # 🔒 SECURITE PAGES (20/06/2026) : si un PDF est attribué, la plage de pages est
     # OBLIGATOIRE — sinon le client verrait TOUT le PDF (beaucoup trop de cartes).
     # Et une plage à l'envers (fin < début) est refusée.
@@ -1657,6 +1670,7 @@ def enregistrer_ticket():
     else:
         code_acheteur = gen_code(6)
     email_joueur = d.get("email", "")
+    tel_joueur = "".join(c for c in (d.get("telephone") or "").strip() if c.isdigit() or c == "+")
     # 🔒 FEUILLE A USAGE UNIQUE : refuser si les pages visees sont deja vendues
     _pdf_n = d.get("pdf_url")
     _pd_n = d.get("page_debut")
@@ -1675,6 +1689,7 @@ def enregistrer_ticket():
         "page_fin": d.get("page_fin", None),
         "code_acheteur": code_acheteur,
         "email": email_joueur,
+        "telephone": tel_joueur,
         "code_org": code_org,
         "date": datetime.datetime.now().isoformat()
     }
