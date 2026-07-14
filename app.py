@@ -7146,6 +7146,94 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/comptes-vides-vers-reseau")
+def comptes_vides_vers_reseau():
+    """RECHERCHE (14/07/2026) : trouve tous les comptes dont les pions ont ete
+    transferes VERS les comptes du reseau VAHINE (via l'ancienne manette de
+    transfert). Balaie TOUS les transferts (annules ou non) dont la destination
+    est un compte du reseau, et liste les comptes SOURCES (les joueurs vides).
+    ?cle=ADMIN&reseau=RT50CJ,UURZ4Y,...(codes du reseau destinataires)"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    reseau_param = (request.args.get("reseau", "") or "").strip().upper()
+    # par defaut : tout le reseau connu + les comptes de VAHINE
+    if reseau_param:
+        reseau = set(c.strip() for c in reseau_param.split(",") if c.strip())
+    else:
+        reseau = {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    def fmt(n): return format(n, ",")
+
+    # Tous les transferts dont la DESTINATION est dans le reseau
+    lignes = []
+    sources = {}
+    total = 0
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        vers = (t.get("vers", "") or "").upper()
+        de = (t.get("de", "") or "").upper()
+        if vers in reseau and de and de not in reseau:
+            m = _iv(t.get("montant", 0))
+            an = bool(t.get("annule_fraude"))
+            lignes.append((str(t.get("date", "")), de, vers, m, an, str(t.get("ip", "") or "")))
+            sources[de] = sources.get(de, 0) + m
+            total += m
+    lignes.sort(key=lambda r: r[0])
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Comptes vides</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.an{color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Comptes vides vers le reseau VAHINE</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Destinataires : " + ", ".join(sorted(reseau)) + "</div>"
+    html += "<p style='font-size:14px'>Recherche de tous les comptes joueurs dont les pions ont ete transferes vers un compte du reseau VAHINE (via l'ancienne manette de transfert). Inclut les transferts annules pour fraude.</p>"
+
+    html += "<h2>Comptes sources vides (" + str(len(sources)) + " comptes)</h2>"
+    if sources:
+        html += "<table><tr><th>Compte vide (joueur)</th><th>Nom</th><th class='dr'>Total pris</th></tr>"
+        for de, m in sorted(sources.items(), key=lambda x: -x[1]):
+            html += "<tr><td><b>" + de + "</b></td><td>" + (nomde(de) or "—") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2' style='text-align:right'>TOTAL PRIS</td><td class='dr'>" + fmt(total) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p><b>Aucun transfert trouve</b> depuis un compte joueur vers le reseau. Les transferts ont peut-etre ete completement purges de la base (pas seulement annules), ou enregistres autrement.</p>"
+
+    if lignes:
+        html += "<h2>Detail chronologique</h2>"
+        html += "<table><tr><th>Date</th><th>De (vide)</th><th>Vers (reseau)</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, an, ip) in lignes:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td" + (" class='an'" if an else "") + ">" + ("ANNULE" if an else "actif") + "</td></tr>"
+        html += "</table>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/sources-transferts")
 def sources_transferts():
     """SOURCES (14/07/2026) : liste TOUS les transferts recus par un compte, Y
