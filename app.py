@@ -7433,6 +7433,113 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/diagnostic-soldes-vides")
+def diagnostic_soldes_vides():
+    """DIAGNOSTIC (14/07/2026) : compare le solde de CHAQUE compte entre la sauvegarde
+    du 05/07 (avant nettoyage) et aujourd'hui. Liste les comptes qui ont PERDU des
+    pions (solde chute) sans etre le voleur. NE MODIFIE RIEN. ?cle=ADMIN[&seuil=100]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    try:
+        seuil = int(request.args.get("seuil", "100"))
+    except ValueError:
+        seuil = 100
+
+    fichier = "AVANT_MOTEUR_20260705_0722.json"
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, fichier)
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # comptes du voleur : on les EXCLUT (normal qu'ils soient vides)
+    voleur = {"RT50CJ", "TBAASYJ9", "GNY5SP7J", "UURZ4Y", "TBEVBA6H", "H1I5G9",
+              "VAHINE2026TUKEA"}
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Diagnostic soldes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.perte{color:#C00000;font-weight:bold}</style></head><body>"
+    html += "<div style='background:#FEF6EF;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong> &middot; Cet outil NE MODIFIE RIEN, il diagnostique seulement.</div>"
+    html += "<h1>&#128269; Diagnostic : comptes vides a tort (perte depuis le 05/07)</h1>"
+
+    if not chemin:
+        html += "<p>Sauvegarde introuvable.</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>Erreur : " + str(e) + "</p></body></html>"
+        return html
+
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # solde de chaque compte AVANT (sauvegarde) et APRES (actuel)
+    pj_av = snap.get("pions_joueurs", {})
+    pb_av = snap.get("pions_bonus_joueurs", {})
+    pj_ap = DB.get("pions_joueurs", {})
+    pb_ap = DB.get("pions_bonus_joueurs", {})
+
+    # tous les comptes qui avaient un solde dans la sauvegarde
+    tous_codes = set(pj_av.keys()) | set(pb_av.keys())
+    pertes = []
+    total_perte_poche = 0
+    for code in tous_codes:
+        cu = code.upper()
+        if cu in voleur:
+            continue
+        poche_av = _iv(_xpf_total_pions(pj_av.get(code, {})))
+        bonus_av = _iv(_xpf_total_pions(pb_av.get(code, {})))
+        poche_ap = _iv(_xpf_total_pions(pj_ap.get(code, {})))
+        bonus_ap = _iv(_xpf_total_pions(pb_ap.get(code, {})))
+        perte_poche = poche_av - poche_ap
+        # on ne signale que les PERTES significatives (solde a chute)
+        if perte_poche >= seuil:
+            pertes.append((cu, nomde(cu), poche_av, poche_ap, perte_poche, bonus_av, bonus_ap))
+            total_perte_poche += perte_poche
+    pertes.sort(key=lambda r: -r[4])
+
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + " &middot; seuil de perte affiche : " + fmt(seuil) + " F &middot; comptes du voleur exclus</div>"
+    html += "<p style='font-size:14px'>Voici les comptes dont la poche a <b>baisse</b> entre le 05/07 et aujourd'hui d'au moins " + fmt(seuil) + " F. Une baisse peut etre <b>normale</b> (la joueuse a joue/depense) ou <b>anormale</b> (vide par erreur au nettoyage). A verifier au cas par cas.</p>"
+
+    if pertes:
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin:10px 0;font-size:15px'>"
+        html += "<b>" + str(len(pertes)) + " comptes</b> ont une poche en baisse &middot; total des baisses : <b class='perte'>" + fmt(total_perte_poche) + " F</b></div>"
+        html += "<table><tr><th>Code</th><th>Nom</th><th class='dr'>Poche 05/07</th><th class='dr'>Poche actuelle</th><th class='dr'>Baisse</th><th class='dr'>Bonus 05/07</th><th class='dr'>Bonus actuel</th></tr>"
+        for (cu, nom, pav, pap, perte, bav, bap) in pertes:
+            html += "<tr><td><b>" + cu + "</b></td><td>" + (nom or "—") + "</td><td class='dr'>" + fmt(pav) + "</td><td class='dr'>" + fmt(pap) + "</td><td class='dr perte'>&minus; " + fmt(perte) + "</td><td class='dr'>" + fmt(bav) + "</td><td class='dr'>" + fmt(bap) + "</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FEF6EF;border:1px solid #C55A11;border-radius:8px;padding:12px;margin-top:12px;font-size:13px'>&#9888;&#65039; <b>Attention :</b> une baisse n'est pas forcement une erreur. Beaucoup de ces comptes ont simplement <b>joue et depense</b> leurs pions normalement. Il faut verifier chaque compte (via /tracer-compte-sauvegarde) avant de restaurer. On ne restaure QUE ceux dont l'argent a disparu SANS qu'ils aient joue.</div>"
+    else:
+        html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:12px;font-size:15px'>&#9989; Aucun compte avec une perte superieure a " + fmt(seuil) + " F. Les soldes semblent coherents.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/bilan-iro-vai")
 def bilan_iro_vai():
     """VERIFICATION (14/07/2026) : TATIE IRO = TATIE VAI = meme personne. Regroupe
