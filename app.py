@@ -7433,6 +7433,145 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/releve-victime-complet")
+def releve_victime_complet():
+    """RELEVE COMPLET (14/07/2026) : pour une victime, montre l'etat de son compte
+    AVANT le blocage (sauvegarde du 05/07) et APRES restitution (aujourd'hui) :
+    solde poche + bonus, achats de pions, gains, et le vol subi. Repond a la
+    question 'j'avais combien avant ?'. ?cle=ADMIN&code=CODE[&fichier=NOM]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # tous les codes possibles de cette victime (ancien + nouveau apres reactivation)
+    reactive = {
+        "JML3UO": "TBCS95ZH", "NY5U9X": "TBDA99HS", "UM2MQE": "TBQ3R3CZ",
+        "397LAI": "TB9RAQ9V", "DL3PUD": "TBGAFRMX", "VJ9LQU": "TB7WCCWV",
+        "H6248Z": "TB4FJM5M", "ET9R4I": "TBM4RHGJ", "90QFHR": "TBEYCG8D",
+        "JKNTZY": "TBCPBM8C",
+    }
+    codes_lies = {code}
+    if code in reactive:
+        codes_lies.add(reactive[code])
+    for anc, nouv in reactive.items():
+        if nouv == code:
+            codes_lies.add(anc)
+
+    def nomde_db(dbsrc, c):
+        for t in dbsrc.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (dbsrc.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    def etat_compte(dbsrc, codes):
+        """Retourne solde poche, bonus, liste des achats/gains pour un ou plusieurs codes."""
+        poche = 0; bonus = 0
+        for c in codes:
+            poche += _iv(_xpf_total_pions(dbsrc.get("pions_joueurs", {}).get(c, {})))
+            bonus += _iv(_xpf_total_pions(dbsrc.get("pions_bonus_joueurs", {}).get(c, {})))
+        mouvements = []
+        # achats
+        for cm in dbsrc.get("commandes_pions_joueurs", []):
+            if isinstance(cm, dict) and (cm.get("code_joueur", "") or "").upper() in codes:
+                np = _iv(cm.get("nb_pions", 0)); vp = _iv(cm.get("valeur_pion", 0))
+                val = np * vp if (np and vp) else _iv(cm.get("montant_paye", 0))
+                mouvements.append((str(cm.get("date", ""))[:16].replace("T", " "), "Achat pions", cm.get("mode_paiement", ""), cm.get("statut", ""), val))
+        # gains
+        for g in dbsrc.get("gains_finaux", []):
+            if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() in codes and not g.get("annule"):
+                mouvements.append((str(g.get("date", ""))[:16].replace("T", " "), "Gain", g.get("jeu", ""), "gagne", _iv(g.get("montant_gain", 0))))
+        mouvements.sort(key=lambda r: r[0])
+        return poche, bonus, mouvements
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Releve victime</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".big{font-size:22px;font-weight:bold}"
+    html += ".carte{border:1px solid #ccc;border-radius:10px;padding:14px;margin:10px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+
+    nom = nomde_db(DB, code) or (nomde_db(DB, list(codes_lies)[0]) if codes_lies else "")
+    html += "<h1>&#128203; Releve de compte — " + (nom or code) + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; codes : " + ", ".join(sorted(codes_lies)) + "</div>"
+
+    # AVANT (sauvegarde)
+    if chemin:
+        try:
+            with open(chemin, "r", encoding="utf-8") as f:
+                snap = json.load(f)
+            poche_av, bonus_av, mvt_av = etat_compte(snap, codes_lies)
+            html += "<div class='carte' style='border-color:#C55A11;background:#FEF6EF'>"
+            html += "<h2 style='color:#C55A11;margin-top:0'>&#9202;&#65039; AVANT le blocage (etat du 05/07/2026)</h2>"
+            html += "<div>Solde poche : <span class='big' style='color:#C55A11'>" + fmt(poche_av) + " F</span> &middot; Bonus : <b>" + fmt(bonus_av) + " F</b></div>"
+            if mvt_av:
+                html += "<table><tr><th>Date</th><th>Type</th><th>Detail</th><th>Statut</th><th class='dr'>Montant</th></tr>"
+                for (d, typ, det, st, m) in mvt_av:
+                    html += "<tr><td>" + d + "</td><td>" + typ + "</td><td>" + str(det) + "</td><td>" + str(st) + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+                html += "</table>"
+            else:
+                html += "<div style='font-size:12px;color:#888'>Pas d'achat/gain trace dans cette periode.</div>"
+            html += "</div>"
+        except Exception as e:
+            html += "<div class='carte'>Erreur lecture sauvegarde : " + str(e) + "</div>"
+    else:
+        html += "<div class='carte'>Sauvegarde introuvable pour l'etat 'avant'.</div>"
+
+    # LE VOL
+    voles = {
+        "JML3UO": 7400, "NY5U9X": 7000, "UM2MQE": 5800, "397LAI": 5000, "DL3PUD": 3200,
+        "VJ9LQU": 1500, "9LSL26": 1200, "H6248Z": 1000, "KJYMGI": 1000, "ET9R4I": 600, "90QFHR": 500,
+    }
+    montant_vole = 0
+    for c in codes_lies:
+        if c in voles:
+            montant_vole = voles[c]
+    if montant_vole:
+        html += "<div class='carte' style='border-color:#C00000;background:#FDECEA'>"
+        html += "<h2 style='color:#C00000;margin-top:0'>&#128683; Pions preleves sans autorisation (23/06/2026)</h2>"
+        html += "<div class='big' style='color:#C00000'>&minus; " + fmt(montant_vole) + " F</div>"
+        html += "<div style='font-size:13px'>Preleves par l'organisatrice fraudeuse vers son compte, via la fonction de transfert (depuis desactivee).</div>"
+        html += "</div>"
+
+    # APRES (aujourd'hui)
+    poche_ap, bonus_ap, mvt_ap = etat_compte(DB, codes_lies)
+    html += "<div class='carte' style='border-color:#1E7B34;background:#F1F8EE'>"
+    html += "<h2 style='color:#1E7B34;margin-top:0'>&#9989; APRES restitution (aujourd'hui)</h2>"
+    html += "<div>Solde poche : <span class='big' style='color:#1E7B34'>" + fmt(poche_ap) + " F</span> &middot; Bonus : <b>" + fmt(bonus_ap) + " F</b></div>"
+    if montant_vole:
+        html += "<div style='font-size:13px;margin-top:6px'>Les " + fmt(montant_vole) + " F voles ont ete restitues sur ce compte.</div>"
+    html += "</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/origine-pions-victimes")
 def origine_pions_victimes():
     """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et analyse, pour
