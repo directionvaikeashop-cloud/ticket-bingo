@@ -7433,6 +7433,176 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/origine-complete-compte")
+def origine_complete_compte():
+    """DIAGNOSTIC (14/07/2026) : montre TOUTES les sources d'argent d'un compte dans
+    la sauvegarde du 05/07 : achats (carte/CCP/especes), gains de jeu, credits masse,
+    credits directs, bonus, transferts. Explique d'ou vient le solde. Aide a decider
+    d'une restauration. NE MODIFIE RIEN. ?cle=ADMIN&code=CODE[&fichier=NOM]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    reseau_voleur = {"RT50CJ", "UURZ4Y", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Origine complete</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:18px;font-size:15px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold}.pos{color:#1E7B34}.neg{color:#C00000}</style></head><body>"
+    html += "<div style='background:#E8EEF6;padding:8px 14px;border-radius:8px;margin-bottom:14px;font-size:13px'>Cet outil NE MODIFIE RIEN — il explique d'ou vient l'argent.</div>"
+
+    if not chemin:
+        html += "<h1>Sauvegarde introuvable</h1></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<h1>Erreur : " + str(e) + "</h1></body></html>"
+        return html
+
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    poche = _iv(_xpf_total_pions(snap.get("pions_joueurs", {}).get(code, {})))
+    bonus = _iv(_xpf_total_pions(snap.get("pions_bonus_joueurs", {}).get(code, {})))
+    html += "<h1>&#128202; Origine complete de l'argent — " + code + (" (" + nomde(code) + ")" if nomde(code) else "") + "</h1>"
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + "</div>"
+    html += "<div style='font-size:15px;margin-bottom:10px'>Solde au 05/07 : poche <b>" + fmt(poche) + " F</b> &middot; bonus <b>" + fmt(bonus) + " F</b> &middot; total <b>" + fmt(poche + bonus) + " F</b></div>"
+
+    total_entrees = 0
+    total_sorties = 0
+
+    # 1. ACHATS
+    achats = []; tot_achat = 0
+    for cm in snap.get("commandes_pions_joueurs", []):
+        if isinstance(cm, dict) and (cm.get("code_joueur", "") or "").upper() == code:
+            np = _iv(cm.get("nb_pions", 0)); vp = _iv(cm.get("valeur_pion", 0))
+            val = np * vp if (np and vp) else _iv(cm.get("montant_paye", 0))
+            st = cm.get("statut", "")
+            achats.append((str(cm.get("date", ""))[:16].replace("T", " "), cm.get("mode_paiement", ""), st, val))
+            if st in ("validee", "valide", "confirmee", ""):
+                tot_achat += val
+    html += "<h2>&#128179; 1. Achats de pions (valides) : " + fmt(tot_achat) + " F</h2>"
+    if achats:
+        html += "<table><tr><th>Date</th><th>Mode</th><th>Statut</th><th class='dr'>Valeur</th></tr>"
+        for (d, mode, st, val) in achats:
+            html += "<tr><td>" + d + "</td><td>" + str(mode) + "</td><td>" + str(st) + "</td><td class='dr'>" + fmt(val) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucun achat trace.</p>"
+    total_entrees += tot_achat
+
+    # 2. GAINS
+    gains = []; tot_gain = 0
+    for g in snap.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() == code and not g.get("annule"):
+            m = _iv(g.get("montant_gain", 0))
+            gains.append((str(g.get("date", ""))[:16].replace("T", " "), g.get("jeu", ""), m))
+            tot_gain += m
+    html += "<h2>&#127942; 2. Gains de jeu : " + fmt(tot_gain) + " F</h2>"
+    if gains:
+        html += "<table><tr><th>Date</th><th>Jeu</th><th class='dr'>Gain</th></tr>"
+        for (d, jeu, m) in gains:
+            html += "<tr><td>" + d + "</td><td>" + str(jeu) + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucun gain trace.</p>"
+    total_entrees += tot_gain
+
+    # 3. CREDITS MASSE
+    credits = []; tot_credit = 0
+    for cm in snap.get("credits_masse", []):
+        if isinstance(cm, dict) and code in [x.upper() for x in cm.get("codes", [])]:
+            m = _iv(cm.get("nb_pions", 0)) * _iv(cm.get("valeur_pion", 0))
+            credits.append((str(cm.get("date", ""))[:16].replace("T", " "), cm.get("motif", ""), m))
+            tot_credit += m
+    if credits:
+        html += "<h2>&#127873; 3. Credits (dedommagements) : " + fmt(tot_credit) + " F</h2>"
+        html += "<table><tr><th>Date</th><th>Motif</th><th class='dr'>Montant</th></tr>"
+        for (d, motif, m) in credits:
+            html += "<tr><td>" + d + "</td><td>" + str(motif) + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+        total_entrees += tot_credit
+
+    # 4. TRANSFERTS
+    t_recus = 0; t_envoyes = 0; t_vol = 0
+    recus_l = []; envoyes_l = []
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper(); vers = (t.get("vers", "") or "").upper()
+        m = _iv(t.get("montant", 0))
+        if vers == code:
+            t_recus += m; recus_l.append((de, m))
+        if de == code:
+            t_envoyes += m; envoyes_l.append((vers, m))
+            if vers in reseau_voleur:
+                t_vol += m
+    html += "<h2>&#128257; 4. Transferts : recu " + fmt(t_recus) + " F &middot; envoye " + fmt(t_envoyes) + " F"
+    if t_vol:
+        html += " <span class='neg'>(dont " + fmt(t_vol) + " F voles vers le voleur)</span>"
+    html += "</h2>"
+    total_entrees += t_recus
+    total_sorties += t_envoyes
+
+    # BILAN
+    solde_theorique = total_entrees - total_sorties
+    html += "<div style='background:#F5F5F5;border:1px solid #999;border-radius:8px;padding:14px;margin-top:16px;font-size:14px'>"
+    html += "<b>Calcul theorique du solde :</b><br>"
+    html += "Entrees (achats + gains + credits + recu) : <b class='pos'>+ " + fmt(total_entrees) + " F</b><br>"
+    html += "Sorties (transferts envoyes) : <b class='neg'>&minus; " + fmt(total_sorties) + " F</b><br>"
+    html += "= Solde theorique : <b>" + fmt(solde_theorique) + " F</b><br>"
+    html += "Solde reel au 05/07 (poche) : <b>" + fmt(poche) + " F</b><br>"
+    ecart = poche - solde_theorique
+    if abs(ecart) <= 100:
+        html += "<span class='pos'>&#9989; Coherent : l'argent est explique par des sources tracees.</span>"
+    else:
+        html += "<span class='neg'>&#9888;&#65039; Ecart de " + fmt(ecart) + " F non explique par les sources tracees.</span><br>"
+        html += "<span style='font-size:12px;color:#666'>Cet ecart peut venir de : achats especes en boutique, gains non traces ici, credits d'organisatrice directs, ou depenses de tickets. A verifier avec tes registres avant restauration.</span>"
+    html += "</div>"
+
+    # verdict restauration
+    html += "<div style='background:" + ("#E8F5E9;border:2px solid #1E7B34" if t_vol == 0 else "#FEF6EF;border:2px solid #C55A11") + ";border-radius:8px;padding:12px;margin-top:12px;font-size:14px'>"
+    if t_vol == 0:
+        html += "&#9989; <b>Ce compte n'a rien envoye au voleur.</b> Si son argent a disparu au nettoyage et que les sources sont legitimes, il peut etre restaure."
+    else:
+        html += "&#9888;&#65039; <b>Ce compte a envoye " + fmt(t_vol) + " F au voleur</b> — c'est une victime, deja traitee par la restitution. Attention a ne pas restaurer en double."
+    html += "</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/diagnostic-soldes-vides")
 def diagnostic_soldes_vides():
     """DIAGNOSTIC (14/07/2026) : compare le solde de CHAQUE compte entre la sauvegarde
