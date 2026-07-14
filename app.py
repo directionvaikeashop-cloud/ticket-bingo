@@ -7353,6 +7353,104 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/bannir-voleur-definitif")
+def bannir_voleur_definitif():
+    """BANNISSEMENT DEFINITIF (14/07/2026) : VAHINE = RUA = KAI, identifie(e) comme
+    VOLEUR (vol des pions de 10 victimes prouve par sauvegarde du 05/07 + IP communes
+    + aveu). Bloque TOUS ses comptes/identites (anciens et nouveaux codes) : aucune
+    connexion, aucun jeu, aucun transfert. Marque officiellement 'VOLEUR banni
+    definitivement'. Trace la decision. Apercu sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    # TOUS les comptes/identites du voleur : anciens codes + codes reactives + codes org
+    comptes_voleur = [
+        ("RT50CJ", "VAHINE — compte QR pivot"),
+        ("TBAASYJ9", "VAHINE — code reactive de RT50CJ"),
+        ("GNY5SP7J", "VAHINE — ancien code organisatrice"),
+        ("VAHINE2026TUKEA", "VAHINE — code organisatrice"),
+        ("UURZ4Y", "KAI — relais"),
+        ("TBEVBA6H", "KAI — code reactive"),
+        ("H1I5G9", "RUA — beneficiaire final"),
+        ("397LAI", "compte interne du reseau"),
+        ("TB9RAQ9V", "397LAI — code reactive"),
+        ("JKNTZY", "TATIE IRO — compte du reseau"),
+        ("TBCPBM8C", "JKNTZY — code reactive"),
+    ]
+    codes = [c for (c, _) in comptes_voleur]
+
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Bannissement voleur</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:860px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FDECEA;border:1px solid #C00000;padding:7px;text-align:left;color:#791F1F}td{border:1px solid #bbb;padding:6px}"
+    html += ".btn{display:block;text-align:center;background:#C00000;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#FDECEA;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+
+    if not confirme:
+        html += "<h1>&#9940; Bannissement definitif — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:14px;font-size:14px;margin-bottom:14px'>"
+        html += "<b>Decision :</b> VAHINE = RUA = KAI sont une seule et meme personne, identifiee comme <b>VOLEUR</b> (vol des pions de 10 victimes pour 29 200 F, prouve par la sauvegarde du 05/07, IP communes, aveu). <b>Bannissement definitif de tous ses comptes.</b></div>"
+        html += "<p style='font-size:14px'>Les comptes suivants vont etre bloques definitivement : aucune connexion, aucun jeu, aucun transfert possible.</p>"
+        html += "<table><tr><th>Code</th><th>Identite</th><th>Etat actuel</th></tr>"
+        for (c, ident) in comptes_voleur:
+            deja_bloque = c in DB.get("codes_bloques", [])
+            html += "<tr><td><b>" + c + "</b></td><td>" + ident + "</td><td>" + ("deja bloque" if deja_bloque else "actif") + "</td></tr>"
+        html += "</table>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9940; CONFIRMER le bannissement definitif du voleur</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    DB.setdefault("codes_bloques", [])
+    DB.setdefault("comptes_neutralises", [])
+    bloques = []
+    for (c, ident) in comptes_voleur:
+        if c not in DB["codes_bloques"]:
+            DB["codes_bloques"].append(c)
+        if c not in DB["comptes_neutralises"]:
+            DB["comptes_neutralises"].append(c)
+        # marquer l'entree codes si elle existe
+        if c in DB.get("codes", {}):
+            DB["codes"][c]["actif"] = False
+            nom_actuel = DB["codes"][c].get("nom", "") or ""
+            if "VOLEUR" not in nom_actuel:
+                DB["codes"][c]["nom"] = (nom_actuel + " [VOLEUR banni definitivement 14/07/2026]").strip()
+        bloques.append((c, ident))
+    DB.setdefault("bannissements_voleur", []).insert(0, {
+        "decision": "VAHINE=RUA=KAI identifie comme VOLEUR, banni definitivement",
+        "comptes": codes,
+        "motif": "Vol des pions de 10 victimes (29 200 F) - preuve sauvegarde 05/07 + IP communes + aveu",
+        "par": _cle, "date": now
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9940; Voleur banni definitivement</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9940; <b>VAHINE = RUA = KAI</b> est officiellement banni(e) definitivement en tant que <b>VOLEUR</b>.<br><br>"
+    html += "Tous ses comptes (" + str(len(bloques)) + ") sont bloques : aucune connexion, aucun jeu, aucun transfert. Cette decision est tracee et horodatee.</div>"
+    html += "<table><tr><th>Code banni</th><th>Identite</th></tr>"
+    for (c, ident) in bloques:
+        html += "<tr><td><b>" + c + "</b></td><td>" + ident + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/verifier-vols-rua-kai")
 def verifier_vols_rua_kai():
     """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et cherche TOUS
