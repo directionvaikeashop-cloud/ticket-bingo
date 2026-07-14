@@ -7146,6 +7146,109 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/sources-transferts")
+def sources_transferts():
+    """SOURCES (14/07/2026) : liste TOUS les transferts recus par un compte, Y
+    COMPRIS les transferts annules pour fraude (qui sont caches dans l'affichage
+    normal). Revele la vraie liste des comptes qui ont envoye de l'argent vers ce
+    compte. ?cle=ADMIN&code=RT50CJ"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("<h1 style='font-family:sans-serif'>Ajoute &code=CODE</h1>", status=400, mimetype="text/html; charset=utf-8")
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    def fmt(n): return format(n, ",")
+
+    # Tous les transferts VERS ce code (annules ou non)
+    recus = []
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("vers", "") or "").upper() == code:
+            de = (t.get("de", "") or "").upper()
+            recus.append((str(t.get("date", "")), de, _iv(t.get("montant", 0)), bool(t.get("annule_fraude")), str(t.get("ip", "") or "")))
+    recus.sort(key=lambda r: r[0])
+
+    # Aussi : transferts EMIS par ce code (pour montrer le circuit complet)
+    emis = []
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() == code:
+            vers = (t.get("vers", "") or "").upper()
+            emis.append((str(t.get("date", "")), vers, _iv(t.get("montant", 0)), bool(t.get("annule_fraude"))))
+    emis.sort(key=lambda r: r[0])
+
+    sources_uniques = {}
+    for (d, de, m, an, ip) in recus:
+        sources_uniques[de] = sources_uniques.get(de, 0) + m
+    total_recu = sum(r[2] for r in recus)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Sources transferts</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".an{color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Sources des transferts — " + code + (" (" + nomde(code) + ")" if nomde(code) else "") + "</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Genere le " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<p style='font-size:14px'>Liste de tous les transferts RE&Ccedil;US par ce compte, <b>y compris ceux annules pour fraude</b> (invisibles dans l'affichage normal). C'est la vraie liste des comptes qui lui ont envoye de l'argent.</p>"
+
+    html += "<h2>Comptes qui ont envoye de l'argent a " + code + " (" + str(len(sources_uniques)) + " comptes source)</h2>"
+    if sources_uniques:
+        html += "<table><tr><th>Compte source</th><th>Nom</th><th class='dr'>Total envoye</th></tr>"
+        for de, m in sorted(sources_uniques.items(), key=lambda x: -x[1]):
+            html += "<tr><td><b>" + de + "</b></td><td>" + (nomde(de) or "—") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2' style='text-align:right'>TOTAL RECU</td><td class='dr'>" + fmt(total_recu) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert recu par ce compte (meme en comptant les annules).</p>"
+
+    html += "<h2>Detail chronologique des transferts recus</h2>"
+    if recus:
+        html += "<table><tr><th>Date</th><th>De (source)</th><th class='dr'>Montant</th><th>Etat</th><th>IP</th></tr>"
+        for (d, de, m, an, ip) in recus:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td class='dr'>" + fmt(m) + " F</td><td" + (" class='an'" if an else "") + ">" + ("ANNULE fraude" if an else "actif") + "</td><td style='font-size:10px'>" + ip + "</td></tr>"
+        html += "</table>"
+
+    html += "<h2>Transferts EMIS par " + code + " (ou est parti l'argent)</h2>"
+    if emis:
+        html += "<table><tr><th>Date</th><th>Vers (destinataire)</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, vers, m, an) in emis:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + vers + (" — " + nomde(vers) if nomde(vers) else "") + "</td><td class='dr'>" + fmt(m) + " F</td><td" + (" class='an'" if an else "") + ">" + ("ANNULE fraude" if an else "actif") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert emis par ce compte.</p>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/sources-transferts-fin")
+def _sources_transferts_fin():
+    return "", 204
+
+
 @app.route("/liste-comptes-bloques")
 def liste_comptes_bloques():
     """LISTE (13/07/2026) : affiche tous les comptes bloques avec leur nom, solde
