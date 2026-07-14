@@ -7433,6 +7433,109 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/origine-pions-victimes")
+def origine_pions_victimes():
+    """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et analyse, pour
+    chaque victime, l'ORIGINE de ses pions au moment du vol (achats/commandes,
+    credits, bonus). Confirme que les pions voles etaient honnetes. Lecture seule.
+    ?cle=ADMIN[&fichier=NOM]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # les 11 victimes (ancien code + montant vole)
+    victimes = [
+        ("JML3UO", "TATIE HEINUI", 7400),
+        ("NY5U9X", "Joueuse NY5U9X", 7000),
+        ("UM2MQE", "Joueuse UM2MQE", 5800),
+        ("397LAI", "TATIE IRO", 5000),
+        ("DL3PUD", "Joueuse DL3PUD", 3200),
+        ("VJ9LQU", "Joueuse VJ9LQU", 1500),
+        ("9LSL26", "Joueuse 9LSL26", 1200),
+        ("H6248Z", "Joueuse H6248Z", 1000),
+        ("KJYMGI", "Joueuse KJYMGI", 1000),
+        ("ET9R4I", "Joueuse ET9R4I", 600),
+        ("90QFHR", "TATIE VAI", 500),
+    ]
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Origine pions victimes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.ok{color:#1E7B34;font-weight:bold}.at{color:#C55A11}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Origine des pions des victimes (au moment du vol)</h1>"
+
+    if not chemin:
+        html += "<p>&#10060; Sauvegarde introuvable.</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>&#10060; Erreur : " + str(e) + "</p></body></html>"
+        return html
+
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + "</div>"
+    html += "<p style='font-size:14px'>Pour chaque victime, voici l'origine de ses pions dans la sauvegarde du 05/07 : achats de pions (commandes payees), credits recus, et bonus. Cela confirme si les pions voles etaient honnetes.</p>"
+
+    for (code, nom, vole) in victimes:
+        cu = code.upper()
+        # commandes de pions (achats) de cette victime
+        achats = []
+        total_achat = 0
+        for c in snap.get("commandes_pions_joueurs", []):
+            if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == cu:
+                m = _iv(c.get("montant_paye", 0))
+                np = _iv(c.get("nb_pions", 0))
+                vp = _iv(c.get("valeur_pion", 0))
+                val = np * vp if (np and vp) else m
+                achats.append((str(c.get("date", ""))[:16].replace("T", " "), c.get("mode_paiement", ""), c.get("statut", ""), val))
+                if (c.get("statut", "") or "") in ("validee", "valide", "confirmee", ""):
+                    total_achat += val
+        # poche actuelle dans la sauvegarde
+        poche = _iv(_xpf_total_pions(snap.get("pions_joueurs", {}).get(cu, {})))
+        bonus = _iv(_xpf_total_pions(snap.get("pions_bonus_joueurs", {}).get(cu, {})))
+
+        html += "<h2>" + nom + " (" + code + ") — volé : " + fmt(vole) + " F</h2>"
+        html += "<div style='font-size:13px;margin-bottom:4px'>Dans la sauvegarde : poche reelle <b>" + fmt(poche) + " F</b> &middot; bonus <b>" + fmt(bonus) + " F</b> &middot; total achats traces : <b>" + fmt(total_achat) + " F</b></div>"
+        if achats:
+            html += "<table><tr><th>Date achat</th><th>Mode</th><th>Statut</th><th class='dr'>Valeur pions</th></tr>"
+            for (dt, mode, statut, val) in achats:
+                html += "<tr><td>" + dt + "</td><td>" + str(mode) + "</td><td>" + str(statut) + "</td><td class='dr'>" + fmt(val) + " F</td></tr>"
+            html += "</table>"
+        else:
+            html += "<div style='font-size:12px;color:#888'>Aucune commande de pions tracee (ses pions viennent peut-etre de credits/bonus organisateur ou d'avant la periode).</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/origine-pions-fin")
+def _origine_pions_fin():
+    return "", 204
+
+
 @app.route("/verifier-victime-iro")
 def verifier_victime_iro():
     """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et liste TOUS les
