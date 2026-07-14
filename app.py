@@ -7353,6 +7353,116 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/verifier-vols-rua-kai")
+def verifier_vols_rua_kai():
+    """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et cherche TOUS
+    les transferts recus par RUA (H1I5G9) et KAI (UURZ4Y) — pas seulement via
+    RT50CJ. Revele si ces comptes ont aussi vide d'autres joueuses. Lecture seule.
+    ?cle=ADMIN[&fichier=NOM_SAUVEGARDE]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    # chercher le fichier dans /data puis dans les sous-dossiers
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Vols RUA KAI</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:22px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.new{color:#1E7B34;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+    html += "<h1>&#128269; Verification : RUA et KAI ont-ils vide d'autres comptes ?</h1>"
+
+    if not chemin:
+        html += "<p>&#10060; Sauvegarde introuvable : " + fichier + "</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>&#10060; Erreur lecture : " + str(e) + "</p></body></html>"
+        return html
+
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + " &middot; " + str(len(snap.get("transferts_pions", []))) + " transferts au total</div>"
+
+    # comptes du voleur (VAHINE=RUA=KAI) — on ne compte PAS les transferts entre eux
+    voleur = {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # pour chaque destinataire du reseau, lister qui l'a alimente (hors reseau)
+    cibles = {"H1I5G9": "RUA", "UURZ4Y": "KAI", "RT50CJ": "VAHINE (deja traite)"}
+    grand_total_hors_rt50 = 0
+    sources_globales = {}
+
+    for cible_code, cible_nom in cibles.items():
+        recus = []
+        for t in snap.get("transferts_pions", []):
+            if not isinstance(t, dict):
+                continue
+            if (t.get("vers", "") or "").upper() == cible_code:
+                de = (t.get("de", "") or "").upper()
+                m = _iv(t.get("montant", 0))
+                interne = de in voleur
+                recus.append((str(t.get("date", "")), de, m, interne))
+        recus.sort(key=lambda r: r[0])
+        total_ext = sum(r[2] for r in recus if not r[3])
+        html += "<h2>" + cible_nom + " (" + cible_code + ") — recu " + fmt(sum(r[2] for r in recus)) + " F au total</h2>"
+        if recus:
+            html += "<table><tr><th>Date</th><th>De</th><th class='dr'>Montant</th><th>Type</th></tr>"
+            for (d, de, m, interne) in recus:
+                typ = "interne (reseau)" if interne else "VICTIME externe"
+                html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td class='dr'>" + fmt(m) + " F</td><td" + (" style='color:#C00000;font-weight:bold'" if not interne else "") + ">" + typ + "</td></tr>"
+                if not interne and cible_code != "RT50CJ":
+                    sources_globales[de] = sources_globales.get(de, 0) + m
+            html += "</table>"
+            if cible_code != "RT50CJ":
+                html += "<div style='color:#C00000;font-size:13px'><b>Victimes externes de ce compte (hors reseau) : " + fmt(total_ext) + " F</b></div>"
+                grand_total_hors_rt50 += total_ext
+        else:
+            html += "<p>Aucun transfert recu.</p>"
+
+    html += "<h2 style='color:#C00000'>Bilan : victimes SUPPLEMENTAIRES via RUA/KAI (hors RT50CJ)</h2>"
+    if sources_globales:
+        html += "<table><tr><th>Compte victime</th><th>Nom</th><th class='dr'>Total pris</th></tr>"
+        for de, m in sorted(sources_globales.items(), key=lambda x: -x[1]):
+            html += "<tr><td><b>" + de + "</b></td><td>" + (nomde(de) or "—") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#FDECEA;font-weight:bold'><td colspan='2' style='text-align:right'>TOTAL SUPPLEMENTAIRE</td><td class='dr' style='color:#C00000'>" + fmt(grand_total_hors_rt50) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin-top:10px;font-size:14px'>&#9888;&#65039; Ces victimes N'ONT PAS ete incluses dans la restitution RT50CJ. Il faudrait les restituer aussi.</div>"
+    else:
+        html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px'>&#9989; Aucune victime supplementaire. RUA et KAI n'ont recu que des transferts internes au reseau (depuis RT50CJ ou entre eux). Toutes les victimes sont deja couvertes par la restitution des 10 comptes.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/restituer-victimes-vahine")
 def restituer_victimes_vahine():
     """RESTITUTION (14/07/2026) : recredite les 10 victimes dont VAHINE a vide les
