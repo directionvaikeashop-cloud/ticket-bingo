@@ -7433,6 +7433,271 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/bilan-iro-vai")
+def bilan_iro_vai():
+    """VERIFICATION (14/07/2026) : TATIE IRO = TATIE VAI = meme personne. Regroupe
+    tous ses codes (397LAI, JKNTZY, 90QFHR) et calcule le montant TOTAL vole (parti
+    vers le voleur ET vers ses comptes ensuite vides). Compare avec ce qui a deja
+    ete restitue. ?cle=ADMIN[&codes=397LAI,JKNTZY,90QFHR]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    codes_perso = set(c.strip().upper() for c in (request.args.get("codes", "") or "397LAI,JKNTZY,90QFHR").split(",") if c.strip())
+
+    fichier = "AVANT_MOTEUR_20260705_0722.json"
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, fichier)
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    reseau_voleur = {"RT50CJ", "UURZ4Y", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Bilan IRO/VAI</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:18px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold}.vol{color:#C00000;font-weight:bold}</style></head><body>"
+    html += "<h1>&#128269; Bilan complet — TATIE IRO / TATIE VAI (meme personne)</h1>"
+    html += "<div class='meta'>Codes regroupes : " + ", ".join(sorted(codes_perso)) + "</div>"
+
+    if not chemin:
+        html += "<p>Sauvegarde introuvable.</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>Erreur : " + str(e) + "</p></body></html>"
+        return html
+
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # tous les transferts sortants de ses codes vers le voleur
+    html += "<h2 style='color:#C00000'>Pions partis de ses comptes vers le VOLEUR</h2>"
+    lignes_vol = []
+    total_vole = 0
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper()
+        vers = (t.get("vers", "") or "").upper()
+        if de in codes_perso and vers in reseau_voleur:
+            m = _iv(t.get("montant", 0))
+            lignes_vol.append((str(t.get("date", ""))[:16].replace("T", " "), de, vers, m))
+            total_vole += m
+    lignes_vol.sort(key=lambda r: r[0])
+    if lignes_vol:
+        html += "<table><tr><th>Date</th><th>De (son code)</th><th>Vers (voleur)</th><th class='dr'>Montant</th></tr>"
+        for (d, de, vers, m) in lignes_vol:
+            html += "<tr><td>" + d + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#FDECEA;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL VOLE (vers le voleur)</td><td class='dr vol'>" + fmt(total_vole) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert direct vers le voleur.</p>"
+
+    # transferts entre ses propres comptes (pour info)
+    html += "<h2>Transferts entre ses propres comptes (pas des vols)</h2>"
+    lignes_interne = []
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper()
+        vers = (t.get("vers", "") or "").upper()
+        if de in codes_perso and vers in codes_perso:
+            lignes_interne.append((str(t.get("date", ""))[:16].replace("T", " "), de, vers, _iv(t.get("montant", 0))))
+    lignes_interne.sort(key=lambda r: r[0])
+    if lignes_interne:
+        html += "<table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th></tr>"
+        for (d, de, vers, m) in lignes_interne:
+            html += "<tr><td>" + d + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='font-size:12px;color:#888'>Ces montants circulaient entre ses codes — ce ne sont pas des vols.</div>"
+    else:
+        html += "<p>Aucun.</p>"
+
+    # ce qui a deja ete restitue (confirme par l'administration : 5 000 F au total)
+    html += "<h2 style='color:#1E7B34'>Ce qui a deja ete restitue</h2>"
+    deja_restitue = {"397LAI": 5000}
+    total_deja = 0
+    html += "<table><tr><th>Code</th><th class='dr'>Restitue</th></tr>"
+    for c, m in deja_restitue.items():
+        if c in codes_perso:
+            total_deja += m
+            html += "<tr><td>" + c + " (" + (nomde(c) or "") + ")</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+    html += "<tr style='background:#E8F5E9;font-weight:bold'><td>TOTAL deja restitue</td><td class='dr'>" + fmt(total_deja) + " F</td></tr>"
+    html += "</table>"
+
+    # BILAN
+    ecart = total_vole - total_deja
+    html += "<div style='background:" + ("#FDECEA;border:2px solid #C00000" if ecart > 0 else "#E8F5E9;border:2px solid #1E7B34") + ";border-radius:8px;padding:14px;margin-top:14px;font-size:15px'>"
+    html += "<b>BILAN :</b><br>Total vole (vers le voleur) : <b>" + fmt(total_vole) + " F</b><br>"
+    html += "Deja restitue : <b>" + fmt(total_deja) + " F</b><br>"
+    if ecart > 0:
+        html += "<span class='vol'>Reste a restituer : " + fmt(ecart) + " F</span>"
+    elif ecart < 0:
+        html += "<span style='color:#C00000'>Trop restitue de " + fmt(-ecart) + " F (a verifier)</span>"
+    else:
+        html += "<span style='color:#1E7B34;font-weight:bold'>&#9989; Tout est restitue, rien ne manque.</span>"
+    html += "</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/tracer-compte-sauvegarde")
+def tracer_compte_sauvegarde():
+    """VERIFICATION (14/07/2026) : trace TOUT l'historique d'un compte dans la
+    sauvegarde du 05/07 : solde, transferts sortants (ce qui a ete pris/envoye) et
+    entrants (ce qui a ete recu), achats, gains. ?cle=ADMIN&code=CODE[&fichier=NOM]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    reseau_voleur = {"RT50CJ", "UURZ4Y", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Trace compte</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:18px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold}.vol{color:#C00000;font-weight:bold}</style></head><body>"
+
+    if not chemin:
+        html += "<h1>Sauvegarde introuvable</h1></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<h1>Erreur : " + str(e) + "</h1></body></html>"
+        return html
+
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html += "<h1>&#128269; Trace complete — " + code + (" (" + nomde(code) + ")" if nomde(code) else "") + "</h1>"
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + "</div>"
+
+    # solde dans la sauvegarde
+    poche = _iv(_xpf_total_pions(snap.get("pions_joueurs", {}).get(code, {})))
+    bonus = _iv(_xpf_total_pions(snap.get("pions_bonus_joueurs", {}).get(code, {})))
+    html += "<div style='font-size:15px;margin-bottom:10px'>Solde au 05/07 : poche <b>" + fmt(poche) + " F</b> &middot; bonus <b>" + fmt(bonus) + " F</b></div>"
+
+    # SORTANTS
+    html += "<h2 style='color:#C00000'>&#8599; Transferts SORTANTS (ce qui a quitte ce compte)</h2>"
+    sortants = []
+    tot_sort = 0
+    tot_vers_voleur = 0
+    for t in snap.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() == code:
+            vers = (t.get("vers", "") or "").upper()
+            m = _iv(t.get("montant", 0))
+            sortants.append((str(t.get("date", ""))[:16].replace("T", " "), vers, m, vers in reseau_voleur))
+            tot_sort += m
+            if vers in reseau_voleur:
+                tot_vers_voleur += m
+    sortants.sort(key=lambda r: r[0])
+    if sortants:
+        html += "<table><tr><th>Date</th><th>Vers</th><th class='dr'>Montant</th><th>Note</th></tr>"
+        for (d, vers, m, est_vol) in sortants:
+            note = "<span class='vol'>VERS LE VOLEUR</span>" if est_vol else ("propre compte" if vers in ("397LAI","JKNTZY","TB9RAQ9V","TBCPBM8C") else "autre")
+            html += "<tr><td>" + d + "</td><td>" + vers + (" — " + nomde(vers) if nomde(vers) else "") + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + note + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>TOTAL sorti</td><td class='dr'>" + fmt(tot_sort) + " F</td><td class='vol'>dont vol : " + fmt(tot_vers_voleur) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert sortant.</p>"
+
+    # ENTRANTS
+    html += "<h2>&#8600; Transferts ENTRANTS (ce que ce compte a recu)</h2>"
+    entrants = []
+    tot_ent = 0
+    for t in snap.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("vers", "") or "").upper() == code:
+            de = (t.get("de", "") or "").upper()
+            m = _iv(t.get("montant", 0))
+            entrants.append((str(t.get("date", ""))[:16].replace("T", " "), de, m))
+            tot_ent += m
+    entrants.sort(key=lambda r: r[0])
+    if entrants:
+        html += "<table><tr><th>Date</th><th>De</th><th class='dr'>Montant</th></tr>"
+        for (d, de, m) in entrants:
+            html += "<tr><td>" + d + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>TOTAL recu</td><td class='dr'>" + fmt(tot_ent) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert entrant.</p>"
+
+    # achats
+    html += "<h2>&#128179; Achats de pions</h2>"
+    achats = []
+    for cm in snap.get("commandes_pions_joueurs", []):
+        if isinstance(cm, dict) and (cm.get("code_joueur", "") or "").upper() == code:
+            np = _iv(cm.get("nb_pions", 0)); vp = _iv(cm.get("valeur_pion", 0))
+            val = np * vp if (np and vp) else _iv(cm.get("montant_paye", 0))
+            achats.append((str(cm.get("date", ""))[:16].replace("T", " "), cm.get("mode_paiement", ""), cm.get("statut", ""), val))
+    achats.sort(key=lambda r: r[0])
+    if achats:
+        html += "<table><tr><th>Date</th><th>Mode</th><th>Statut</th><th class='dr'>Valeur</th></tr>"
+        for (d, mode, st, val) in achats:
+            html += "<tr><td>" + d + "</td><td>" + str(mode) + "</td><td>" + str(st) + "</td><td class='dr'>" + fmt(val) + " F</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun achat trace.</p>"
+
+    if tot_vers_voleur:
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin-top:14px;font-size:14px'>&#9888;&#65039; <b>Ce compte a envoye " + fmt(tot_vers_voleur) + " F vers le voleur.</b> C'est le montant qui a ete vole et qui doit etre restitue.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/verifier-jkntzy")
 def verifier_jkntzy():
     """VERIFICATION (14/07/2026) : etat du compte JKNTZY (2e code de TATIE IRO).
