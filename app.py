@@ -7433,6 +7433,114 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/restaurer-comptes-vides")
+def restaurer_comptes_vides():
+    """RESTAURATION (14/07/2026) : remet aux 5 comptes vides PAR ERREUR au nettoyage
+    du 11/07 leur solde restant du 05/07 (poche + bonus). Ce solde est DISTINCT des
+    montants voles par VAHINE (deja restitues). Pour les victimes VAHINE, on restaure
+    sur leur NOUVEAU code. Verifie le solde actuel (anti-double). Apercu sans
+    &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    # (code d'origine, code cible ou crediter, nom, poche a restaurer, bonus a restaurer)
+    comptes = [
+        ("8T4LQL", "8T4LQL", "TATIE TEHIVA", 13740, 9000),
+        ("UM2MQE", "TBQ3R3CZ", "Joueuse UM2MQE", 1600, 8200),
+        ("P1BM42", "P1BM42", "Joueuse P1BM42", 1700, 0),
+        ("VJ9LQU", "TB7WCCWV", "Joueuse VJ9LQU", 1280, 0),
+        ("ET9R4I", "TBM4RHGJ", "Joueuse ET9R4I", 1080, 0),
+    ]
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # anti-double : marqueur des restaurations deja faites
+    deja = set()
+    for r in DB.get("restaurations_nettoyage_1107", []):
+        if isinstance(r, dict) and r.get("code_origine"):
+            deja.add((r.get("code_origine") or "").upper())
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Restauration comptes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1E7B34;border-bottom:3px solid #1E7B34;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8F5E9;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.new{font-family:monospace;font-weight:bold;color:#1E7B34}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}.deja{color:#888}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8F5E9;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    if not confirme:
+        html += "<h1>&#8635; Restauration des comptes vides par erreur — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#E8F5E9;border:1px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>Ces 5 comptes ont ete vides PAR ERREUR lors du nettoyage du 11/07. On leur remet leur solde restant du 05/07 (poche + bonus). Ce solde est DISTINCT des vols de VAHINE (deja restitues). Pour les victimes VAHINE, on restaure sur leur nouveau code pour tout regrouper.</div>"
+        html += "<table><tr><th>Nom</th><th>Code credite</th><th class='dr'>Poche actuelle</th><th class='dr'>+ Poche</th><th class='dr'>+ Bonus</th><th class='dr'>Nouvelle poche</th></tr>"
+        total_poche = 0; total_bonus = 0
+        for (orig, cible, nom, poche_r, bonus_r) in comptes:
+            poche_actuelle = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(cible, {})))
+            deja_fait = orig.upper() in deja
+            if deja_fait:
+                html += "<tr class='deja'><td>" + nom + "</td><td>" + cible + "</td><td class='dr'>" + fmt(poche_actuelle) + "</td><td class='dr'>deja fait</td><td class='dr'>—</td><td class='dr'>—</td></tr>"
+            else:
+                total_poche += poche_r; total_bonus += bonus_r
+                html += "<tr><td>" + nom + "</td><td class='new'>" + cible + (" (=" + orig + ")" if cible != orig else "") + "</td><td class='dr'>" + fmt(poche_actuelle) + " F</td><td class='dr' style='color:#1E7B34'>+ " + fmt(poche_r) + "</td><td class='dr' style='color:#1E7B34'>+ " + fmt(bonus_r) + "</td><td class='dr'>" + fmt(poche_actuelle + poche_r) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL A RESTAURER</td><td class='dr' style='color:#1E7B34'>" + fmt(total_poche) + "</td><td class='dr' style='color:#1E7B34'>" + fmt(total_bonus) + "</td><td class='dr'>" + fmt(total_poche + total_bonus) + " F</td></tr>"
+        html += "</table>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9989; CONFIRMER la restauration (" + fmt(total_poche + total_bonus) + " F)</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    resultats = []
+    total_fait = 0
+    for (orig, cible, nom, poche_r, bonus_r) in comptes:
+        if orig.upper() in deja:
+            resultats.append((orig, cible, nom, 0, 0, "deja fait"))
+            continue
+        if poche_r > 0:
+            DB.setdefault("pions_joueurs", {}).setdefault(cible, {})
+            _crediter_pions_montant(DB["pions_joueurs"][cible], poche_r)
+        if bonus_r > 0:
+            DB.setdefault("pions_bonus_joueurs", {}).setdefault(cible, {})
+            _crediter_pions_montant(DB["pions_bonus_joueurs"][cible], bonus_r)
+        DB.setdefault("restaurations_nettoyage_1107", []).insert(0, {
+            "code_origine": orig, "code_credite": cible, "nom": nom,
+            "poche": poche_r, "bonus": bonus_r, "par": _cle, "date": now
+        })
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": cible, "type": "restauration",
+            "montant": poche_r + bonus_r,
+            "motif": "Restauration solde efface par erreur au nettoyage du 11/07",
+            "date": now
+        })
+        total_fait += poche_r + bonus_r
+        resultats.append((orig, cible, nom, poche_r, bonus_r, "restaure"))
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Comptes restaures !</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>&#9989; " + fmt(total_fait) + " F restaures. Chaque joueuse a retrouve son solde legitime (efface par erreur au nettoyage du 11/07).</div>"
+    html += "<table><tr><th>Nom</th><th>Code</th><th class='dr'>Poche</th><th class='dr'>Bonus</th><th>Statut</th></tr>"
+    for (orig, cible, nom, poche_r, bonus_r, statut) in resultats:
+        html += "<tr><td>" + nom + "</td><td class='new'>" + cible + "</td><td class='dr'>" + fmt(poche_r) + " F</td><td class='dr'>" + fmt(bonus_r) + " F</td><td>" + ("&#9989; " + statut if statut == "restaure" else statut) + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/origine-complete-compte")
 def origine_complete_compte():
     """DIAGNOSTIC (14/07/2026) : montre TOUTES les sources d'argent d'un compte dans
