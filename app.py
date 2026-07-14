@@ -7353,6 +7353,71 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/rehabiliter-iro")
+def rehabiliter_iro():
+    """REHABILITATION (14/07/2026) : TATIE IRO (397LAI, JKNTZY + codes reactives) a
+    ete identifiee comme VICTIME, pas complice. Retire ses codes des listes
+    neutralises/bloques pour qu'elle puisse rejouer normalement. Apercu sans
+    &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    codes_iro = ["397LAI", "JKNTZY", "TB9RAQ9V", "TBCPBM8C"]
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Rehabilitation IRO</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:820px;margin:0 auto}"
+    html += "h1{color:#1E7B34;border-bottom:3px solid #1E7B34;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8F5E9;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+
+    if not confirme:
+        html += "<h1>&#128077; Rehabilitation de TATIE IRO — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>TATIE IRO a ete identifiee comme <b>VICTIME</b> (5 000 F voles), pas complice. Ses codes vont etre retires des listes bloques/neutralises pour qu'elle rejoue normalement.</div>"
+        html += "<table><tr><th>Code</th><th>Actuellement bloque ?</th><th>Actuellement neutralise ?</th></tr>"
+        for c in codes_iro:
+            bl = "oui" if c in DB.get("codes_bloques", []) else "non"
+            ne = "oui" if c in DB.get("comptes_neutralises", []) else "non"
+            html += "<tr><td><b>" + c + "</b></td><td>" + bl + "</td><td>" + ne + "</td></tr>"
+        html += "</table>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9989; CONFIRMER la rehabilitation de TATIE IRO</a>"
+        html += "</body></html>"
+        return html
+
+    # CONFIRME
+    DB["codes_bloques"] = [c for c in DB.get("codes_bloques", []) if c not in codes_iro]
+    DB["comptes_neutralises"] = [c for c in DB.get("comptes_neutralises", []) if c not in codes_iro]
+    for c in codes_iro:
+        if c in DB.get("codes", {}):
+            nom = DB["codes"][c].get("nom", "") or ""
+            DB["codes"][c]["actif"] = True
+            # retirer les mentions negatives
+            for tag in [" [VOLEUR banni definitivement 14/07/2026]", " [ancien code remplace]"]:
+                nom = nom.replace(tag, "")
+            DB["codes"][c]["nom"] = nom.strip() or c
+    DB.setdefault("rehabilitations", []).insert(0, {
+        "personne": "TATIE IRO", "codes": codes_iro,
+        "motif": "Identifiee comme victime (5 000 F voles), pas complice",
+        "par": _cle, "date": datetime.datetime.now().isoformat()
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; TATIE IRO rehabilitee</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;font-size:14px'>&#9989; TATIE IRO n'est plus consideree comme complice. Ses codes (" + ", ".join(codes_iro) + ") sont debloques et peuvent rejouer normalement. Sa restitution de 5 000 F est prevue separement.</div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/verifier-victime-iro")
 def verifier_victime_iro():
     """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et liste TOUS les
@@ -7476,6 +7541,7 @@ def bannir_voleur_definitif():
     confirme = request.args.get("confirme", "") == "1"
 
     # TOUS les comptes/identites du voleur : anciens codes + codes reactives + codes org
+    # NOTE : 397LAI/JKNTZY (TATIE IRO) RETIRES le 14/07 - identifiee comme VICTIME, pas voleur.
     comptes_voleur = [
         ("RT50CJ", "VAHINE — compte QR pivot"),
         ("TBAASYJ9", "VAHINE — code reactive de RT50CJ"),
@@ -7484,10 +7550,6 @@ def bannir_voleur_definitif():
         ("UURZ4Y", "KAI — relais"),
         ("TBEVBA6H", "KAI — code reactive"),
         ("H1I5G9", "RUA — beneficiaire final"),
-        ("397LAI", "compte interne du reseau"),
-        ("TB9RAQ9V", "397LAI — code reactive"),
-        ("JKNTZY", "TATIE IRO — compte du reseau"),
-        ("TBCPBM8C", "JKNTZY — code reactive"),
     ]
     codes = [c for (c, _) in comptes_voleur]
 
@@ -7683,11 +7745,12 @@ def restituer_victimes_vahine():
         return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
     confirme = request.args.get("confirme", "") == "1"
 
-    # Les 10 victimes : (ancien code, nouveau code apres reactivation ou None, nom, montant vole)
+    # Les 11 victimes : (ancien code, nouveau code apres reactivation ou None, nom, montant vole)
     victimes = [
         ("JML3UO", "TBCS95ZH", "TATIE HEINUI", 7400),
         ("NY5U9X", "TBDA99HS", "Joueuse NY5U9X", 7000),
         ("UM2MQE", "TBQ3R3CZ", "Joueuse UM2MQE", 5800),
+        ("397LAI", "TB9RAQ9V", "TATIE IRO", 5000),
         ("DL3PUD", "TBGAFRMX", "Joueuse DL3PUD", 3200),
         ("VJ9LQU", "TB7WCCWV", "Joueuse VJ9LQU", 1500),
         ("9LSL26", None, "Joueuse 9LSL26", 1200),
