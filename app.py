@@ -7353,6 +7353,133 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/restituer-victimes-vahine")
+def restituer_victimes_vahine():
+    """RESTITUTION (14/07/2026) : recredite les 10 victimes dont VAHINE a vide les
+    pions vers RT50CJ (via l'ancienne manette de transfert). Montants exacts tires
+    de la sauvegarde du 05/07. Cherche le code actuel de chaque victime (ancien ou
+    nouveau apres reactivation). Marque chaque restitution pour eviter tout
+    double-credit. Apercu sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve a l'administration</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    # Les 10 victimes : (ancien code, nouveau code apres reactivation ou None, nom, montant vole)
+    victimes = [
+        ("JML3UO", "TBCS95ZH", "TATIE HEINUI", 7400),
+        ("NY5U9X", "TBDA99HS", "Joueuse NY5U9X", 7000),
+        ("UM2MQE", "TBQ3R3CZ", "Joueuse UM2MQE", 5800),
+        ("DL3PUD", "TBGAFRMX", "Joueuse DL3PUD", 3200),
+        ("VJ9LQU", "TB7WCCWV", "Joueuse VJ9LQU", 1500),
+        ("9LSL26", None, "Joueuse 9LSL26", 1200),
+        ("H6248Z", "TB4FJM5M", "Joueuse H6248Z", 1000),
+        ("KJYMGI", None, "Joueuse KJYMGI", 1000),
+        ("ET9R4I", "TBM4RHGJ", "Joueuse ET9R4I", 600),
+        ("90QFHR", "TBEYCG8D", "TATIE VAI", 500),
+    ]
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def code_actif(anc, nouv):
+        """Trouve le code ou crediter : le nouveau s'il existe (a une poche ou entree codes),
+        sinon l'ancien s'il existe, sinon le nouveau, sinon l'ancien."""
+        for c in ([nouv] if nouv else []) + [anc]:
+            if c and (c in DB.get("pions_joueurs", {}) or c in DB.get("codes", {}) or c in DB.get("pions_bonus_joueurs", {})):
+                return c
+        return nouv or anc
+
+    # marqueur pour eviter double credit
+    deja = set()
+    for r in DB.get("restitutions_victimes_rt50cj", []):
+        if isinstance(r, dict) and r.get("victime"):
+            deja.add((r.get("victime") or "").upper())
+
+    plan = []
+    total = 0
+    for (anc, nouv, nom, montant) in victimes:
+        cible = code_actif(anc, nouv)
+        poche_actuelle = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(cible, {})))
+        deja_fait = anc.upper() in deja
+        plan.append((anc, cible, nom, montant, poche_actuelle, deja_fait))
+        if not deja_fait:
+            total += montant
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Restitution victimes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1E7B34;border-bottom:3px solid #1E7B34;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8F5E9;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.new{font-family:monospace;font-weight:bold;color:#1E7B34}"
+    html += ".deja{color:#888}.btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}"
+    html += "</style></head><body>"
+    html += "<div class='noprint' style='background:#E8F5E9;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; Enregistrer en PDF</strong></div>"
+
+    if not confirme:
+        html += "<h1>&#128176; Restitution aux 10 victimes — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<p style='font-size:14px'>Chaque victime va etre recreditee du montant exact que VAHINE lui a pris (source : sauvegarde du 05/07). Les credits sont ajoutes a la poche de chaque joueuse. Verifie les montants avant de confirmer.</p>"
+        html += "<table><tr><th>Nom</th><th>Code actuel</th><th class='dr'>Poche actuelle</th><th class='dr'>A restituer</th><th class='dr'>Nouvelle poche</th></tr>"
+        for (anc, cible, nom, montant, poche, deja_fait) in plan:
+            if deja_fait:
+                html += "<tr class='deja'><td>" + nom + "</td><td>" + cible + "</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>deja fait</td><td class='dr'>—</td></tr>"
+            else:
+                html += "<tr><td>" + nom + "</td><td class='new'>" + cible + "</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr' style='color:#1E7B34'>+ " + fmt(montant) + " F</td><td class='dr'>" + fmt(poche + montant) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL A RESTITUER</td><td class='dr' style='color:#1E7B34'>" + fmt(total) + " F</td><td></td></tr>"
+        html += "</table>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9989; CONFIRMER la restitution de " + fmt(total) + " F aux victimes</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME : appliquer ===
+    now = datetime.datetime.now().isoformat()
+    resultats = []
+    total_fait = 0
+    for (anc, nouv, nom, montant) in victimes:
+        if anc.upper() in deja:
+            resultats.append((anc, code_actif(anc, nouv), nom, montant, "deja fait"))
+            continue
+        cible = code_actif(anc, nouv)
+        DB.setdefault("pions_joueurs", {})
+        DB["pions_joueurs"].setdefault(cible, {})
+        poche = DB["pions_joueurs"][cible]
+        _crediter_pions_montant(poche, montant)
+        DB.setdefault("restitutions_victimes_rt50cj", []).insert(0, {
+            "victime": anc, "code_credite": cible, "nom": nom,
+            "montant": montant, "par": _cle, "date": now
+        })
+        # tracer sur le releve de la joueuse
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": cible, "type": "restitution",
+            "montant": montant, "motif": "Restitution pions voles par VAHINE (RT50CJ)",
+            "date": now
+        })
+        total_fait += montant
+        resultats.append((anc, cible, nom, montant, "restitue"))
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Restitution effectuee !</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>&#9989; " + fmt(total_fait) + " F restitues aux victimes. Chaque joueuse a retrouve ses pions dans sa poche, et son releve indique 'Restitution pions voles par VAHINE'.</div>"
+    html += "<table><tr><th>Nom</th><th>Code credite</th><th class='dr'>Montant</th><th>Statut</th></tr>"
+    for (anc, cible, nom, montant, statut) in resultats:
+        html += "<tr><td>" + nom + "</td><td class='new'>" + cible + "</td><td class='dr'>" + fmt(montant) + " F</td><td>" + ("&#9989; " + statut if statut == "restitue" else statut) + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/comptes-vides-vers-reseau")
 def comptes_vides_vers_reseau():
     """RECHERCHE (14/07/2026) : trouve tous les comptes dont les pions ont ete
