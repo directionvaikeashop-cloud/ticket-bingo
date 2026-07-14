@@ -7006,31 +7006,122 @@ def sauvegardes():
 
     fichiers = []
     try:
-        for f in sorted(glob.glob(os.path.join(dossier, "*.json")), reverse=True):
-            taille = os.path.getsize(f)
-            fichiers.append((os.path.basename(f), taille))
+        for dossier_src in ("/data/backups", "/data/sauvegardes"):
+            for f in glob.glob(os.path.join(dossier_src, "*.json")):
+                taille = os.path.getsize(f)
+                mtime = os.path.getmtime(f)
+                fichiers.append((os.path.basename(f), taille, dossier_src, mtime))
     except Exception:
         pass
+    fichiers.sort(key=lambda x: -x[3])
 
     html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Sauvegardes</title><style>"
-    html += "body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:760px;margin:0 auto}h1{color:#58a6ff}"
+    html += "body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:840px;margin:0 auto}h1{color:#58a6ff}"
     html += ".box{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:12px 0}"
     html += "a.btn{display:inline-block;background:#238636;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold}"
     html += "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}th{background:#0d1117;border:1px solid #30363d;padding:8px;text-align:left;color:#8b949e}td{border:1px solid #30363d;padding:8px}"
+    html += "tr.avant td{background:rgba(63,185,80,.14)}"
     html += "a{color:#58a6ff}</style></head><body>"
     html += "<h1>&#128190; Sauvegardes de la base</h1>"
     if msg:
         html += "<div class='box' style='border-color:#238636'>" + msg + "</div>"
-    html += "<div class='box'><b>Creer une sauvegarde maintenant</b> (avant toute grosse operation) :<br><br>"
+    html += "<div class='box'>&#128161; <b>Pour retrouver les 9 comptes vides :</b> cherche une sauvegarde datee <b>AVANT le 11/07 07h</b> (avant le nettoyage). Clique <b>Inspecter</b> pour y chercher les transferts SANS toucher a ta base. Les lignes vertes sont d'avant le 11/07.</div>"
+    html += "<div class='box'><b>Creer une sauvegarde maintenant</b> :<br><br>"
     html += "<a class='btn' href='?cle=" + _cle + "&creer=1'>&#128190; Creer une sauvegarde</a></div>"
     if fichiers:
-        html += "<div class='box'><b>Sauvegardes existantes (" + str(len(fichiers)) + ")</b><table><tr><th>Fichier</th><th>Taille</th><th>Restaurer</th></tr>"
-        for (nom, taille) in fichiers:
-            html += "<tr><td>" + nom + "</td><td>" + format(taille, ",") + " o</td>"
+        html += "<div class='box'><b>Sauvegardes disponibles (" + str(len(fichiers)) + ")</b><table><tr><th>Date</th><th>Fichier</th><th>Type</th><th>Inspecter</th><th>Restaurer</th></tr>"
+        for (nom, taille, dossier_src, mtime) in fichiers:
+            dt = datetime.datetime.fromtimestamp(mtime)
+            avant_11 = dt < datetime.datetime(2026, 7, 11, 7, 0)
+            cls = " class='avant'" if avant_11 else ""
+            dsrc = "auto" if "sauvegardes" in dossier_src else "manuel"
+            html += "<tr" + cls + "><td>" + dt.strftime("%d/%m %H:%M") + "</td><td style='font-size:11px'>" + nom + "</td><td>" + dsrc + "</td>"
+            html += "<td><a href='/inspecter-sauvegarde?cle=" + _cle + "&fichier=" + nom + "&dossier=" + dsrc + "'>&#128269; Inspecter</a></td>"
             html += "<td><a href='?cle=" + _cle + "&restaurer=" + nom + "' onclick=\"return confirm('RESTAURER cette sauvegarde ? La base actuelle sera remplacee (une copie de securite sera faite avant).')\">&#8617;&#65039; Restaurer</a></td></tr>"
         html += "</table></div>"
     else:
         html += "<div class='box' style='color:#8b949e'>Aucune sauvegarde pour le moment.</div>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/inspecter-sauvegarde")
+def inspecter_sauvegarde():
+    """ADMIN (14/07/2026) : ouvre une sauvegarde SANS la restaurer et y cherche les
+    transferts de pions vers le reseau VAHINE. Retrouve les comptes vides sans
+    toucher a la base actuelle. ?cle=ADMIN&fichier=NOM&dossier=auto|manuel"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db_actuel = load_data()
+    _info = _db_actuel.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    fichier = os.path.basename((request.args.get("fichier", "") or "").strip())
+    dossier = "/data/sauvegardes" if (request.args.get("dossier", "") == "auto") else "/data/backups"
+    chemin = os.path.join(dossier, fichier)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Inspection sauvegarde</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79}"
+    html += ".meta{color:#555;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold}.an{color:#C00000}</style></head><body>"
+    html += "<h1>&#128269; Inspection de sauvegarde (lecture seule)</h1>"
+    html += "<div class='meta'>Fichier : " + fichier + " &middot; ta base actuelle n'est PAS modifiee</div>"
+
+    if not os.path.exists(chemin):
+        html += "<p>&#10060; Fichier introuvable.</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>&#10060; Erreur lecture : " + str(e) + "</p></body></html>"
+        return html
+
+    reseau = {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+    def fmt(n): return format(n, ",")
+
+    sources = {}
+    lignes = []
+    total = 0
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        vers = (t.get("vers", "") or "").upper()
+        de = (t.get("de", "") or "").upper()
+        if vers in reseau and de and de not in reseau:
+            m = _iv(t.get("montant", 0))
+            sources[de] = sources.get(de, 0) + m
+            lignes.append((str(t.get("date", "")), de, vers, m, bool(t.get("annule_fraude"))))
+            total += m
+    lignes.sort(key=lambda r: r[0])
+
+    html += "<div class='meta'>Cette sauvegarde contient " + str(len(snap.get("transferts_pions", []))) + " transferts au total.</div>"
+    html += "<h2>Comptes vides vers le reseau dans cette sauvegarde (" + str(len(sources)) + ")</h2>"
+    if sources:
+        html += "<table><tr><th>Compte vide</th><th>Nom</th><th class='dr'>Total pris</th></tr>"
+        for de, m in sorted(sources.items(), key=lambda x: -x[1]):
+            html += "<tr><td><b>" + de + "</b></td><td>" + (nomde(de) or "—") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2' style='text-align:right'>TOTAL</td><td class='dr'>" + fmt(total) + " F</td></tr></table>"
+        html += "<h2>Detail</h2><table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, an) in lignes:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td" + (" class='an'" if an else "") + ">" + ("annule" if an else "actif") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert vers le reseau dans cette sauvegarde. Essaie une sauvegarde plus ancienne (avant le 11/07 07h).</p>"
     html += "</body></html>"
     return html
 
