@@ -7541,12 +7541,13 @@ def bannir_voleur_definitif():
     confirme = request.args.get("confirme", "") == "1"
 
     # TOUS les comptes/identites du voleur : anciens codes + codes reactives + codes org
-    # NOTE : 397LAI/JKNTZY (TATIE IRO) RETIRES le 14/07 - identifiee comme VICTIME, pas voleur.
+    # NOTE : 397LAI/JKNTZY (TATIE IRO) RETIRES le 14/07 - identifiee comme VICTIME.
+    # NOTE : VAHINE2026TUKEA (code org actuel) GARDE ACTIF - pour qu'elle assume ses
+    #        responsabilites : payer ses gagnantes et rembourser ses dettes.
     comptes_voleur = [
         ("RT50CJ", "VAHINE — compte QR pivot"),
         ("TBAASYJ9", "VAHINE — code reactive de RT50CJ"),
         ("GNY5SP7J", "VAHINE — ancien code organisatrice"),
-        ("VAHINE2026TUKEA", "VAHINE — code organisatrice"),
         ("UURZ4Y", "KAI — relais"),
         ("TBEVBA6H", "KAI — code reactive"),
         ("H1I5G9", "RUA — beneficiaire final"),
@@ -7572,6 +7573,7 @@ def bannir_voleur_definitif():
         html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:14px;font-size:14px;margin-bottom:14px'>"
         html += "<b>Decision :</b> VAHINE = RUA = KAI sont une seule et meme personne, identifiee comme <b>VOLEUR</b> (vol des pions de 10 victimes pour 29 200 F, prouve par la sauvegarde du 05/07, IP communes, aveu). <b>Bannissement definitif de tous ses comptes.</b></div>"
         html += "<p style='font-size:14px'>Les comptes suivants vont etre bloques definitivement : aucune connexion, aucun jeu, aucun transfert possible.</p>"
+        html += "<div style='background:#E8F5E9;border:1px solid #1E7B34;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:12px'>&#9989; <b>Compte GARDE actif : VAHINE2026TUKEA</b> (son code organisatrice) — pour qu'elle assume ses responsabilites : payer ses gagnantes et rembourser ses dettes.</div>"
         html += "<table><tr><th>Code</th><th>Identite</th><th>Etat actuel</th></tr>"
         for (c, ident) in comptes_voleur:
             deja_bloque = c in DB.get("codes_bloques", [])
