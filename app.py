@@ -13990,6 +13990,7 @@ def api_rejoindre():
     d = request.json or {}
     nom = (d.get("nom") or "").strip()
     tel = (d.get("telephone") or "").strip()
+    email = (d.get("email") or "").strip()
     campagne = (d.get("campagne") or "").strip()[:20]
     tel_clean = "".join(c for c in tel if c.isdigit() or c == "+")
     chiffres = "".join(c for c in tel if c.isdigit())
@@ -13997,6 +13998,9 @@ def api_rejoindre():
         return jsonify({"ok": False, "msg": "Entre ton prénom."}), 400
     if len(chiffres) < 6:
         return jsonify({"ok": False, "msg": "Entre un numéro valide (avec l'indicatif si tu es à l'étranger)."}), 400
+    # EMAIL OBLIGATOIRE (14/07/2026) : identifiant obligatoire pour tout nouveau compte.
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) < 6:
+        return jsonify({"ok": False, "msg": "Entre une adresse email valide (obligatoire)."}), 400
 
     ip = _get_client_ip()
     maintenant = datetime.datetime.now()
@@ -14034,7 +14038,7 @@ def api_rejoindre():
         "id": hashlib.md5(f"{nom}{tel_clean}{maintenant}".encode()).hexdigest()[:8],
         "acheteur": nom, "jeu": "", "serie": "", "prix": 0,
         "photo_url": None, "pdf_url": None, "page_debut": None, "page_fin": None,
-        "code_acheteur": code, "email": "", "telephone": tel_clean,
+        "code_acheteur": code, "email": email, "telephone": tel_clean,
         "code_org": "PUB", "source": "publicite", "campagne": campagne, "date": maintenant.isoformat()
     }
     DB.setdefault("tickets", []).insert(0, ticket)
@@ -14085,7 +14089,8 @@ def _landing_html(campagne, accent, titre, jackpot, jeu, bonus_titre, bonus_sous
   <div id="form-zone" style="background:rgba(255,255,255,.06);border-radius:14px;padding:18px">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;text-align:center">Inscris-toi en 10 secondes</div>
     <input id="r-nom" type="text" placeholder="Ton prénom" style="width:100%;padding:13px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:10px;box-sizing:border-box;font-size:15px"/>
-    <input id="r-tel" type="tel" placeholder="Ton numéro (ex : 87 12 34 56)" style="width:100%;padding:13px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:6px;box-sizing:border-box;font-size:15px"/>
+    <input id="r-tel" type="tel" placeholder="Ton numéro (ex : 87 12 34 56)" style="width:100%;padding:13px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:10px;box-sizing:border-box;font-size:15px"/>
+    <input id="r-email" type="email" placeholder="Ton adresse email" style="width:100%;padding:13px;border-radius:10px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:6px;box-sizing:border-box;font-size:15px"/>
     <div style="font-size:11px;color:#8b8ba7;margin-bottom:14px">Depuis l'étranger ? Mets l'indicatif (ex : +33…).</div>
     <button id="r-btn" onclick="rejoindre()" style="width:100%;padding:15px;background:linear-gradient(90deg,#fbbf24,#f59e0b);color:#3b0764;border:none;border-radius:50px;font-size:17px;font-weight:800;cursor:pointer">JOUER GRATUITEMENT</button>
     <div id="r-msg" style="margin-top:10px;text-align:center;font-size:13px"></div>
@@ -14105,13 +14110,15 @@ def _landing_html(campagne, accent, titre, jackpot, jeu, bonus_titre, bonus_sous
 async function rejoindre(){
   var nom=(document.getElementById('r-nom').value||'').trim();
   var tel=(document.getElementById('r-tel').value||'').trim();
+  var email=(document.getElementById('r-email').value||'').trim();
   var msg=document.getElementById('r-msg');
   var btn=document.getElementById('r-btn');
   if(!nom){ msg.style.color='#f87171'; msg.textContent='Entre ton prénom.'; return; }
   if(tel.replace(/[^0-9]/g,'').length<6){ msg.style.color='#f87171'; msg.textContent='Entre un numéro valide.'; return; }
+  if(email.indexOf('@')<1 || email.indexOf('.',email.indexOf('@'))<0){ msg.style.color='#f87171'; msg.textContent='Entre une adresse email valide (obligatoire).'; return; }
   btn.disabled=true; btn.style.opacity=.6; msg.style.color='#cbd5e1'; msg.textContent='Création de ton compte…';
   try{
-    var r=await fetch('/api/rejoindre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,telephone:tel,campagne:'@@CAMPAGNE@@'})});
+    var r=await fetch('/api/rejoindre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,telephone:tel,email:email,campagne:'@@CAMPAGNE@@'})});
     var d=await r.json();
     if(d.ok){
       document.getElementById('form-zone').style.display='none';
