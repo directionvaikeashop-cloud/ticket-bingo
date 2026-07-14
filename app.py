@@ -7353,6 +7353,113 @@ def reactiver_comptes_bloques():
     return html
 
 
+@app.route("/verifier-victime-iro")
+def verifier_victime_iro():
+    """VERIFICATION (14/07/2026) : inspecte la sauvegarde du 05/07 et liste TOUS les
+    transferts SORTANTS des codes de TATIE IRO (397LAI et JKNTZY) vers le reseau
+    voleur. Determine le montant exact qui lui a ete pris. Lecture seule.
+    ?cle=ADMIN[&fichier=NOM][&codes=397LAI,JKNTZY]"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    fichier = (request.args.get("fichier", "") or "AVANT_MOTEUR_20260705_0722.json").strip()
+    codes_iro = set(c.strip().upper() for c in (request.args.get("codes", "") or "397LAI,JKNTZY").split(",") if c.strip())
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, os.path.basename(fichier))
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Victime IRO</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold}</style></head><body>"
+    html += "<h1>&#128269; Ce qui a ete pris a TATIE IRO</h1>"
+
+    if not chemin:
+        html += "<p>&#10060; Sauvegarde introuvable.</p></body></html>"
+        return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>&#10060; Erreur : " + str(e) + "</p></body></html>"
+        return html
+
+    voleur = {"RT50CJ", "UURZ4Y", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html += "<div class='meta'>Source : " + os.path.basename(chemin) + " &middot; codes analyses : " + ", ".join(sorted(codes_iro)) + "</div>"
+
+    # transferts SORTANTS des codes IRO vers le reseau voleur
+    sortants = []
+    total_pris = 0
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper()
+        vers = (t.get("vers", "") or "").upper()
+        if de in codes_iro and vers in voleur:
+            m = _iv(t.get("montant", 0))
+            sortants.append((str(t.get("date", "")), de, vers, m))
+            total_pris += m
+    sortants.sort(key=lambda r: r[0])
+
+    # transferts RECUS par les codes IRO (pour info : ce qu'elle a recu, pas a elle)
+    recus = []
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        vers = (t.get("vers", "") or "").upper()
+        de = (t.get("de", "") or "").upper()
+        if vers in codes_iro:
+            recus.append((str(t.get("date", "")), de, vers, _iv(t.get("montant", 0))))
+    recus.sort(key=lambda r: r[0])
+
+    html += "<h2 style='color:#C00000'>Pions PRIS a TATIE IRO (sortants vers le voleur)</h2>"
+    if sortants:
+        html += "<table><tr><th>Date</th><th>De (son code)</th><th>Vers (voleur)</th><th class='dr'>Montant pris</th></tr>"
+        for (d, de, vers, m) in sortants:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#FDECEA;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL PRIS A IRO</td><td class='dr' style='color:#C00000'>" + fmt(total_pris) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin-top:10px;font-size:14px'>&#9888;&#65039; <b>TATIE IRO est une victime : " + fmt(total_pris) + " F lui ont ete pris.</b> Ce montant doit lui etre restitue.</div>"
+    else:
+        html += "<p>Aucun transfert sortant vers le voleur. TATIE IRO n'a peut-etre pas ete videe (ou via un autre code).</p>"
+
+    if recus:
+        html += "<h2>Pour information : transferts RECUS par ses codes</h2>"
+        html += "<div class='meta'>Ces montants ne sont pas forcement a elle (ex : de l'argent d'une autre victime qui a transite).</div>"
+        html += "<table><tr><th>Date</th><th>De</th><th>Vers (son code)</th><th class='dr'>Montant</th></tr>"
+        for (d, de, vers, m) in recus:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/bannir-voleur-definitif")
 def bannir_voleur_definitif():
     """BANNISSEMENT DEFINITIF (14/07/2026) : VAHINE = RUA = KAI, identifie(e) comme
