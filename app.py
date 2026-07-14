@@ -7433,6 +7433,97 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/verifier-jkntzy")
+def verifier_jkntzy():
+    """VERIFICATION (14/07/2026) : etat du compte JKNTZY (2e code de TATIE IRO).
+    Compare la sauvegarde du 05/07 (avant) et l'etat actuel. Montre les 2 000 F
+    recus de 397LAI et ou ils se trouvent maintenant. ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    fichier = "AVANT_MOTEUR_20260705_0722.json"
+    chemin = None
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        c = os.path.join(base, fichier)
+        if os.path.exists(c):
+            chemin = c
+            break
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # tous les codes de TATIE IRO
+    codes_iro = ["397LAI", "JKNTZY", "TB9RAQ9V", "TBCPBM8C"]
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Verif JKNTZY</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:18px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold}.carte{border:1px solid #ccc;border-radius:10px;padding:14px;margin:10px 0}</style></head><body>"
+    html += "<h1>&#128269; Verification du compte JKNTZY (2e code de TATIE IRO)</h1>"
+
+    # solde actuel de chaque code IRO
+    html += "<h2>Soldes actuels des comptes de TATIE IRO</h2>"
+    html += "<table><tr><th>Code</th><th class='dr'>Poche</th><th class='dr'>Bonus</th></tr>"
+    total_actuel = 0
+    for c in codes_iro:
+        poche = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(c, {})))
+        bonus = _iv(_xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(c, {})))
+        total_actuel += poche + bonus
+        html += "<tr><td><b>" + c + "</b></td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>" + fmt(bonus) + " F</td></tr>"
+    html += "<tr style='background:#EEE;font-weight:bold'><td>TOTAL actuel (tous ses codes)</td><td class='dr' colspan='2'>" + fmt(total_actuel) + " F</td></tr>"
+    html += "</table>"
+
+    # transferts vers JKNTZY dans la sauvegarde
+    if chemin:
+        try:
+            with open(chemin, "r", encoding="utf-8") as f:
+                snap = json.load(f)
+            html += "<h2>Transferts RECUS par JKNTZY (sauvegarde du 05/07)</h2>"
+            recus = []
+            for t in snap.get("transferts_pions", []):
+                if isinstance(t, dict) and (t.get("vers", "") or "").upper() == "JKNTZY":
+                    recus.append((str(t.get("date", ""))[:16].replace("T", " "), (t.get("de", "") or "").upper(), _iv(t.get("montant", 0))))
+            recus.sort(key=lambda r: r[0])
+            if recus:
+                html += "<table><tr><th>Date</th><th>De</th><th class='dr'>Montant</th></tr>"
+                tot = 0
+                for (d, de, m) in recus:
+                    interne = de in ("397LAI", "JKNTZY", "TB9RAQ9V", "TBCPBM8C")
+                    note = " (transfert entre ses propres comptes)" if interne else ""
+                    html += "<tr><td>" + d + "</td><td>" + de + note + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+                    tot += m
+                html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>TOTAL recu</td><td class='dr'>" + fmt(tot) + " F</td></tr>"
+                html += "</table>"
+                # solde de JKNTZY dans la sauvegarde
+                poche_snap = _iv(_xpf_total_pions(snap.get("pions_joueurs", {}).get("JKNTZY", {})))
+                bonus_snap = _iv(_xpf_total_pions(snap.get("pions_bonus_joueurs", {}).get("JKNTZY", {})))
+                html += "<div class='carte' style='background:#FEF6EF;border-color:#C55A11'>"
+                html += "<b>Solde de JKNTZY dans la sauvegarde du 05/07 :</b> poche " + fmt(poche_snap) + " F &middot; bonus " + fmt(bonus_snap) + " F</div>"
+            else:
+                html += "<p>Aucun transfert recu par JKNTZY dans la sauvegarde.</p>"
+        except Exception as e:
+            html += "<p>Erreur : " + str(e) + "</p>"
+
+    html += "<div class='carte' style='background:#F1F8EE;border-color:#1E7B34'>"
+    html += "<b>Analyse :</b> les 2 000 F (2 x 1 000 F) recus par JKNTZY viennent de 397LAI — les DEUX codes appartiennent a TATIE IRO. Ce sont des transferts entre ses propres comptes, pas un vol. "
+    html += "Ces pions doivent donc etre presents sur l'un de ses comptes (JKNTZY ou apres reactivation TBCPBM8C). Verifie les soldes ci-dessus : s'ils y sont, rien a restituer ; s'ils ont disparu au nettoyage, il faut les remettre.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/releve-victime-complet")
 def releve_victime_complet():
     """RELEVE COMPLET (14/07/2026) : pour une victime, montre l'etat de son compte
