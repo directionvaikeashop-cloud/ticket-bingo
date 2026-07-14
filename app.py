@@ -6958,6 +6958,122 @@ def releve_financier_org(code):
 
 
 
+@app.route("/diag-fichiers")
+def diag_fichiers():
+    """ADMIN (14/07/2026) : diagnostic — liste TOUS les fichiers presents dans /data
+    et ses sous-dossiers. ?cle=ADMIN"""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    import glob
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Diag fichiers</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#1F4E79}h2{color:#1F4E79;margin-top:18px}table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right}a{color:#1F4E79}</style></head><body>"
+    html += "<h1>&#128193; Diagnostic des fichiers /data</h1>"
+
+    for base in ("/data", "/data/sauvegardes", "/data/backups"):
+        html += "<h2>" + base + "</h2>"
+        if not os.path.isdir(base):
+            html += "<p style='color:#C00000'>Ce dossier n'existe pas.</p>"
+            continue
+        try:
+            entries = sorted(glob.glob(os.path.join(base, "*")), key=lambda x: -os.path.getmtime(x))
+        except Exception as e:
+            html += "<p>Erreur : " + str(e) + "</p>"
+            continue
+        jsons = [e for e in entries if e.endswith(".json")]
+        if not entries:
+            html += "<p style='color:#888'>Dossier vide.</p>"
+            continue
+        html += "<div style='color:#555;font-size:13px'>" + str(len(entries)) + " element(s), dont " + str(len(jsons)) + " fichiers .json</div>"
+        html += "<table><tr><th>Nom</th><th>Type</th><th class='dr'>Taille</th><th>Modifie</th><th>Inspecter</th></tr>"
+        for e in entries[:60]:
+            nom = os.path.basename(e)
+            est_dir = os.path.isdir(e)
+            taille = "" if est_dir else format(os.path.getsize(e), ",") + " o"
+            dt = datetime.datetime.fromtimestamp(os.path.getmtime(e)).strftime("%d/%m %H:%M")
+            insp = ""
+            if e.endswith(".json") and base != "/data":
+                dsrc = "auto" if "sauvegardes" in base else "manuel"
+                insp = "<a href='/inspecter-sauvegarde?cle=" + _cle + "&fichier=" + nom + "&dossier=" + dsrc + "'>&#128269;</a>"
+            elif e.endswith(".json"):
+                insp = "<a href='/inspecter-sauvegarde-data?cle=" + _cle + "&fichier=" + nom + "'>&#128269;</a>"
+            html += "<tr><td style='font-size:11px'>" + nom + "</td><td>" + ("dossier" if est_dir else "fichier") + "</td><td class='dr'>" + taille + "</td><td>" + dt + "</td><td>" + insp + "</td></tr>"
+        html += "</table>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/inspecter-sauvegarde-data")
+def inspecter_sauvegarde_data():
+    """ADMIN : inspecte un .json directement dans /data (pas dans un sous-dossier)."""
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _db = load_data()
+    _info = _db.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    fichier = os.path.basename((request.args.get("fichier", "") or "").strip())
+    chemin = os.path.join("/data", fichier)
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Inspection</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C00000}h2{color:#1F4E79}table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}.dr{text-align:right;font-weight:bold}</style></head><body>"
+    html += "<h1>&#128269; Inspection : " + fichier + "</h1>"
+    if not os.path.exists(chemin):
+        html += "<p>Introuvable.</p></body></html>"; return html
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception as e:
+        html += "<p>Erreur : " + str(e) + "</p></body></html>"; return html
+
+    reseau = {"RT50CJ", "UURZ4Y", "397LAI", "JKNTZY", "H1I5G9", "GNY5SP7J", "VAHINE2026TUKEA"}
+    noms = {}
+    for t in snap.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = str(t.get("acheteur"))
+    def nomde(c):
+        c = (c or "").upper()
+        return noms.get(c) or (snap.get("codes", {}).get(c, {}) or {}).get("nom", "")
+    def fmt(n): return format(n, ",")
+
+    sources = {}; lignes = []; total = 0
+    for t in snap.get("transferts_pions", []):
+        if not isinstance(t, dict): continue
+        vers = (t.get("vers", "") or "").upper(); de = (t.get("de", "") or "").upper()
+        if vers in reseau and de and de not in reseau:
+            m = _iv(t.get("montant", 0)); sources[de] = sources.get(de, 0) + m
+            lignes.append((str(t.get("date", "")), de, vers, m, bool(t.get("annule_fraude")))); total += m
+    lignes.sort(key=lambda r: r[0])
+    html += "<div style='color:#555;font-size:13px'>" + str(len(snap.get("transferts_pions", []))) + " transferts au total dans ce fichier.</div>"
+    html += "<h2>Comptes vides vers le reseau (" + str(len(sources)) + ")</h2>"
+    if sources:
+        html += "<table><tr><th>Compte</th><th>Nom</th><th class='dr'>Total pris</th></tr>"
+        for de, m in sorted(sources.items(), key=lambda x: -x[1]):
+            html += "<tr><td><b>" + de + "</b></td><td>" + (nomde(de) or "—") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2' style='text-align:right'>TOTAL</td><td class='dr'>" + fmt(total) + " F</td></tr></table>"
+        html += "<h2>Detail</h2><table><tr><th>Date</th><th>De</th><th>Vers</th><th class='dr'>Montant</th><th>Etat</th></tr>"
+        for (d, de, vers, m, an) in lignes:
+            html += "<tr><td>" + d[:16].replace("T", " ") + "</td><td>" + de + (" — " + nomde(de) if nomde(de) else "") + "</td><td>" + vers + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("annule" if an else "actif") + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p>Aucun transfert vers le reseau dans ce fichier.</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/sauvegardes")
 def sauvegardes():
     """ADMIN — Cree et liste des sauvegardes completes de la base. Permet de
