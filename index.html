@@ -1854,7 +1854,9 @@ function buildOrgSpace(){
       <div style="font-size:12px;color:var(--mu);margin-bottom:12px;line-height:1.5">Créez le code personnel d'une nouvelle joueuse. Elle l'utilisera pour se connecter, acheter ses pions et recevoir ses tickets quand vous annoncez un jeu.</div>
       <div class="lbl">Nom de la joueuse</div>
       <input id="insc-nom" placeholder="Ex: Vaiana Tema" style="margin-bottom:10px"/>
-      <div class="lbl">📧 Email (optionnel — pour lui envoyer son code)</div>
+      <div class="lbl">📱 Numéro de téléphone (obligatoire)</div>
+      <input id="insc-tel" type="tel" placeholder="Ex: 87 12 34 56" style="margin-bottom:10px"/>
+      <div class="lbl">📧 Email (obligatoire)</div>
       <input id="insc-email" type="email" placeholder="joueuse@email.com" style="margin-bottom:10px"/>
       <div class="lbl">Code existant (optionnel — si elle a déjà un code, pour le retrouver)</div>
       <input id="insc-code-existant" placeholder="Vide = nouveau code généré" style="margin-bottom:10px;text-transform:uppercase"/>
@@ -3450,16 +3452,19 @@ function _valVisible(id){
 }
 async function inscrireJoueuse(){
   var nom = (document.getElementById("insc-nom").value || "").trim();
+  var tel = (document.getElementById("insc-tel").value || "").trim();
   var email = (document.getElementById("insc-email").value || "").trim();
   var codeExist = (document.getElementById("insc-code-existant").value || "").trim().toUpperCase();
   var res = document.getElementById("insc-result");
   if(!nom){ res.innerHTML = '<div style="color:#f87171;font-size:13px;margin-top:8px">Entrez le nom de la joueuse</div>'; return; }
+  if(tel.replace(/[^0-9]/g,'').length < 6){ res.innerHTML = '<div style="color:#f87171;font-size:13px;margin-top:8px">Entrez un numéro de téléphone valide (obligatoire)</div>'; return; }
+  if(email.indexOf('@')<1 || email.indexOf('.',email.indexOf('@'))<0){ res.innerHTML = '<div style="color:#f87171;font-size:13px;margin-top:8px">Entrez une adresse email valide (obligatoire)</div>'; return; }
   res.innerHTML = '<div style="color:#60a5fa;font-size:13px;margin-top:8px">Création du code...</div>';
   try{
     var r = await fetch("/api/ticket", {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-Token": TOKEN},
-      body: JSON.stringify({acheteur: nom, jeu: "", serie: "", prix: 0, email: email, code_acheteur: codeExist})
+      body: JSON.stringify({acheteur: nom, jeu: "", serie: "", prix: 0, email: email, telephone: tel, code_acheteur: codeExist})
     });
     var d = await r.json();
     if(d.ok){
@@ -3469,6 +3474,7 @@ async function inscrireJoueuse(){
         '<div style="font-size:11px;color:var(--mu);margin-top:8px">' + (email ? "Envoyé par email à la joueuse !<br/>" : "") + "Transmettez ce code à la joueuse — Espace Joueur</div>" +
         '</div>';
       document.getElementById("insc-nom").value = "";
+      document.getElementById("insc-tel").value = "";
       document.getElementById("insc-email").value = "";
       document.getElementById("insc-code-existant").value = "";
       try{ loadTickets(); }catch(e){}
