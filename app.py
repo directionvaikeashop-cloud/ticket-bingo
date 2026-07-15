@@ -7433,6 +7433,131 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/rembourser-tickets-tournoi-vahine")
+def rembourser_tickets_tournoi_vahine():
+    """REMBOURSEMENT (15/07/2026) : le tournoi de VAHINE etait TRUQUE. Les joueuses
+    ne doivent pas payer pour des jeux truques : on leur rend les pions depenses en
+    tickets sur ce tournoi (source : encaissements_org, la trace permanente des
+    ventes validees). Anti-double. Apercu sans &confirme=1.
+    ?cle=ADMIN[&orgs=VAHINE2026TUKEA,GNY5SP7J][&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+    confirme = request.args.get("confirme", "") == "1"
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # anti-double
+    deja = set()
+    for r in DB.get("remboursements_tickets_vahine", []):
+        if isinstance(r, dict) and r.get("code_joueur"):
+            deja.add((r.get("code_joueur") or "").upper())
+
+    # regrouper les encaissements du tournoi de VAHINE par joueuse
+    par_j = {}
+    for e in DB.get("encaissements_org", []):
+        if not isinstance(e, dict):
+            continue
+        if (e.get("code_org", "") or "").upper() not in orgs:
+            continue
+        cj = (e.get("code_joueur", "") or "").upper()
+        if not cj:
+            continue
+        m = _iv(e.get("montant", 0))
+        d = par_j.setdefault(cj, {"m": 0, "n": 0})
+        d["m"] += m; d["n"] += 1
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Remboursement tickets</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1E7B34;border-bottom:3px solid #1E7B34;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8F5E9;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.deja{color:#888}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8F5E9;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    if not par_j:
+        html += "<h1>Aucun achat de ticket trouve</h1><p>Aucun encaissement sur ce tournoi.</p></body></html>"
+        return html
+
+    if not confirme:
+        html += "<h1>&#128176; Remboursement des tickets — tournoi truque — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#E8F5E9;border:1px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "Le tournoi de VAHINE etait truque : les joueuses ne doivent pas payer pour des jeux fausses. On leur rend les pions qu'elles ont depenses en tickets sur ce tournoi.</div>"
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb tickets</th><th class='dr'>A rembourser</th><th class='dr'>Poche actuelle</th><th class='dr'>Poche apres</th></tr>"
+        total = 0
+        for cj in sorted(par_j, key=lambda k: -par_j[k]["m"]):
+            d = par_j[cj]
+            poche = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(cj, {})))
+            if cj in deja:
+                html += "<tr class='deja'><td>" + (nomde(cj) or "—") + "</td><td>" + cj + "</td><td class='dr'>" + str(d["n"]) + "</td><td class='dr'>deja rembourse</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>—</td></tr>"
+            else:
+                total += d["m"]
+                html += "<tr><td>" + (nomde(cj) or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(d["n"]) + "</td><td class='dr' style='color:#1E7B34'>+ " + fmt(d["m"]) + " F</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>" + fmt(poche + d["m"]) + " F</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL A REMBOURSER</td><td class='dr' style='color:#1E7B34'>" + fmt(total) + " F</td><td colspan='2'></td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FEF6EF;border:1px solid #C55A11;border-radius:8px;padding:12px;font-size:13px'>&#9888;&#65039; <b>Verifie la colonne « Poche apres »</b> : c'est le solde qu'aura chaque joueuse. Il doit correspondre a ce qu'elle a reellement mis. Si un montant te parait trop eleve, dis-le avant de confirmer.</div>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9989; CONFIRMER le remboursement (" + fmt(total) + " F)</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    resultats = []
+    total_fait = 0
+    for cj in sorted(par_j, key=lambda k: -par_j[k]["m"]):
+        if cj in deja:
+            resultats.append((cj, nomde(cj), par_j[cj]["n"], 0, "deja rembourse"))
+            continue
+        m = par_j[cj]["m"]
+        DB.setdefault("pions_joueurs", {}).setdefault(cj, {})
+        _crediter_pions_montant(DB["pions_joueurs"][cj], m)
+        DB.setdefault("remboursements_tickets_vahine", []).insert(0, {
+            "code_joueur": cj, "nom": nomde(cj), "montant": m,
+            "nb_tickets": par_j[cj]["n"], "par": _cle, "date": now
+        })
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": cj, "type": "remboursement",
+            "montant": m,
+            "motif": "Remboursement des tickets — tournoi truque annule (VAHINE)",
+            "date": now
+        })
+        total_fait += m
+        resultats.append((cj, nomde(cj), par_j[cj]["n"], m, "rembourse"))
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Tickets rembourses</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; <b>" + fmt(total_fait) + " F rembourses</b> a " + str(len([r for r in resultats if r[4] == 'rembourse'])) + " joueuses. Elles ne paient pas pour un tournoi truque : leurs mises leur sont rendues.</div>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb tickets</th><th class='dr'>Rembourse</th><th>Statut</th></tr>"
+    for (cj, nom, n, m, st) in resultats:
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(n) + "</td><td class='dr'>" + fmt(m) + " F</td><td>" + ("&#9989; " + st if st == "rembourse" else st) + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/pions-achetes-chez-vahine")
 def pions_achetes_chez_vahine():
     """VERIFICATION (15/07/2026) : liste les achats de PIONS que les joueuses ont
