@@ -7433,6 +7433,90 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/annuler-soldes-justes")
+def annuler_soldes_justes():
+    """SECURITE (15/07/2026) : ANNULE l'operation /solde-juste-tournoi-vahine et
+    remet a chaque joueuse le solde qu'elle avait AVANT (enregistre dans
+    soldes_justes_poses). Vide aussi la liste pour pouvoir relancer proprement.
+    Apercu sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    poses = [r for r in DB.get("soldes_justes_poses", []) if isinstance(r, dict) and r.get("code")]
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Annuler soldes justes</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:920px;margin:0 auto}"
+    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".btn{display:block;text-align:center;background:#C55A11;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "</style></head><body>"
+
+    if not poses:
+        html += "<h1>Rien a annuler</h1><p>Aucun solde juste n'a ete pose.</p></body></html>"
+        return html
+
+    if not confirme:
+        html += "<h1>&#8634; Annuler les soldes justes — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(poses)) + " joueuses &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "&#9888;&#65039; Chaque joueuse va retrouver <b>exactement le solde qu'elle avait avant</b> l'operation. On revient a la situation d'avant.</div>"
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Solde pose (faux)</th><th class='dr'>Solde a restaurer</th></tr>"
+        for r in poses:
+            html += "<tr><td>" + str(r.get("nom", "") or "—") + "</td><td><b>" + str(r.get("code", "")) + "</b></td><td class='dr'>" + fmt(_iv(r.get("solde_juste"))) + " F</td><td class='dr' style='color:#1E7B34'>" + fmt(_iv(r.get("solde_avant"))) + " F</td></tr>"
+        html += "</table>"
+        html += "<a class='btn' href='?cle=" + _cle + "&confirme=1'>&#8634; CONFIRMER — remettre les soldes d'avant</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    res = []
+    for r in poses:
+        code = (r.get("code") or "").upper()
+        avant = _iv(r.get("solde_avant"))
+        poche = DB.setdefault("pions_joueurs", {}).setdefault(code, {})
+        for k in list(poche.keys()):
+            poche[k] = 0
+        if avant > 0:
+            _crediter_pions_montant(poche, avant)
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": code, "type": "correction",
+            "montant": 0,
+            "motif": "Retour au solde precedent (operation annulee)",
+            "date": now
+        })
+        res.append((code, str(r.get("nom", "") or ""), avant))
+    DB["soldes_justes_poses"] = []
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Soldes remis comme avant</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; <b>" + str(len(res)) + " joueuses</b> ont retrouve leur solde d'avant l'operation. La liste est videe : on peut relancer proprement apres correction.</div>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Solde restaure</th></tr>"
+    for (code, nom, avant) in res:
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + code + "</b></td><td class='dr'>" + fmt(avant) + " F</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/solde-juste-tournoi-vahine")
 def solde_juste_tournoi_vahine():
     """RECALCUL (15/07/2026) : calcule le SOLDE JUSTE de chaque joueuse touchee par
@@ -7493,10 +7577,21 @@ def solde_juste_tournoi_vahine():
         # 1. pions achetes (commandes validees)
         for c in DB.get("commandes_pions_joueurs", []):
             if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code and c.get("statut") == "validee":
-                m = _iv(c.get("pions_credites") or c.get("nb_pions")) * _iv(c.get("valeur_pion"))
+                nb = _iv(c.get("nb_pions") or c.get("pions_credites"))
+                val = _iv(c.get("valeur_pion"))
+                m = nb * val
+                if m <= 0:
+                    m = _iv(c.get("montant_net"))
                 if m:
                     entrees += m
-                    det.append(("+", "Pions achetes", str(c.get("mode_paiement", "")), m))
+                    det.append(("+", "Achat pions", str(c.get("mode_paiement", "")), m))
+        # 1bis. pions RECUS de l'organisatrice (elle a paye : especes, CCP, virement)
+        for t in DB.get("transactions_joueur_org", []):
+            if isinstance(t, dict) and (t.get("code_joueur", "") or "").upper() == code:
+                m = _iv(t.get("montant_total", 0))
+                if m:
+                    entrees += m
+                    det.append(("+", "Pions recus (org)", str(t.get("mode_paiement", "")) + " — org " + str(t.get("code_org", "")), m))
         # 2. credits / dedommagements
         for cm in DB.get("credits_masse", []):
             if isinstance(cm, dict) and code in [str(x).upper() for x in cm.get("codes", [])]:
@@ -7545,6 +7640,20 @@ def solde_juste_tournoi_vahine():
             if m:
                 sorties += m
                 det.append(("-", "Ticket ailleurs", str(e.get("jeu", "")), m))
+        # 5bis. tickets commandes non validees, ailleurs (les pions sont deja debites)
+        for c in DB.get("commandes_tickets_pions", []):
+            if not isinstance(c, dict):
+                continue
+            if (c.get("code_joueur", "") or "").upper() != code:
+                continue
+            if c.get("statut") in ("validee", "annulee_remboursee"):
+                continue
+            if (c.get("code_org", "") or "").upper() in orgs_vahine:
+                continue
+            m = _iv(c.get("total_pions", 0))
+            if m:
+                sorties += m
+                det.append(("-", "Ticket en attente", str(c.get("jeu", "")), m))
         # 6. transferts envoyes (hors reseau voleur : le vol est repare)
         for t in DB.get("transferts_pions", []):
             if not isinstance(t, dict):
