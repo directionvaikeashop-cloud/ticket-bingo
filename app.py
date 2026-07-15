@@ -14638,23 +14638,36 @@ def releve_financier_joueur(code):
 
     # === SORTIE : tickets achetés en pions — trace permanente encaissements_org
     # (retrouve aussi les achats des ANCIENS tournois) ===
+    # TOURNOI TRUQUE (15/07/2026) : les tickets achetes sur le tournoi de VAHINE
+    # restent VISIBLES pour la transparence, mais ne comptent plus comme une depense
+    # (le tournoi est annule : la joueuse ne paie pas pour des jeux fausses).
+    _ORGS_TOURNOI_ANNULE = {"VAHINE2026TUKEA", "GNY5SP7J"}
     for e in DB.get("encaissements_org", []):
         if isinstance(e, dict) and (e.get("code_joueur") or "").upper() == code:
+            _org_e = (e.get("code_org", "") or "").upper()
+            _annule = _org_e in _ORGS_TOURNOI_ANNULE
+            _montant_e = int(e.get("montant", 0) or 0)
             lignes.append({
                 "date": e.get("date", "?"),
-                "type": "Achat tickets",
-                "desc": str(e.get("jeu", "?")) + " (vente validée — " + _nom_org_public(e.get("code_org", "")) + ")",
+                "type": "Ticket annulé" if _annule else "Achat tickets",
+                "desc": (str(e.get("jeu", "?")) + " — TOURNOI ANNULÉ (truqué) : ce ticket ne vous a rien coûté")
+                        if _annule else
+                        (str(e.get("jeu", "?")) + " (vente validée — " + _nom_org_public(e.get("code_org", "")) + ")"),
                 "entree": 0,
-                "sortie": int(e.get("montant", 0) or 0)
+                "sortie": 0 if _annule else _montant_e
             })
     for c in DB.get("commandes_tickets_pions", []):
         if isinstance(c, dict) and c.get("code_joueur") == code and c.get("statut") != "validee":
+            _org_c = (c.get("code_org", "") or "").upper()
+            _annule_c = _org_c in _ORGS_TOURNOI_ANNULE
             lignes.append({
                 "date": c.get("date", "?"),
-                "type": "Achat tickets (en attente)",
-                "desc": str(c.get("jeu", "?")) + " (" + str(c.get("nb_tickets", "?")) + " tickets)",
+                "type": "Ticket annulé" if _annule_c else "Achat tickets (en attente)",
+                "desc": (str(c.get("jeu", "?")) + " — TOURNOI ANNULÉ (truqué) : ce ticket ne vous a rien coûté")
+                        if _annule_c else
+                        (str(c.get("jeu", "?")) + " (" + str(c.get("nb_tickets", "?")) + " tickets)"),
                 "entree": 0,
-                "sortie": int(c.get("total_pions", 0) or 0)
+                "sortie": 0 if _annule_c else int(c.get("total_pions", 0) or 0)
             })
 
     # === SORTIE : retraits validés (pions convertis en argent) ===
