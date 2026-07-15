@@ -7433,6 +7433,143 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/ou-est-parti-argent")
+def ou_est_parti_argent():
+    """ENQUETE (15/07/2026) : trace TOUTES les sorties d'argent d'un compte dans les
+    donnees ACTUELLES : demandes de retrait (especes/virement), achats de tickets,
+    transferts sortants, journal des mouvements. Repond a 'ou sont passes les X F ?'
+    Lecture seule. ?cle=ADMIN&code=CODE"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Ou est parti l'argent</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:920px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px;font-size:15px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.alerte{color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:8px 14px;border-radius:8px;margin-bottom:14px;font-size:13px'>Lecture seule &middot; <strong>Ctrl+P &rarr; PDF</strong></div>"
+    html += "<h1>&#128269; Ou est parti l'argent — " + code + (" (" + nomde(code) + ")" if nomde(code) else "") + "</h1>"
+    html += "<div class='meta'>Donnees actuelles &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+
+    poche = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {})))
+    bonus = _iv(_xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(code, {})))
+    html += "<div style='font-size:15px;margin-bottom:10px'>Solde actuel : poche <b>" + fmt(poche) + " F</b> &middot; bonus <b>" + fmt(bonus) + " F</b></div>"
+
+    total_sorti = 0
+
+    # 1. DEMANDES DE RETRAIT (argent sorti en especes/virement)
+    html += "<h2 style='color:#C00000'>&#128184; 1. Demandes de retrait (argent reel sorti)</h2>"
+    retraits = []
+    tot_retrait = 0
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and (r.get("code_joueur", "") or "").upper() == code:
+            m = _iv(r.get("montant_demande", 0))
+            retraits.append((str(r.get("date", ""))[:16].replace("T", " "), r.get("mode", ""),
+                             r.get("statut", ""), m, _iv(r.get("montant_net", 0)), r.get("coordonnees", "")))
+            if (r.get("statut", "") or "") in ("payee", "payee_espece", "validee", "traitee"):
+                tot_retrait += m
+    retraits.sort(key=lambda x: x[0], reverse=True)
+    if retraits:
+        html += "<table><tr><th>Date</th><th>Mode</th><th>Statut</th><th class='dr'>Demande</th><th class='dr'>Net verse</th><th>Coordonnees</th></tr>"
+        for (d, mode, st, m, net, coord) in retraits:
+            html += "<tr><td>" + d + "</td><td>" + str(mode) + "</td><td><b>" + str(st) + "</b></td><td class='dr'>" + fmt(m) + " F</td><td class='dr'>" + fmt(net) + " F</td><td style='font-size:11px'>" + str(coord)[:60] + "</td></tr>"
+        html += "</table>"
+        html += "<div class='alerte'>Retraits effectivement payes : " + fmt(tot_retrait) + " F</div>"
+        total_sorti += tot_retrait
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucune demande de retrait.</p>"
+
+    # 2. ACHATS DE TICKETS
+    html += "<h2>&#127915; 2. Achats de tickets (pions depenses pour jouer)</h2>"
+    cmds = []
+    tot_cmd = 0
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+            m = _iv(c.get("total_pions", 0))
+            cmds.append((str(c.get("date", ""))[:16].replace("T", " "), c.get("jeu", ""),
+                         c.get("code_org", ""), c.get("statut", ""), m))
+            if (c.get("statut", "") or "") not in ("annulee_remboursee",):
+                tot_cmd += m
+    cmds.sort(key=lambda x: x[0], reverse=True)
+    if cmds:
+        html += "<table><tr><th>Date</th><th>Jeu</th><th>Organisatrice</th><th>Statut</th><th class='dr'>Pions</th></tr>"
+        for (d, jeu, org, st, m) in cmds[:60]:
+            html += "<tr><td>" + d + "</td><td>" + str(jeu) + "</td><td>" + str(org) + "</td><td>" + str(st) + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+        html += "<div>Total depense en tickets : <b>" + fmt(tot_cmd) + " F</b>" + (" (" + str(len(cmds)) + " commandes)" if len(cmds) > 60 else "") + "</div>"
+        total_sorti += tot_cmd
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucun achat de ticket.</p>"
+
+    # 3. TRANSFERTS SORTANTS
+    html += "<h2>&#128257; 3. Transferts sortants</h2>"
+    trs = []
+    tot_tr = 0
+    for t in DB.get("transferts_pions", []):
+        if isinstance(t, dict) and (t.get("de", "") or "").upper() == code:
+            m = _iv(t.get("montant", 0))
+            trs.append((str(t.get("date", ""))[:16].replace("T", " "), (t.get("vers", "") or "").upper(), m))
+            tot_tr += m
+    trs.sort(key=lambda x: x[0], reverse=True)
+    if trs:
+        html += "<table><tr><th>Date</th><th>Vers</th><th class='dr'>Montant</th></tr>"
+        for (d, vers, m) in trs:
+            html += "<tr><td>" + d + "</td><td>" + vers + (" — " + nomde(vers) if nomde(vers) else "") + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+        html += "<div>Total transfere : <b>" + fmt(tot_tr) + " F</b></div>"
+        total_sorti += tot_tr
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucun transfert sortant.</p>"
+
+    # 4. JOURNAL DES MOUVEMENTS
+    html += "<h2>&#128203; 4. Journal des mouvements (recent)</h2>"
+    mvts = []
+    for m in DB.get("mouvements_pions", []):
+        if isinstance(m, dict) and (m.get("code_joueur", "") or "").upper() == code:
+            mvts.append((str(m.get("date", ""))[:16].replace("T", " "), m.get("type", ""),
+                         _iv(m.get("montant", 0)), m.get("motif", "")))
+    mvts.sort(key=lambda x: x[0], reverse=True)
+    if mvts:
+        html += "<table><tr><th>Date</th><th>Type</th><th class='dr'>Montant</th><th>Motif</th></tr>"
+        for (d, typ, m, motif) in mvts[:40]:
+            html += "<tr><td>" + d + "</td><td>" + str(typ) + "</td><td class='dr'>" + fmt(m) + " F</td><td style='font-size:11px'>" + str(motif)[:70] + "</td></tr>"
+        html += "</table>"
+    else:
+        html += "<p style='font-size:12px;color:#888'>Aucun mouvement journalise.</p>"
+
+    html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:14px;margin-top:16px;font-size:14px'>"
+    html += "<b>TOTAL SORTI de ce compte : " + fmt(total_sorti) + " F</b><br>"
+    html += "<span style='font-size:12px'>(retraits payes + tickets achetes + transferts). C'est la ou l'argent est parti.</span></div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/annuler-gains-tournoi-vahine")
 def annuler_gains_tournoi_vahine():
     """ANNULATION (14/07/2026) : le tournoi de VAHINE etait TRUQUE (decision commune
