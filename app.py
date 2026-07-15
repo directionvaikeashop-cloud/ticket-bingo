@@ -7435,10 +7435,9 @@ def rehabiliter_iro():
 
 @app.route("/nettoyer-double-clic")
 def nettoyer_double_clic():
-    """LISIBILITE (15/07/2026) : les corrections du 11/07 (double-clic) ont laisse
-    plusieurs lignes qui s'annulent entre elles sur les releves (-20 000 / +20 000 /
-    -20 000). Le solde net est juste, mais le releve est illisible. Cet outil
-    remplace ces lignes par UNE seule ligne claire, sans changer le solde.
+    """LISIBILITE (15/07/2026) : le libelle « double-clic corrige deux fois » est
+    incomprehensible pour les joueuses, qui demandent ce que c'est. Cet outil le
+    REMPLACE par un texte clair. AUCUN montant n'est touche : seul le texte change.
     Apercu sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
     global DB
     DB = load_data()
@@ -7467,8 +7466,12 @@ def nettoyer_double_clic():
         t = str(txt or "").lower()
         return any(m in t for m in MOTS)
 
-    # reperer les comptes concernes
-    comptes = {}
+    # NOUVEAUX LIBELLES CLAIRS (le montant decide du sens)
+    TXT_PLUS = "Régularisation — pions rendus suite à une erreur technique du 11/07"
+    TXT_MOINS = "Régularisation — reprise d'un trop-perçu (erreur technique du 11/07)"
+
+    # reperer les lignes concernees (credits_admin uniquement : c'est la qu'est le motif)
+    lignes = []
     for ca in DB.get("credits_admin", []):
         if not isinstance(ca, dict):
             continue
@@ -7477,87 +7480,64 @@ def nettoyer_double_clic():
             continue
         cj = (ca.get("code_joueur", "") or "").upper()
         m = _iv(ca.get("nb_pions")) * _iv(ca.get("valeur_pion"))
-        d = comptes.setdefault(cj, {"lignes": [], "net": 0})
-        d["lignes"].append(("credits_admin", str(ca.get("date", ""))[:16].replace("T", " "), _mo[:50], m))
-        d["net"] += m
+        lignes.append((cj, nomde(cj), str(ca.get("date", ""))[:16].replace("T", " "), _mo, m))
+    lignes.sort(key=lambda x: (x[0], x[2]))
 
-    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Nettoyer double-clic</title><style>"
-    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
-    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:18px}"
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Renommer double-clic</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
     html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
-    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
-    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
     html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.pos{color:#1E7B34}.neg{color:#C00000}"
-    html += ".btn{display:block;text-align:center;background:#C55A11;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
     html += "</style></head><body>"
-    html += "<h1>&#129529; Nettoyer les lignes de double-clic</h1>"
-    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(comptes)) + " compte(s) concerne(s)</div>"
+    html += "<h1>&#9998; Rendre le libellé « double-clic » compréhensible</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(lignes)) + " ligne(s) sur " + str(len(set(l[0] for l in lignes))) + " compte(s)</div>"
 
-    if not comptes:
-        html += "<p>Aucune ligne de double-clic trouvee. Rien a nettoyer.</p></body></html>"
+    if not lignes:
+        html += "<p>Aucune ligne « double-clic » trouvee. Rien a renommer.</p></body></html>"
         return html
 
     if not confirme:
-        html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
-        html += "&#9888;&#65039; Ces lignes portent la mention « double-clic » et s'annulent partiellement entre elles, ce qui rend les releves difficiles a lire. "
-        html += "Elles vont etre <b>supprimees</b> et remplacees par <b>une seule ligne claire</b>. <b>Le solde des joueuses ne change pas d'un franc.</b></div>"
-        for cj in comptes:
-            d = comptes[cj]
-            html += "<h2>" + cj + (" — " + nomde(cj) if nomde(cj) else "") + "</h2>"
-            html += "<table><tr><th>Date</th><th>Motif actuel</th><th class='dr'>Montant</th></tr>"
-            for (src, dt, mo, m) in sorted(d["lignes"], key=lambda x: x[1]):
-                html += "<tr><td>" + dt + "</td><td style='font-size:12px'>" + mo + "</td><td class='dr " + ("pos" if m > 0 else "neg") + "'>" + (("+" if m > 0 else "") + fmt(m)) + " F</td></tr>"
-            html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>Effet net de ces lignes</td><td class='dr'>" + (("+" if d["net"] > 0 else "") + fmt(d["net"])) + " F</td></tr>"
-            html += "</table>"
-            html += "<div style='font-size:13px;color:#1E7B34'>&#8594; sera remplace par une seule ligne : <b>« Retrait d'argent liquide en boutique »</b> de <b>" + (("+" if d["net"] > 0 else "") + fmt(d["net"])) + " F</b></div>"
-        html += "<a class='btn' href='?cle=" + _cle + "&confirme=1'>&#129529; CONFIRMER — regrouper en une seule ligne</a>"
+        html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "&#9989; <b>Seul le TEXTE change. Aucun montant n'est touche, aucun solde ne bouge.</b><br><br>"
+        html += "Le libelle actuel est du jargon technique que les joueuses ne comprennent pas. Il sera remplace par :<br>"
+        html += "&bull; pour un montant <b class='pos'>positif</b> : « " + TXT_PLUS + " »<br>"
+        html += "&bull; pour un montant <b class='neg'>negatif</b> : « " + TXT_MOINS + " »</div>"
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th>Date</th><th>Texte actuel</th><th class='dr'>Montant</th><th>Nouveau texte</th></tr>"
+        for (cj, nom, dt, mo, m) in lignes:
+            nouv = TXT_PLUS if m >= 0 else TXT_MOINS
+            html += "<tr><td>" + (nom or "—") + "</td><td>" + cj + "</td><td style='font-size:11px'>" + dt + "</td><td style='font-size:11px;color:#888'>" + mo[:45] + "…</td><td class='dr " + ("pos" if m > 0 else "neg") + "'>" + (("+" if m > 0 else "") + fmt(m)) + " F</td><td style='font-size:11px;color:#1E7B34'>" + nouv[:50] + "</td></tr>"
+        html += "</table>"
+        html += "<a class='btn' href='?cle=" + _cle + "&confirme=1'>&#9989; CONFIRMER — rendre le texte clair (aucun montant ne bouge)</a>"
         html += "</body></html>"
         return html
 
-    # === CONFIRME ===
+    # === CONFIRME : on ne touche QUE le texte ===
     now = datetime.datetime.now().isoformat()
-    res = []
-    for cj in comptes:
-        d = comptes[cj]
-        # date de la plus ancienne ligne
-        dates = sorted([x[1] for x in d["lignes"]])
-        date_ref = dates[0] if dates else now[:16].replace("T", " ")
-        res.append((cj, nomde(cj), len(d["lignes"]), d["net"]))
-    # supprimer les anciennes lignes double-clic
-    DB["credits_admin"] = [ca for ca in DB.get("credits_admin", [])
-                           if not (isinstance(ca, dict)
-                                   and (ca.get("code_joueur", "") or "").upper() in comptes
-                                   and _est_dc(str(ca.get("motif") or ca.get("jeu") or "")))]
-    # ecrire une ligne unique et claire
-    for (cj, nom, nb, net) in res:
-        if net != 0:
-            DB.setdefault("credits_admin", []).insert(0, {
-                "code_joueur": cj,
-                "nb_pions": abs(net) // 100 if net % 100 == 0 else abs(net),
-                "valeur_pion": 100 if net % 100 == 0 else 1,
-                "motif": "Retrait d'argent liquide en boutique",
-                "date": now,
-                "regroupe_le": now,
-                "remplace_lignes": nb
-            })
-            # signe : credits_admin utilise nb_pions * valeur_pion ; on force le signe
-            if net < 0:
-                DB["credits_admin"][0]["nb_pions"] = -DB["credits_admin"][0]["nb_pions"]
+    n = 0
+    for ca in DB.get("credits_admin", []):
+        if not isinstance(ca, dict):
+            continue
+        _mo = str(ca.get("motif") or ca.get("jeu") or "")
+        if not _est_dc(_mo):
+            continue
+        m = _iv(ca.get("nb_pions")) * _iv(ca.get("valeur_pion"))
+        ca["motif_origine"] = _mo
+        ca["motif"] = TXT_PLUS if m >= 0 else TXT_MOINS
+        n += 1
     DB.setdefault("nettoyages_releve", []).insert(0, {
-        "operation": "regroupement lignes double-clic",
-        "comptes": [{"code": c, "lignes": n, "net": v} for (c, _, n, v) in res],
-        "par": _cle, "date": now
+        "operation": "renommage libelle double-clic (texte seul)",
+        "lignes_modifiees": n, "par": _cle, "date": now
     })
     save_data(immediat=True)
 
-    html += "<h1>&#9989; Releves nettoyes</h1>"
+    html += "<h1>&#9989; Libellés rendus clairs</h1>"
     html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
-    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
-    html += "&#9989; Les lignes de double-clic ont ete regroupees en une seule ligne claire : <b>« Retrait d'argent liquide en boutique »</b>. Les soldes n'ont pas bouge.</div>"
-    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Lignes remplacees</th><th class='dr'>Ligne unique</th></tr>"
-    for (cj, nom, nb, net) in res:
-        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(nb) + "</td><td class='dr'>" + (("+" if net > 0 else "") + fmt(net)) + " F</td></tr>"
-    html += "</table>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;font-size:14px'>"
+    html += "&#9989; <b>" + str(n) + " ligne(s)</b> renommee(s). Les joueuses lisent desormais « Régularisation — erreur technique du 11/07 » au lieu du jargon. "
+    html += "<b>Aucun montant n'a bouge</b>, aucun solde n'a change. Le texte d'origine est conserve dans les archives.</div>"
     html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
     html += "</body></html>"
     return html
