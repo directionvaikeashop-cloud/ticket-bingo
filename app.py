@@ -7433,6 +7433,94 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/stock-pions-vahine")
+def stock_pions_vahine():
+    """CLOTURE (15/07/2026) : affiche le stock de pions de l'organisatrice VAHINE
+    (pions_org) et permet de le remettre a ZERO. Son tournoi est annule et ses
+    comptes de jeu sont bannis : son stock n'a plus lieu d'etre. Apercu sans
+    &confirme=1. ?cle=ADMIN[&orgs=VAHINE2026TUKEA,GNY5SP7J][&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    orgs = [c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip()]
+    confirme = request.args.get("confirme", "") == "1"
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Stock VAHINE</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:880px;margin:0 auto}"
+    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:18px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".btn{display:block;text-align:center;background:#C55A11;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#FEF6EF;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    total = 0
+    detail = []
+    for org in orgs:
+        poche = DB.get("pions_org", {}).get(org, {})
+        s = _iv(_xpf_total_pions(poche))
+        total += s
+        detail.append((org, poche, s))
+
+    if not confirme:
+        html += "<h1>&#129689; Stock de pions de VAHINE — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; Rien n'est encore applique</div>"
+        html += "<table><tr><th>Compte organisatrice</th><th>Detail des pions</th><th class='dr'>Valeur</th></tr>"
+        for (org, poche, s) in detail:
+            det = " &middot; ".join([str(v) + " x " + str(k) + " F" for k, v in sorted(poche.items(), key=lambda x: -int(x[0]) if str(x[0]).isdigit() else 0) if _iv(v) > 0]) or "vide"
+            html += "<tr><td><b>" + org + "</b></td><td style='font-size:12px'>" + det + "</td><td class='dr'>" + fmt(s) + " F</td></tr>"
+        html += "<tr style='background:#FEF6EF;font-weight:bold'><td colspan='2'>TOTAL EN STOCK</td><td class='dr' style='color:#C55A11;font-size:16px'>" + fmt(total) + " F</td></tr>"
+        html += "</table>"
+        if total > 0:
+            html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:12px;font-size:14px'>"
+            html += "&#9888;&#65039; Ce stock de <b>" + fmt(total) + " F</b> va etre remis a <b>zero</b>. Son tournoi est annule et ses comptes de jeu sont bannis : ce stock n'a plus lieu d'etre. Le montant est trace avant suppression.</div>"
+            html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9940; CONFIRMER — remettre le stock a zero</a>"
+        else:
+            html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px'>&#9989; Le stock est deja vide. Rien a faire.</div>"
+        html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    for (org, poche, s) in detail:
+        p = DB.setdefault("pions_org", {}).setdefault(org, {})
+        for k in list(p.keys()):
+            p[k] = 0
+    DB.setdefault("stocks_vides_org", []).insert(0, {
+        "orgs": orgs, "total_vide": total,
+        "detail": [{"org": o, "valeur": s} for (o, _, s) in detail],
+        "motif": "Tournoi truque annule — organisatrice bannie",
+        "par": _cle, "date": now
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Stock remis a zero</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; Le stock de pions de VAHINE (<b>" + fmt(total) + " F</b>) a ete remis a zero. L'operation est tracee et horodatee.</div>"
+    html += "<table><tr><th>Compte organisatrice</th><th class='dr'>Stock supprime</th><th class='dr'>Stock actuel</th></tr>"
+    for (org, poche, s) in detail:
+        html += "<tr><td><b>" + org + "</b></td><td class='dr'>" + fmt(s) + " F</td><td class='dr'>0 F</td></tr>"
+    html += "<tr style='background:#EEE;font-weight:bold'><td>TOTAL</td><td class='dr'>" + fmt(total) + " F</td><td class='dr'>0 F</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/pions-recus-de-vahine")
 def pions_recus_de_vahine():
     """VERIFICATION (15/07/2026) : liste TOUS les pions que VAHINE a remis a des
