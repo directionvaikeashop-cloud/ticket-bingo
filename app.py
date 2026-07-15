@@ -7977,6 +7977,7 @@ def solde_juste_tournoi_vahine():
         """Retourne (entrees, sorties, detail) du solde juste."""
         det = []
         entrees = 0
+        sorties = 0
         # 1. pions achetes (commandes validees)
         for c in DB.get("commandes_pions_joueurs", []):
             if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code and c.get("statut") == "validee":
@@ -8055,7 +8056,6 @@ def solde_juste_tournoi_vahine():
                 entrees += m
                 det.append(("+", "Transfert recu", "de " + de, m))
 
-        sorties = 0
         # 5. tickets achetes AILLEURS (hors tournoi truque)
         for e in DB.get("encaissements_org", []):
             if not isinstance(e, dict):
