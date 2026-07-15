@@ -7469,8 +7469,15 @@ def rembourser_tickets_tournoi_vahine():
         if isinstance(r, dict) and r.get("code_joueur"):
             deja.add((r.get("code_joueur") or "").upper())
 
+    # EXCLUSION (15/07/2026) : les comptes de la voleuse (VAHINE=RUA=KAI) ne sont PAS
+    # rembourses. Elle est l'auteure du trucage : lui rendre ses mises reviendrait a
+    # la faire beneficier de sa propre fraude.
+    comptes_voleur = {"RT50CJ", "TBAASYJ9", "GNY5SP7J", "UURZ4Y", "TBEVBA6H", "H1I5G9",
+                      "VAHINE2026TUKEA"}
+
     # regrouper les encaissements du tournoi de VAHINE par joueuse
     par_j = {}
+    exclus = {}
     for e in DB.get("encaissements_org", []):
         if not isinstance(e, dict):
             continue
@@ -7480,6 +7487,10 @@ def rembourser_tickets_tournoi_vahine():
         if not cj:
             continue
         m = _iv(e.get("montant", 0))
+        if cj in comptes_voleur:
+            d = exclus.setdefault(cj, {"m": 0, "n": 0})
+            d["m"] += m; d["n"] += 1
+            continue
         d = par_j.setdefault(cj, {"m": 0, "n": 0})
         d["m"] += m; d["n"] += 1
 
@@ -7503,6 +7514,12 @@ def rembourser_tickets_tournoi_vahine():
         html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
         html += "<div style='background:#E8F5E9;border:1px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
         html += "Le tournoi de VAHINE etait truque : les joueuses ne doivent pas payer pour des jeux fausses. On leur rend les pions qu'elles ont depenses en tickets sur ce tournoi.</div>"
+        if exclus:
+            html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+            html += "&#9940; <b>EXCLUS du remboursement — les comptes de la voleuse :</b><br>"
+            for cj in sorted(exclus, key=lambda k: -exclus[k]["m"]):
+                html += "&bull; " + cj + (" (" + nomde(cj) + ")" if nomde(cj) else "") + " — " + str(exclus[cj]["n"]) + " tickets, " + fmt(exclus[cj]["m"]) + " F <b>non rembourses</b><br>"
+            html += "<span style='font-size:12px'>Elle est l'auteure du trucage : lui rendre ses mises reviendrait a la faire beneficier de sa propre fraude.</span></div>"
         html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb tickets</th><th class='dr'>A rembourser</th><th class='dr'>Poche actuelle</th><th class='dr'>Poche apres</th></tr>"
         total = 0
         for cj in sorted(par_j, key=lambda k: -par_j[k]["m"]):
