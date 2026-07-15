@@ -7433,6 +7433,148 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/annuler-gains-tournoi-vahine")
+def annuler_gains_tournoi_vahine():
+    """ANNULATION (14/07/2026) : le tournoi de VAHINE etait TRUQUE (decision commune
+    administration + organisatrice). Annule TOUS les gains declares dessus et retire
+    les pions correspondants des poches. Si une poche ne suffit plus (deja depense),
+    on retire ce qui reste et on note le solde non recupere. Apercu sans &confirme=1.
+    ?cle=ADMIN[&orgs=VAHINE2026TUKEA,GNY5SP7J][&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+    confirme = request.args.get("confirme", "") == "1"
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # regrouper les gains par gagnante
+    par_gagnante = {}
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict):
+            continue
+        if (g.get("code_org", "") or "").upper() not in orgs:
+            continue
+        if g.get("annule"):
+            continue
+        cg = (g.get("code_gagnant", "") or "").upper()
+        if not cg:
+            continue
+        d = par_gagnante.setdefault(cg, {"gain": 0, "credite": 0, "n": 0, "ids": []})
+        d["gain"] += _iv(g.get("montant_gain", 0))
+        d["credite"] += _iv(g.get("montant_credite", 0))
+        d["n"] += 1
+        d["ids"].append(g.get("id"))
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Annulation gains</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FDECEA;border:1px solid #C00000;padding:7px;text-align:left;color:#791F1F}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.manque{color:#C55A11;font-weight:bold}"
+    html += ".btn{display:block;text-align:center;background:#C00000;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#FDECEA;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    if not par_gagnante:
+        html += "<h1>Aucun gain a annuler</h1><p>Tous les gains de ce tournoi sont deja annules, ou aucun gain n'existe.</p></body></html>"
+        return html
+
+    if not confirme:
+        html += "<h1>&#9940; Annulation des gains — tournoi truque — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "<b>Decision (administration + organisatrice) :</b> le tournoi de VAHINE etait <b>truque</b>. Tous les gains declares dessus sont annules et les pions correspondants retires des poches.</div>"
+        html += "<table><tr><th>Gagnante</th><th>Code</th><th class='dr'>Nb gains</th><th class='dr'>A retirer</th><th class='dr'>Poche actuelle</th><th class='dr'>Apres</th><th>Note</th></tr>"
+        total_retirer = 0; total_manque = 0
+        for cg in sorted(par_gagnante, key=lambda k: -par_gagnante[k]["credite"]):
+            d = par_gagnante[cg]
+            a_retirer = d["credite"]
+            poche = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(cg, {})))
+            reel = min(a_retirer, poche)
+            manque = a_retirer - reel
+            total_retirer += reel; total_manque += manque
+            note = ("<span class='manque'>manque " + fmt(manque) + " F (deja depense)</span>") if manque else "OK"
+            html += "<tr><td>" + (nomde(cg) or "—") + "</td><td><b>" + cg + "</b></td><td class='dr'>" + str(d["n"]) + "</td><td class='dr'>" + fmt(a_retirer) + " F</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>" + fmt(poche - reel) + " F</td><td>" + note + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAUX</td><td class='dr'>&mdash;</td><td class='dr'>&mdash;</td><td class='dr'>retire : " + fmt(total_retirer) + " F</td><td class='manque'>non recupere : " + fmt(total_manque) + " F</td></tr>"
+        html += "</table>"
+        if total_manque:
+            html += "<div style='background:#FEF6EF;border:1px solid #C55A11;border-radius:8px;padding:12px;font-size:13px'>&#9888;&#65039; <b>" + fmt(total_manque) + " F ne peuvent pas etre recuperes</b> : ces joueuses ont deja depense leurs pions. Leur poche sera videe de ce qui reste, sans passer en negatif. Le manque est trace.</div>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9940; CONFIRMER l'annulation des gains</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    resultats = []
+    total_retire = 0; total_manque = 0
+    for cg in sorted(par_gagnante, key=lambda k: -par_gagnante[k]["credite"]):
+        d = par_gagnante[cg]
+        a_retirer = d["credite"]
+        poche = DB.setdefault("pions_joueurs", {}).setdefault(cg, {})
+        dispo = _iv(_xpf_total_pions(poche))
+        reel = min(a_retirer, dispo)
+        manque = a_retirer - reel
+        if reel > 0:
+            if not _debiter_pions_montant(poche, reel):
+                # securite : vider la poche
+                for k in list(poche.keys()):
+                    poche[k] = 0
+        total_retire += reel; total_manque += manque
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": cg, "type": "annulation_gain",
+            "montant": -reel,
+            "motif": "Annulation des gains — tournoi truque (decision administration)",
+            "date": now
+        })
+        resultats.append((cg, nomde(cg), d["n"], a_retirer, reel, manque))
+    # marquer les gains annules
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict):
+            continue
+        if (g.get("code_org", "") or "").upper() in orgs and not g.get("annule"):
+            g["annule"] = True
+            g["annule_le"] = now
+            g["annule_motif"] = "Tournoi truque — annulation (decision administration + organisatrice)"
+    DB.setdefault("annulations_tournoi", []).insert(0, {
+        "orgs": sorted(orgs), "motif": "Tournoi truque",
+        "total_retire": total_retire, "total_non_recupere": total_manque,
+        "nb_gagnantes": len(resultats), "par": _cle, "date": now
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9940; Gains annules</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "Tournoi truque : <b>" + str(len(resultats)) + " gagnantes</b> &middot; pions retires : <b>" + fmt(total_retire) + " F</b>"
+    if total_manque:
+        html += " &middot; non recupere (deja depense) : <b class='manque'>" + fmt(total_manque) + " F</b>"
+    html += "</div>"
+    html += "<table><tr><th>Gagnante</th><th>Code</th><th class='dr'>Nb gains</th><th class='dr'>Gain annule</th><th class='dr'>Retire</th><th class='dr'>Non recupere</th></tr>"
+    for (cg, nom, n, a_retirer, reel, manque) in resultats:
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + cg + "</b></td><td class='dr'>" + str(n) + "</td><td class='dr'>" + fmt(a_retirer) + " F</td><td class='dr'>" + fmt(reel) + " F</td><td class='dr manque'>" + (fmt(manque) + " F" if manque else "—") + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/diagnostic-tournoi-vahine")
 def diagnostic_tournoi_vahine():
     """DIAGNOSTIC (14/07/2026) : montre l'impact d'une annulation du tournoi de
