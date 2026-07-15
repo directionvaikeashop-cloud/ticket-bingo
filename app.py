@@ -7433,6 +7433,182 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/bloquer-retraits-voleur")
+def bloquer_retraits_voleur():
+    """SECURITE (15/07/2026) : refuse TOUTES les demandes de retrait en attente des
+    comptes bannis (VAHINE=RUA=KAI). Empeche qu'un virement parte vers la voleuse.
+    Les pions ne sont pas touches (le refus ne recredite rien). Apercu sans
+    &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    comptes_voleur = {"RT50CJ", "TBAASYJ9", "GNY5SP7J", "UURZ4Y", "TBEVBA6H", "H1I5G9"}
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    en_attente = []
+    for r in DB.get("demandes_retrait", []):
+        if not isinstance(r, dict):
+            continue
+        cj = (r.get("code_joueur", "") or "").upper()
+        if cj in comptes_voleur and (r.get("statut", "") or "") == "en_attente":
+            en_attente.append(r)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Bloquer retraits</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#FDECEA;border:1px solid #C00000;padding:7px;text-align:left;color:#791F1F}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += ".btn{display:block;text-align:center;background:#C00000;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#FDECEA;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    if not en_attente:
+        html += "<h1>&#9989; Aucun retrait en attente</h1>"
+        html += "<p>Aucune demande de retrait en attente sur les comptes bannis. Rien ne peut partir vers la voleuse.</p>"
+        html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong></p></body></html>"
+        return html
+
+    if not confirme:
+        html += "<h1>&#9940; Bloquer les retraits de la voleuse — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "&#9888;&#65039; <b>" + str(len(en_attente)) + " demande(s) de retrait en attente</b> sur les comptes bannis. Si elles sont validees par erreur, l'argent part vers la voleuse. Elles vont etre <b>refusees</b>.</div>"
+        html += "<table><tr><th>Date</th><th>Code</th><th>Mode</th><th class='dr'>Demande</th><th class='dr'>Net</th><th>Coordonnees</th></tr>"
+        total = 0
+        for r in en_attente:
+            m = _iv(r.get("montant_demande", 0))
+            total += m
+            html += "<tr><td>" + str(r.get("date", ""))[:16].replace("T", " ") + "</td><td><b>" + (r.get("code_joueur", "") or "").upper() + "</b></td><td>" + str(r.get("mode", "")) + "</td><td class='dr'>" + fmt(m) + " F</td><td class='dr'>" + fmt(_iv(r.get("montant_net", 0))) + " F</td><td style='font-size:11px'>" + str(r.get("coordonnees", ""))[:60] + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL BLOQUE</td><td class='dr' style='color:#C00000'>" + fmt(total) + " F</td><td colspan='2'></td></tr>"
+        html += "</table>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9940; CONFIRMER le refus de ces retraits</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    refusees = []
+    total = 0
+    for r in en_attente:
+        r["statut"] = "refusee"
+        r["refusee_le"] = now
+        r["refus_motif"] = "Compte banni pour vol — retrait refuse par l'administration"
+        m = _iv(r.get("montant_demande", 0))
+        total += m
+        refusees.append(((r.get("code_joueur", "") or "").upper(), str(r.get("date", ""))[:16].replace("T", " "), m, str(r.get("coordonnees", ""))))
+    DB.setdefault("retraits_bloques_voleur", []).insert(0, {
+        "nb": len(refusees), "total": total, "par": _cle, "date": now,
+        "detail": [{"code": c, "montant": m, "coordonnees": co} for (c, d, m, co) in refusees]
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Retraits bloques</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; <b>" + str(len(refusees)) + " demande(s) refusee(s)</b> pour un total de <b>" + fmt(total) + " F</b>. Cet argent ne partira pas vers la voleuse. Les coordonnees bancaires sont conservees comme preuve.</div>"
+    html += "<table><tr><th>Code</th><th>Date demande</th><th class='dr'>Montant</th><th>Coordonnees (preuve)</th></tr>"
+    for (c, d, m, co) in refusees:
+        html += "<tr><td><b>" + c + "</b></td><td>" + d + "</td><td class='dr'>" + fmt(m) + " F</td><td style='font-size:11px'>" + co[:60] + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
+@app.route("/timeline-solde")
+def timeline_solde():
+    """ENQUETE (15/07/2026) : suit le solde d'un compte a travers PLUSIEURS
+    sauvegardes successives pour voir QUAND l'argent a disparu. Lecture seule.
+    ?cle=ADMIN&code=CODE[&max=40]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    try:
+        maxi = int(request.args.get("max", "40"))
+    except ValueError:
+        maxi = 40
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    # lister les sauvegardes disponibles
+    fichiers = []
+    for base in ("/data/sauvegardes", "/data/backups", "/data"):
+        if not os.path.isdir(base):
+            continue
+        try:
+            for f in os.listdir(base):
+                if f.endswith(".json") and ("ticketbingo_" in f or "AVANT_" in f):
+                    p = os.path.join(base, f)
+                    try:
+                        fichiers.append((os.path.getmtime(p), p, f))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    fichiers.sort(key=lambda x: x[0])
+    # echantillonner pour ne pas tout lire
+    if len(fichiers) > maxi:
+        pas = len(fichiers) // maxi
+        fichiers = fichiers[::max(1, pas)]
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Timeline solde</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:900px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.chute{background:#FDECEA;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<h1>&#128200; Timeline du solde — " + code + "</h1>"
+    html += "<div class='meta'>" + str(len(fichiers)) + " sauvegardes analysees &middot; les lignes rouges = chute du solde</div>"
+
+    html += "<table><tr><th>Date sauvegarde</th><th>Fichier</th><th class='dr'>Poche</th><th class='dr'>Bonus</th><th class='dr'>Variation</th></tr>"
+    precedent = None
+    for (mt, p, f) in fichiers:
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                snap = json.load(fh)
+        except Exception:
+            continue
+        poche = _iv(_xpf_total_pions(snap.get("pions_joueurs", {}).get(code, {})))
+        bonus = _iv(_xpf_total_pions(snap.get("pions_bonus_joueurs", {}).get(code, {})))
+        var = "" if precedent is None else (poche - precedent)
+        cls = " class='chute'" if (precedent is not None and (poche - precedent) < -1000) else ""
+        dt = datetime.datetime.fromtimestamp(mt).strftime("%d/%m %H:%M")
+        html += "<tr" + cls + "><td>" + dt + "</td><td style='font-size:10px'>" + f[:40] + "</td><td class='dr'>" + fmt(poche) + " F</td><td class='dr'>" + fmt(bonus) + " F</td><td class='dr'>" + (("" if var == "" else (("+" if var > 0 else "") + fmt(var) + " F"))) + "</td></tr>"
+        precedent = poche
+    html += "</table>"
+    poche_now = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {})))
+    html += "<div style='background:#E8EEF6;border-radius:8px;padding:12px;margin-top:10px;font-size:14px'>Solde <b>actuel</b> : <b>" + fmt(poche_now) + " F</b></div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/ou-est-parti-argent")
 def ou_est_parti_argent():
     """ENQUETE (15/07/2026) : trace TOUTES les sorties d'argent d'un compte dans les
