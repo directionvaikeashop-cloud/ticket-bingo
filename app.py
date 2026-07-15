@@ -7433,6 +7433,250 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/solde-juste-tournoi-vahine")
+def solde_juste_tournoi_vahine():
+    """RECALCUL (15/07/2026) : calcule le SOLDE JUSTE de chaque joueuse touchee par
+    le tournoi truque, comme si ce tournoi n'avait jamais eu lieu.
+      SOLDE JUSTE = son vrai argent (pions achetes + credits + gains honnetes
+                    + transferts recus)
+                  - ce qu'elle a depense AILLEURS (tickets chez d'autres orgs,
+                    transferts envoyes, retraits payes)
+    Ignore : les gains fictifs de VAHINE, les tickets du tournoi truque, et les
+    pions voles (le vol est repare). Le bonus n'est pas touche.
+    Apercu sans &confirme=1. ?cle=ADMIN[&code=X][&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+    un_code = (request.args.get("code", "") or "").strip().upper()
+
+    orgs_vahine = {"VAHINE2026TUKEA", "GNY5SP7J"}
+    comptes_voleur = {"RT50CJ", "TBAASYJ9", "GNY5SP7J", "UURZ4Y", "TBEVBA6H", "H1I5G9",
+                      "VAHINE2026TUKEA"}
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    # joueuses concernees = celles qui ont joue au tournoi de VAHINE
+    concernees = set()
+    for e in DB.get("encaissements_org", []):
+        if isinstance(e, dict) and (e.get("code_org", "") or "").upper() in orgs_vahine:
+            cj = (e.get("code_joueur", "") or "").upper()
+            if cj and cj not in comptes_voleur:
+                concernees.add(cj)
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_org", "") or "").upper() in orgs_vahine:
+            cg = (g.get("code_gagnant", "") or "").upper()
+            if cg and cg not in comptes_voleur:
+                concernees.add(cg)
+    if un_code:
+        concernees = {un_code}
+
+    def calcul(code):
+        """Retourne (entrees, sorties, detail) du solde juste."""
+        det = []
+        entrees = 0
+        # 1. pions achetes (commandes validees)
+        for c in DB.get("commandes_pions_joueurs", []):
+            if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code and c.get("statut") == "validee":
+                m = _iv(c.get("pions_credites") or c.get("nb_pions")) * _iv(c.get("valeur_pion"))
+                if m:
+                    entrees += m
+                    det.append(("+", "Pions achetes", str(c.get("mode_paiement", "")), m))
+        # 2. credits / dedommagements
+        for cm in DB.get("credits_masse", []):
+            if isinstance(cm, dict) and code in [str(x).upper() for x in cm.get("codes", [])]:
+                m = _iv(cm.get("nb_pions")) * _iv(cm.get("valeur_pion"))
+                if m:
+                    entrees += m
+                    det.append(("+", "Credit", str(cm.get("motif", ""))[:40], m))
+        # 3. gains HONNETES (hors tournoi truque, non annules)
+        for g in DB.get("gains_finaux", []):
+            if not isinstance(g, dict):
+                continue
+            if (g.get("code_gagnant", "") or "").upper() != code:
+                continue
+            if g.get("annule"):
+                continue
+            if (g.get("code_org", "") or "").upper() in orgs_vahine:
+                continue
+            m = _iv(g.get("montant_credite", 0))
+            if m:
+                entrees += m
+                det.append(("+", "Gain honnete", str(g.get("jeu", "")), m))
+        # 4. transferts recus (hors reseau voleur)
+        for t in DB.get("transferts_pions", []):
+            if not isinstance(t, dict):
+                continue
+            if (t.get("vers", "") or "").upper() != code:
+                continue
+            de = (t.get("de", "") or "").upper()
+            if de in comptes_voleur:
+                continue
+            m = _iv(t.get("montant", 0))
+            if m:
+                entrees += m
+                det.append(("+", "Transfert recu", "de " + de, m))
+
+        sorties = 0
+        # 5. tickets achetes AILLEURS (hors tournoi truque)
+        for e in DB.get("encaissements_org", []):
+            if not isinstance(e, dict):
+                continue
+            if (e.get("code_joueur", "") or "").upper() != code:
+                continue
+            if (e.get("code_org", "") or "").upper() in orgs_vahine:
+                continue
+            m = _iv(e.get("montant", 0))
+            if m:
+                sorties += m
+                det.append(("-", "Ticket ailleurs", str(e.get("jeu", "")), m))
+        # 6. transferts envoyes (hors reseau voleur : le vol est repare)
+        for t in DB.get("transferts_pions", []):
+            if not isinstance(t, dict):
+                continue
+            if (t.get("de", "") or "").upper() != code:
+                continue
+            vers = (t.get("vers", "") or "").upper()
+            if vers in comptes_voleur:
+                continue
+            m = _iv(t.get("montant", 0))
+            if m:
+                sorties += m
+                det.append(("-", "Transfert envoye", "vers " + vers, m))
+        # 7. retraits payes
+        for r in DB.get("demandes_retrait", []):
+            if not isinstance(r, dict):
+                continue
+            if (r.get("code_joueur", "") or "").upper() != code:
+                continue
+            if (r.get("statut", "") or "") not in ("payee", "payee_espece", "validee", "traitee"):
+                continue
+            m = _iv(r.get("montant_demande", 0))
+            if m:
+                sorties += m
+                det.append(("-", "Retrait paye", str(r.get("mode", "")), m))
+        return entrees, sorties, det
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Solde juste</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:980px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:18px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:7px;text-align:left}td{border:1px solid #bbb;padding:6px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.pos{color:#1E7B34}.neg{color:#C00000}.eq{color:#888}"
+    html += ".btn{display:block;text-align:center;background:#1E7B34;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong></div>"
+
+    # mode detail pour une seule joueuse
+    if un_code and not confirme:
+        entrees, sorties, det = calcul(un_code)
+        juste = entrees - sorties
+        actuel = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(un_code, {})))
+        bonus = _iv(_xpf_total_pions(DB.get("pions_bonus_joueurs", {}).get(un_code, {})))
+        html += "<h1>&#129518; Detail du calcul — " + un_code + (" (" + nomde(un_code) + ")" if nomde(un_code) else "") + "</h1>"
+        html += "<table><tr><th>Sens</th><th>Type</th><th>Detail</th><th class='dr'>Montant</th></tr>"
+        for (s, typ, dt, m) in det:
+            html += "<tr><td class='" + ("pos" if s == "+" else "neg") + "'>" + s + "</td><td>" + typ + "</td><td style='font-size:11px'>" + dt + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#F5F5F5;border:1px solid #999;border-radius:8px;padding:14px;font-size:14px'>"
+        html += "Son vrai argent (entrees) : <b class='pos'>" + fmt(entrees) + " F</b><br>"
+        html += "Depense ailleurs (sorties) : <b class='neg'>" + fmt(sorties) + " F</b><br>"
+        html += "<b>= SOLDE JUSTE : " + fmt(juste) + " F</b><br><br>"
+        html += "Solde actuel de sa poche : <b>" + fmt(actuel) + " F</b> &middot; bonus (non touche) : <b>" + fmt(bonus) + " F</b></div>"
+        html += "</body></html>"
+        return html
+
+    # anti-double
+    deja = set()
+    for r in DB.get("soldes_justes_poses", []):
+        if isinstance(r, dict) and r.get("code"):
+            deja.add((r.get("code") or "").upper())
+
+    lignes = []
+    for code in concernees:
+        entrees, sorties, _ = calcul(code)
+        juste = max(0, entrees - sorties)
+        actuel = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {})))
+        lignes.append((code, nomde(code), entrees, sorties, juste, actuel, juste - actuel))
+    lignes.sort(key=lambda x: -x[4])
+
+    if not confirme:
+        html += "<h1>&#129518; Solde juste — tournoi truque efface — APERCU</h1>"
+        html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(lignes)) + " joueuses &middot; Rien n'est encore applique</div>"
+        html += "<div style='background:#E8F5E9;border:1px solid #1E7B34;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "<b>Formule :</b> son vrai argent (pions achetes + credits + gains honnetes + transferts recus) &minus; ce qu'elle a depense ailleurs (tickets chez d'autres organisatrices, transferts, retraits).<br>"
+        html += "<span style='font-size:13px'>Le tournoi truque est efface : ses gains fictifs et ses tickets ne comptent pas. Le bonus n'est pas touche.</span></div>"
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Vrai argent</th><th class='dr'>Depense ailleurs</th><th class='dr'>SOLDE JUSTE</th><th class='dr'>Solde actuel</th><th class='dr'>Correction</th></tr>"
+        tot_juste = 0; tot_corr = 0
+        for (code, nom, ent, sor, juste, actuel, corr) in lignes:
+            if code in deja:
+                html += "<tr class='eq'><td>" + (nom or "—") + "</td><td>" + code + "</td><td colspan='5'>deja pose</td></tr>"
+                continue
+            tot_juste += juste; tot_corr += corr
+            ccls = "pos" if corr > 0 else ("neg" if corr < 0 else "eq")
+            html += "<tr><td>" + (nom or "—") + "</td><td><b>" + code + "</b></td><td class='dr'>" + fmt(ent) + "</td><td class='dr'>" + fmt(sor) + "</td><td class='dr'><b>" + fmt(juste) + " F</b></td><td class='dr'>" + fmt(actuel) + "</td><td class='dr " + ccls + "'>" + (("+" if corr > 0 else "") + fmt(corr)) + "</td></tr>"
+        html += "<tr style='background:#EEE;font-weight:bold'><td colspan='4' style='text-align:right'>TOTAUX</td><td class='dr'>" + fmt(tot_juste) + " F</td><td></td><td class='dr'>" + (("+" if tot_corr > 0 else "") + fmt(tot_corr)) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FEF6EF;border:1px solid #C55A11;border-radius:8px;padding:12px;font-size:13px'>&#128269; <b>Pour verifier une joueuse en detail</b>, ajoute <code>&amp;code=SONCODE</code> a l'URL. Exemple : verifie WUPG84 (Tatie HUIARII) — sa poche devrait etre 4 300 F + 500 F de bonus = 4 800 F.</div>"
+        html += "<a class='btn noprint' href='?cle=" + _cle + "&confirme=1'>&#9989; POSER les soldes justes (" + str(len([l for l in lignes if l[0] not in deja])) + " joueuses)</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME : poser les soldes ===
+    now = datetime.datetime.now().isoformat()
+    res = []
+    for (code, nom, ent, sor, juste, actuel, corr) in lignes:
+        if code in deja:
+            res.append((code, nom, juste, actuel, 0, "deja pose"))
+            continue
+        poche = DB.setdefault("pions_joueurs", {}).setdefault(code, {})
+        for k in list(poche.keys()):
+            poche[k] = 0
+        if juste > 0:
+            _crediter_pions_montant(poche, juste)
+        DB.setdefault("soldes_justes_poses", []).insert(0, {
+            "code": code, "nom": nom, "solde_juste": juste, "solde_avant": actuel,
+            "correction": corr, "par": _cle, "date": now
+        })
+        DB.setdefault("mouvements_pions", []).insert(0, {
+            "code_joueur": code, "type": "correction",
+            "montant": corr,
+            "motif": "Solde retabli — tournoi truque annule (gains fictifs et tickets effaces)",
+            "date": now
+        })
+        res.append((code, nom, juste, actuel, corr, "pose"))
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Soldes justes poses</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; <b>" + str(len([r for r in res if r[5] == 'pose'])) + " joueuses</b> ont retrouve leur solde juste : leur vrai argent, comme si le tournoi truque n'avait jamais eu lieu.</div>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Solde avant</th><th class='dr'>Solde juste</th><th class='dr'>Correction</th></tr>"
+    for (code, nom, juste, actuel, corr, st) in res:
+        ccls = "pos" if corr > 0 else ("neg" if corr < 0 else "eq")
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + code + "</b></td><td class='dr'>" + fmt(actuel) + " F</td><td class='dr'><b>" + fmt(juste) + " F</b></td><td class='dr " + ccls + "'>" + (("+" if corr > 0 else "") + fmt(corr)) + "</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/rembourser-tickets-tournoi-vahine")
 def rembourser_tickets_tournoi_vahine():
     """REMBOURSEMENT (15/07/2026) : le tournoi de VAHINE etait TRUQUE. Les joueuses
