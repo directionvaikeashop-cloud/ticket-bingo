@@ -7433,6 +7433,97 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/pions-achetes-chez-vahine")
+def pions_achetes_chez_vahine():
+    """VERIFICATION (15/07/2026) : liste les achats de PIONS que les joueuses ont
+    passes via l'organisatrice VAHINE (elle encaissait l'argent). Ces pions sont
+    LEGITIMES (la joueuse a paye) et ne doivent pas etre retires. Montre aussi le
+    total encaisse par VAHINE. Lecture seule. ?cle=ADMIN[&orgs=...]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    lignes = []
+    tot_valide = 0; tot_attente = 0; tot_refuse = 0
+    for c in DB.get("commandes_pions_joueurs", []):
+        if not isinstance(c, dict):
+            continue
+        if (c.get("code_org", "") or "").upper() not in orgs:
+            continue
+        np = _iv(c.get("nb_pions", 0)); vp = _iv(c.get("valeur_pion", 0))
+        val = np * vp if (np and vp) else _iv(c.get("montant_paye", 0))
+        st = (c.get("statut", "") or "")
+        lignes.append({
+            "date": str(c.get("date", ""))[:16].replace("T", " "),
+            "code": (c.get("code_joueur", "") or "").upper(),
+            "mode": str(c.get("mode_paiement", "")),
+            "paye": _iv(c.get("montant_paye", 0)),
+            "valeur": val, "statut": st,
+        })
+        if st in ("validee", "valide", "confirmee"):
+            tot_valide += _iv(c.get("montant_paye", 0)) or val
+        elif "attente" in st:
+            tot_attente += val
+        elif "refus" in st:
+            tot_refuse += val
+    lignes.sort(key=lambda x: x["date"], reverse=True)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Pions achetes chez VAHINE</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.ok{color:#1E7B34;font-weight:bold}.att{color:#C55A11}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:8px 14px;border-radius:8px;margin-bottom:14px;font-size:13px'>Lecture seule &middot; <strong>Ctrl+P &rarr; PDF</strong></div>"
+    html += "<h1>&#129689; Pions achetes par les joueuses via VAHINE</h1>"
+    html += "<div class='meta'>Organisatrice(s) : " + ", ".join(sorted(orgs)) + " &middot; " + str(len(lignes)) + " commandes</div>"
+
+    if not lignes:
+        html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:8px;padding:14px;font-size:14px'>"
+        html += "&#9989; <b>Aucune joueuse n'a achete de pions via VAHINE.</b><br><br>"
+        html += "Les joueuses achetaient leurs pions ailleurs (carte bancaire, autre organisatrice). VAHINE n'a donc encaisse aucun argent de joueuse pour des pions via la plateforme.</div>"
+        html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong></p></body></html>"
+        return html
+
+    html += "<table><tr><th>Date</th><th>Joueuse</th><th>Code</th><th>Mode paiement</th><th class='dr'>Paye</th><th class='dr'>Pions recus</th><th>Statut</th></tr>"
+    for l in lignes:
+        cls = "ok" if l["statut"] in ("validee", "valide", "confirmee") else ("att" if "attente" in l["statut"] else "")
+        html += "<tr><td>" + l["date"] + "</td><td>" + (nomde(l["code"]) or "—") + "</td><td><b>" + l["code"] + "</b></td><td>" + l["mode"] + "</td><td class='dr'>" + fmt(l["paye"]) + " F</td><td class='dr'>" + fmt(l["valeur"]) + " F</td><td class='" + cls + "'>" + l["statut"] + "</td></tr>"
+    html += "</table>"
+
+    html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:14px;margin-top:14px;font-size:14px'>"
+    html += "<b>Encaisse par VAHINE (commandes validees) : " + fmt(tot_valide) + " F</b><br>"
+    if tot_attente:
+        html += "En attente de validation : " + fmt(tot_attente) + " F<br>"
+    if tot_refuse:
+        html += "Refusees : " + fmt(tot_refuse) + " F<br>"
+    html += "<br><span style='font-size:13px'>Ces joueuses ont <b>reellement paye</b> pour leurs pions. Ces pions sont <b>legitimes</b> et ne doivent pas leur etre retires. L'argent encaisse par VAHINE fait partie de ce qu'elle doit a l'administration.</span></div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/participations-tournoi-vahine")
 def participations_tournoi_vahine():
     """VERIFICATION (15/07/2026) : cherche PARTOUT les traces de participation au
