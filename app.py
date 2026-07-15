@@ -7433,6 +7433,130 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/diagnostic-tournoi-vahine")
+def diagnostic_tournoi_vahine():
+    """DIAGNOSTIC (14/07/2026) : montre l'impact d'une annulation du tournoi de
+    VAHINE. Liste (a) les achats de tickets a rembourser aux joueuses et (b) les
+    gains declares qui seraient annules. NE MODIFIE RIEN.
+    ?cle=ADMIN[&orgs=VAHINE2026TUKEA,GNY5SP7J]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Diagnostic tournoi</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px;font-size:16px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#FEF6EF;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong> &middot; Cet outil <b>NE MODIFIE RIEN</b> — il montre ce qui se passerait.</div>"
+    html += "<h1>&#9888;&#65039; Impact de l'annulation du tournoi de VAHINE</h1>"
+    html += "<div class='meta'>Comptes organisatrice analyses : " + ", ".join(sorted(orgs)) + "</div>"
+
+    # (a) ACHATS DE TICKETS A REMBOURSER
+    html += "<h2 style='color:#1E7B34'>(a) Achats de tickets — a rembourser aux joueuses</h2>"
+    achats = {}
+    tot_reel = 0; tot_bonus = 0
+    nb_cmd = 0
+    for c in DB.get("commandes_tickets_pions", []):
+        if not isinstance(c, dict):
+            continue
+        if (c.get("code_org", "") or "").upper() not in orgs:
+            continue
+        st = (c.get("statut", "") or "")
+        if st in ("annulee_remboursee",):
+            continue
+        cj = (c.get("code_joueur", "") or "").upper()
+        pr = _iv(c.get("paye_reel")); pb = _iv(c.get("paye_bonus"))
+        if pr == 0 and pb == 0:
+            pb = _iv(c.get("total_pions"))
+        if not cj or (pr + pb) == 0:
+            continue
+        nb_cmd += 1
+        d = achats.setdefault(cj, {"reel": 0, "bonus": 0, "n": 0, "jeux": set()})
+        d["reel"] += pr; d["bonus"] += pb; d["n"] += 1
+        if c.get("jeu"):
+            d["jeux"].add(str(c.get("jeu")))
+        tot_reel += pr; tot_bonus += pb
+    if achats:
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb achats</th><th class='dr'>Paye reel</th><th class='dr'>Paye bonus</th><th class='dr'>Total</th></tr>"
+        for cj in sorted(achats, key=lambda k: -(achats[k]["reel"] + achats[k]["bonus"])):
+            d = achats[cj]
+            html += "<tr><td>" + (nomde(cj) or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(d["n"]) + "</td><td class='dr'>" + fmt(d["reel"]) + " F</td><td class='dr'>" + fmt(d["bonus"]) + " F</td><td class='dr'>" + fmt(d["reel"] + d["bonus"]) + " F</td></tr>"
+        html += "<tr style='background:#E8F5E9;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL A REMBOURSER</td><td class='dr'>" + fmt(tot_reel) + " F</td><td class='dr'>" + fmt(tot_bonus) + " F</td><td class='dr'>" + fmt(tot_reel + tot_bonus) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='font-size:13px;color:#1E7B34'><b>" + str(len(achats)) + " joueuses</b> seraient remboursees (" + str(nb_cmd) + " commandes) pour <b>" + fmt(tot_reel + tot_bonus) + " F</b>.</div>"
+    else:
+        html += "<p>Aucun achat de ticket trouve sur ce tournoi.</p>"
+
+    # (b) GAINS A ANNULER
+    html += "<h2 style='color:#C00000'>(b) Gains declares — qui seraient ANNULES</h2>"
+    gains = {}
+    tot_gain = 0
+    nb_g = 0
+    for g in DB.get("gains_finaux", []):
+        if not isinstance(g, dict):
+            continue
+        if (g.get("code_org", "") or "").upper() not in orgs:
+            continue
+        if g.get("annule"):
+            continue
+        cg = (g.get("code_gagnant", "") or "").upper()
+        m = _iv(g.get("montant_gain", 0))
+        mc = _iv(g.get("montant_credite", 0))
+        if not cg:
+            continue
+        nb_g += 1
+        d = gains.setdefault(cg, {"gain": 0, "credite": 0, "n": 0})
+        d["gain"] += m; d["credite"] += mc; d["n"] += 1
+        tot_gain += m
+    if gains:
+        html += "<table><tr><th>Gagnante</th><th>Code</th><th class='dr'>Nb gains</th><th class='dr'>Gain declare</th><th class='dr'>Deja credite en pions</th></tr>"
+        tot_cred = 0
+        for cg in sorted(gains, key=lambda k: -gains[k]["gain"]):
+            d = gains[cg]
+            tot_cred += d["credite"]
+            html += "<tr><td>" + (nomde(cg) or "—") + "</td><td><b>" + cg + "</b></td><td class='dr'>" + str(d["n"]) + "</td><td class='dr'>" + fmt(d["gain"]) + " F</td><td class='dr'>" + fmt(d["credite"]) + " F</td></tr>"
+        html += "<tr style='background:#FDECEA;font-weight:bold'><td colspan='3' style='text-align:right'>TOTAL DES GAINS</td><td class='dr' style='color:#C00000'>" + fmt(tot_gain) + " F</td><td class='dr'>" + fmt(tot_cred) + " F</td></tr>"
+        html += "</table>"
+        html += "<div style='background:#FDECEA;border:2px solid #C00000;border-radius:8px;padding:12px;margin-top:8px;font-size:14px'>"
+        html += "&#9888;&#65039; <b>" + str(len(gains)) + " gagnantes</b> perdraient leurs gains (<b>" + fmt(tot_gain) + " F</b>), dont <b>" + fmt(tot_cred) + " F deja credites en pions dans leur poche</b> (il faudrait les leur retirer).<br><br>"
+        html += "<b>Ces joueuses n'ont rien fait de mal</b> — elles ont gagne honnetement. Reflechis bien avant d'annuler leurs gains : elles risquent de le vivre comme une injustice.</div>"
+    else:
+        html += "<p>Aucun gain declare sur ce tournoi.</p>"
+
+    # BILAN
+    html += "<h2>Bilan de l'annulation</h2>"
+    html += "<div style='background:#F5F5F5;border:1px solid #999;border-radius:8px;padding:14px;font-size:14px'>"
+    html += "&#9989; <b>(a) Rembourse aux joueuses :</b> " + fmt(tot_reel + tot_bonus) + " F (" + str(len(achats)) + " joueuses)<br>"
+    html += "&#10060; <b>(b) Gains annules :</b> " + fmt(tot_gain) + " F (" + str(len(gains)) + " gagnantes)<br><br>"
+    html += "<span style='font-size:13px;color:#666'>Note : certaines joueuses sont dans les deux listes (elles ont achete ET gagne).</span></div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/restaurer-comptes-vides")
 def restaurer_comptes_vides():
     """RESTAURATION (14/07/2026) : remet aux 5 comptes vides PAR ERREUR au nettoyage
