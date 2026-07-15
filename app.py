@@ -7433,6 +7433,125 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/chronologie-compte")
+def chronologie_compte():
+    """ENQUETE (15/07/2026) : chronologie COMPLETE d'un compte — tous ses gains
+    (avec dates, jeu, organisatrice), credits, commandes et mouvements, tries par
+    date. Permet de voir ce qui s'est passe un jour precis. Lecture seule.
+    ?cle=ADMIN&code=CODE[&jour=2026-07-11]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return Response("Ajoute &code=LE_CODE", status=400, mimetype="text/plain; charset=utf-8")
+    jour = (request.args.get("jour", "") or "").strip()
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    evts = []
+    # gains
+    for g in DB.get("gains_finaux", []):
+        if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() == code:
+            evts.append({
+                "date": str(g.get("date", "")), "type": "GAIN",
+                "detail": str(g.get("jeu", "")) + " — org " + str(g.get("code_org", "")),
+                "montant": _iv(g.get("montant_credite", 0)),
+                "note": ("ANNULE le " + str(g.get("annule_le", ""))[:10]) if g.get("annule") else ""
+            })
+    # commandes de pions (achats)
+    for c in DB.get("commandes_pions_joueurs", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+            np = _iv(c.get("nb_pions", 0)); vp = _iv(c.get("valeur_pion", 0))
+            val = np * vp if (np and vp) else _iv(c.get("montant_paye", 0))
+            evts.append({"date": str(c.get("date", "")), "type": "ACHAT PIONS",
+                         "detail": str(c.get("mode_paiement", "")), "montant": val,
+                         "note": str(c.get("statut", ""))})
+    # commandes tickets
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and (c.get("code_joueur", "") or "").upper() == code:
+            evts.append({"date": str(c.get("date", "")), "type": "ACHAT TICKET",
+                         "detail": str(c.get("jeu", "")) + " — org " + str(c.get("code_org", "")),
+                         "montant": -_iv(c.get("total_pions", 0)), "note": str(c.get("statut", ""))})
+    # credits masse
+    for cm in DB.get("credits_masse", []):
+        if isinstance(cm, dict) and code in [str(x).upper() for x in cm.get("codes", [])]:
+            m = _iv(cm.get("nb_pions", 0)) * _iv(cm.get("valeur_pion", 0))
+            evts.append({"date": str(cm.get("date", "")), "type": "CREDIT MASSE",
+                         "detail": str(cm.get("motif", "")), "montant": m, "note": ""})
+    # transferts
+    for t in DB.get("transferts_pions", []):
+        if not isinstance(t, dict):
+            continue
+        de = (t.get("de", "") or "").upper(); vers = (t.get("vers", "") or "").upper()
+        if de == code:
+            evts.append({"date": str(t.get("date", "")), "type": "TRANSFERT SORTANT",
+                         "detail": "vers " + vers + (" (" + nomde(vers) + ")" if nomde(vers) else ""),
+                         "montant": -_iv(t.get("montant", 0)), "note": ""})
+        elif vers == code:
+            evts.append({"date": str(t.get("date", "")), "type": "TRANSFERT ENTRANT",
+                         "detail": "de " + de + (" (" + nomde(de) + ")" if nomde(de) else ""),
+                         "montant": _iv(t.get("montant", 0)), "note": ""})
+    # retraits
+    for r in DB.get("demandes_retrait", []):
+        if isinstance(r, dict) and (r.get("code_joueur", "") or "").upper() == code:
+            evts.append({"date": str(r.get("date", "")), "type": "DEMANDE RETRAIT",
+                         "detail": str(r.get("mode", "")) + " — " + str(r.get("coordonnees", ""))[:40],
+                         "montant": -_iv(r.get("montant_demande", 0)), "note": str(r.get("statut", ""))})
+    # mouvements journalises
+    for m in DB.get("mouvements_pions", []):
+        if isinstance(m, dict) and (m.get("code_joueur", "") or "").upper() == code:
+            evts.append({"date": str(m.get("date", "")), "type": str(m.get("type", "")).upper(),
+                         "detail": str(m.get("motif", "")), "montant": _iv(m.get("montant", 0)), "note": ""})
+
+    if jour:
+        evts = [e for e in evts if e["date"][:10] == jour]
+    evts.sort(key=lambda e: e["date"])
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Chronologie</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.pos{color:#1E7B34}.neg{color:#C00000}"
+    html += ".gain{background:#FEF6EF}</style></head><body>"
+    html += "<h1>&#128197; Chronologie — " + code + (" (" + nomde(code) + ")" if nomde(code) else "") + "</h1>"
+    html += "<div class='meta'>" + str(len(evts)) + " evenements" + (" &middot; filtre sur le " + jour if jour else "") + "</div>"
+
+    if not evts:
+        html += "<p>Aucun evenement" + (" ce jour-la" if jour else "") + ".</p></body></html>"
+        return html
+
+    html += "<table><tr><th>Date</th><th>Type</th><th>Detail</th><th class='dr'>Montant</th><th>Note</th></tr>"
+    cumul = 0
+    for e in evts:
+        cumul += e["montant"]
+        cls = " class='gain'" if e["type"] == "GAIN" else ""
+        signe = "pos" if e["montant"] > 0 else ("neg" if e["montant"] < 0 else "")
+        html += "<tr" + cls + "><td>" + e["date"][:16].replace("T", " ") + "</td><td><b>" + e["type"] + "</b></td><td style='font-size:12px'>" + e["detail"][:60] + "</td><td class='dr " + signe + "'>" + (("+" if e["montant"] > 0 else "") + fmt(e["montant"]) + " F") + "</td><td style='font-size:11px'>" + e["note"][:40] + "</td></tr>"
+    html += "</table>"
+    html += "<div style='background:#E8EEF6;border-radius:8px;padding:12px;margin-top:10px;font-size:14px'>Somme des mouvements listes : <b>" + fmt(cumul) + " F</b></div>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/bloquer-retraits-voleur")
 def bloquer_retraits_voleur():
     """SECURITE (15/07/2026) : refuse TOUTES les demandes de retrait en attente des
