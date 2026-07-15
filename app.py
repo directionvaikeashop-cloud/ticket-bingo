@@ -7433,6 +7433,136 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/nettoyer-double-clic")
+def nettoyer_double_clic():
+    """LISIBILITE (15/07/2026) : les corrections du 11/07 (double-clic) ont laisse
+    plusieurs lignes qui s'annulent entre elles sur les releves (-20 000 / +20 000 /
+    -20 000). Le solde net est juste, mais le releve est illisible. Cet outil
+    remplace ces lignes par UNE seule ligne claire, sans changer le solde.
+    Apercu sans &confirme=1. ?cle=ADMIN[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+    confirme = request.args.get("confirme", "") == "1"
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    MOTS = ("double-clic", "double clic", "doubleclic")
+    def _est_dc(txt):
+        t = str(txt or "").lower()
+        return any(m in t for m in MOTS)
+
+    # reperer les comptes concernes
+    comptes = {}
+    for ca in DB.get("credits_admin", []):
+        if not isinstance(ca, dict):
+            continue
+        _mo = str(ca.get("motif") or ca.get("jeu") or "")
+        if not _est_dc(_mo):
+            continue
+        cj = (ca.get("code_joueur", "") or "").upper()
+        m = _iv(ca.get("nb_pions")) * _iv(ca.get("valeur_pion"))
+        d = comptes.setdefault(cj, {"lignes": [], "net": 0})
+        d["lignes"].append(("credits_admin", str(ca.get("date", ""))[:16].replace("T", " "), _mo[:50], m))
+        d["net"] += m
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Nettoyer double-clic</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#C55A11;border-bottom:3px solid #C55A11;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:18px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#FEF6EF;border:1px solid #C55A11;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.pos{color:#1E7B34}.neg{color:#C00000}"
+    html += ".btn{display:block;text-align:center;background:#C55A11;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin:16px 0}"
+    html += "</style></head><body>"
+    html += "<h1>&#129529; Nettoyer les lignes de double-clic</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + str(len(comptes)) + " compte(s) concerne(s)</div>"
+
+    if not comptes:
+        html += "<p>Aucune ligne de double-clic trouvee. Rien a nettoyer.</p></body></html>"
+        return html
+
+    if not confirme:
+        html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:12px;font-size:14px;margin-bottom:14px'>"
+        html += "&#9888;&#65039; Ces lignes portent la mention « double-clic » et s'annulent partiellement entre elles, ce qui rend les releves difficiles a lire. "
+        html += "Elles vont etre <b>supprimees</b> et remplacees par <b>une seule ligne claire</b>. <b>Le solde des joueuses ne change pas d'un franc.</b></div>"
+        for cj in comptes:
+            d = comptes[cj]
+            html += "<h2>" + cj + (" — " + nomde(cj) if nomde(cj) else "") + "</h2>"
+            html += "<table><tr><th>Date</th><th>Motif actuel</th><th class='dr'>Montant</th></tr>"
+            for (src, dt, mo, m) in sorted(d["lignes"], key=lambda x: x[1]):
+                html += "<tr><td>" + dt + "</td><td style='font-size:12px'>" + mo + "</td><td class='dr " + ("pos" if m > 0 else "neg") + "'>" + (("+" if m > 0 else "") + fmt(m)) + " F</td></tr>"
+            html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>Effet net de ces lignes</td><td class='dr'>" + (("+" if d["net"] > 0 else "") + fmt(d["net"])) + " F</td></tr>"
+            html += "</table>"
+            html += "<div style='font-size:13px;color:#1E7B34'>&#8594; sera remplace par une seule ligne : <b>« Retrait d'argent liquide en boutique »</b> de <b>" + (("+" if d["net"] > 0 else "") + fmt(d["net"])) + " F</b></div>"
+        html += "<a class='btn' href='?cle=" + _cle + "&confirme=1'>&#129529; CONFIRMER — regrouper en une seule ligne</a>"
+        html += "</body></html>"
+        return html
+
+    # === CONFIRME ===
+    now = datetime.datetime.now().isoformat()
+    res = []
+    for cj in comptes:
+        d = comptes[cj]
+        # date de la plus ancienne ligne
+        dates = sorted([x[1] for x in d["lignes"]])
+        date_ref = dates[0] if dates else now[:16].replace("T", " ")
+        res.append((cj, nomde(cj), len(d["lignes"]), d["net"]))
+    # supprimer les anciennes lignes double-clic
+    DB["credits_admin"] = [ca for ca in DB.get("credits_admin", [])
+                           if not (isinstance(ca, dict)
+                                   and (ca.get("code_joueur", "") or "").upper() in comptes
+                                   and _est_dc(str(ca.get("motif") or ca.get("jeu") or "")))]
+    # ecrire une ligne unique et claire
+    for (cj, nom, nb, net) in res:
+        if net != 0:
+            DB.setdefault("credits_admin", []).insert(0, {
+                "code_joueur": cj,
+                "nb_pions": abs(net) // 100 if net % 100 == 0 else abs(net),
+                "valeur_pion": 100 if net % 100 == 0 else 1,
+                "motif": "Retrait d'argent liquide en boutique",
+                "date": now,
+                "regroupe_le": now,
+                "remplace_lignes": nb
+            })
+            # signe : credits_admin utilise nb_pions * valeur_pion ; on force le signe
+            if net < 0:
+                DB["credits_admin"][0]["nb_pions"] = -DB["credits_admin"][0]["nb_pions"]
+    DB.setdefault("nettoyages_releve", []).insert(0, {
+        "operation": "regroupement lignes double-clic",
+        "comptes": [{"code": c, "lignes": n, "net": v} for (c, _, n, v) in res],
+        "par": _cle, "date": now
+    })
+    save_data(immediat=True)
+
+    html += "<h1>&#9989; Releves nettoyes</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + "</div>"
+    html += "<div style='background:#E8F5E9;border:2px solid #1E7B34;border-radius:10px;padding:14px;margin-bottom:14px;font-size:14px'>"
+    html += "&#9989; Les lignes de double-clic ont ete regroupees en une seule ligne claire : <b>« Retrait d'argent liquide en boutique »</b>. Les soldes n'ont pas bouge.</div>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Lignes remplacees</th><th class='dr'>Ligne unique</th></tr>"
+    for (cj, nom, nb, net) in res:
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(nb) + "</td><td class='dr'>" + (("+" if net > 0 else "") + fmt(net)) + " F</td></tr>"
+    html += "</table>"
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/retraits-sur-gains-fictifs")
 def retraits_sur_gains_fictifs():
     """DOSSIER (15/07/2026) : verifie les joueuses qui ont RETIRE de l'argent reel
@@ -7892,6 +8022,31 @@ def solde_juste_tournoi_vahine():
                 if m:
                     entrees += m
                     det.append(("+", "Credit", str(cm.get("motif", ""))[:40], m))
+        # 2bis. credits ET debits directs de l'admin (retraits liquides en boutique,
+        # recredits apres incident). Un montant negatif = pions retires.
+        for ca in DB.get("credits_admin", []):
+            if not isinstance(ca, dict):
+                continue
+            if (ca.get("code_joueur", "") or "").upper() != code:
+                continue
+            m = _iv(ca.get("nb_pions")) * _iv(ca.get("valeur_pion"))
+            _mo = str(ca.get("motif") or ca.get("jeu") or "").strip()
+            if m > 0:
+                entrees += m
+                det.append(("+", "Credit admin", _mo[:40] or "credit", m))
+            elif m < 0:
+                sorties += -m
+                det.append(("-", "Debit admin", _mo[:40] or "pions retires (liquide)", -m))
+        # 2ter. corrections admin (pions retires)
+        for co in DB.get("corrections_pions", []):
+            if not isinstance(co, dict):
+                continue
+            if (co.get("code_joueur", "") or "").upper() != code:
+                continue
+            retire = _iv(co.get("solde_avant")) - _iv(co.get("solde_apres"))
+            if retire > 0:
+                sorties += retire
+                det.append(("-", "Correction admin", "pions retires", retire))
         # 3. gains HONNETES (hors tournoi truque, non annules)
         for g in DB.get("gains_finaux", []):
             if not isinstance(g, dict):
