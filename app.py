@@ -7433,6 +7433,110 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/pions-recus-de-vahine")
+def pions_recus_de_vahine():
+    """VERIFICATION (15/07/2026) : liste TOUS les pions que VAHINE a remis a des
+    joueuses (transactions_joueur_org), avec le mode de paiement (Deblock, CCP,
+    virement, especes). Ces modes prouvent que la joueuse a paye : l'argent est
+    donc chez VAHINE. Lecture seule. ?cle=ADMIN[&orgs=...][&mode=CCP]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+    filtre_mode = (request.args.get("mode", "") or "").strip().lower()
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    lignes = []
+    par_mode = {}
+    par_joueuse = {}
+    for t in DB.get("transactions_joueur_org", []):
+        if not isinstance(t, dict):
+            continue
+        if (t.get("code_org", "") or "").upper() not in orgs:
+            continue
+        mode = str(t.get("mode_paiement", "") or "?")
+        if filtre_mode and filtre_mode not in mode.lower():
+            continue
+        cj = (t.get("code_joueur", "") or "").upper()
+        m = _iv(t.get("montant_total", 0))
+        lignes.append((str(t.get("date", ""))[:16].replace("T", " "), cj, mode,
+                       _iv(t.get("nb_pions")), _iv(t.get("valeur_pion")), m))
+        par_mode[mode] = par_mode.get(mode, 0) + m
+        d = par_joueuse.setdefault(cj, {"m": 0, "n": 0})
+        d["m"] += m; d["n"] += 1
+    lignes.sort(key=lambda x: x[0], reverse=True)
+    total = sum(par_mode.values())
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Pions remis par VAHINE</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:960px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:20px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.arg{color:#C55A11;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong> &middot; Lecture seule</div>"
+    html += "<h1>&#129689; Pions remis par VAHINE aux joueuses</h1>"
+    html += "<div class='meta'>Organisatrice(s) : " + ", ".join(sorted(orgs)) + " &middot; " + str(len(lignes)) + " transactions" + (" &middot; filtre mode : " + filtre_mode if filtre_mode else "") + "</div>"
+
+    if not lignes:
+        html += "<p>Aucune transaction trouvee.</p></body></html>"
+        return html
+
+    html += "<h2>Repartition par mode de paiement</h2>"
+    html += "<table><tr><th>Mode de paiement</th><th class='dr'>Total remis en pions</th><th>Ce que cela signifie</th></tr>"
+    for mode in sorted(par_mode, key=lambda k: -par_mode[k]):
+        ml = mode.lower()
+        if "espece" in ml or "espèce" in ml:
+            sens = "La joueuse a paye VAHINE en liquide, de la main a la main."
+        elif "ccp" in ml or "virement" in ml:
+            sens = "La joueuse a vire l'argent — trace bancaire verifiable."
+        elif "deblock" in ml:
+            sens = "Paiement mobile vers VAHINE — trace verifiable."
+        else:
+            sens = "A verifier."
+        html += "<tr><td><b>" + mode + "</b></td><td class='dr arg'>" + fmt(par_mode[mode]) + " F</td><td style='font-size:12px'>" + sens + "</td></tr>"
+    html += "<tr style='background:#FEF6EF;font-weight:bold'><td>TOTAL encaisse par VAHINE</td><td class='dr arg'>" + fmt(total) + " F</td><td></td></tr>"
+    html += "</table>"
+
+    html += "<h2>Par joueuse</h2>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb fois</th><th class='dr'>Total recu</th></tr>"
+    for cj in sorted(par_joueuse, key=lambda k: -par_joueuse[k]["m"]):
+        html += "<tr><td>" + (nomde(cj) or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(par_joueuse[cj]["n"]) + "</td><td class='dr'>" + fmt(par_joueuse[cj]["m"]) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<h2>Detail des transactions</h2>"
+    html += "<table><tr><th>Date</th><th>Joueuse</th><th>Code</th><th>Mode</th><th class='dr'>Pions</th><th class='dr'>Montant</th></tr>"
+    for (d, cj, mode, nb, val, m) in lignes:
+        html += "<tr><td>" + d + "</td><td>" + (nomde(cj) or "—") + "</td><td>" + cj + "</td><td>" + mode + "</td><td class='dr'>" + str(nb) + " x " + str(val) + "</td><td class='dr'>" + fmt(m) + " F</td></tr>"
+    html += "</table>"
+
+    html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:14px;margin-top:14px;font-size:14px'>"
+    html += "<b>Lecture :</b> ces " + fmt(total) + " F de pions ont ete remis par VAHINE a des joueuses qui l'ont payee "
+    html += "(especes, CCP, virement ou Deblock). L'argent correspondant est donc entre dans sa poche : il fait partie de ce qu'elle doit a l'administration. "
+    html += "Les pions, eux, sont bien chez les joueuses — leur solde juste en tient compte.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/annuler-soldes-justes")
 def annuler_soldes_justes():
     """SECURITE (15/07/2026) : ANNULE l'operation /solde-juste-tournoi-vahine et
