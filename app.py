@@ -7433,6 +7433,124 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/participations-tournoi-vahine")
+def participations_tournoi_vahine():
+    """VERIFICATION (15/07/2026) : cherche PARTOUT les traces de participation au
+    tournoi de VAHINE (tickets, commandes tickets pions, commandes tickets, ventes).
+    Repond a : les joueuses ont-elles paye des mises a rembourser ? Lecture seule.
+    ?cle=ADMIN[&orgs=VAHINE2026TUKEA,GNY5SP7J]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    orgs = set(c.strip().upper() for c in (request.args.get("orgs", "") or "VAHINE2026TUKEA,GNY5SP7J").split(",") if c.strip())
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Participations</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#1F4E79;border-bottom:3px solid #1F4E79;padding-bottom:8px}h2{color:#1F4E79;margin-top:20px;font-size:15px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}</style></head><body>"
+    html += "<h1>&#127915; Participations au tournoi de VAHINE — les joueuses ont-elles paye ?</h1>"
+    html += "<div class='meta'>Recherche dans toutes les structures &middot; orgs : " + ", ".join(sorted(orgs)) + "</div>"
+
+    total_general = 0
+
+    # 1. commandes_tickets_pions
+    html += "<h2>1. Commandes de tickets payees en pions</h2>"
+    n1 = 0; t1 = 0
+    par_joueuse = {}
+    for c in DB.get("commandes_tickets_pions", []):
+        if isinstance(c, dict) and (c.get("code_org", "") or "").upper() in orgs:
+            n1 += 1
+            m = _iv(c.get("total_pions", 0))
+            t1 += m
+            cj = (c.get("code_joueur", "") or "").upper()
+            d = par_joueuse.setdefault(cj, {"m": 0, "n": 0})
+            d["m"] += m; d["n"] += 1
+    if n1:
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb</th><th class='dr'>Paye</th></tr>"
+        for cj in sorted(par_joueuse, key=lambda k: -par_joueuse[k]["m"]):
+            html += "<tr><td>" + (nomde(cj) or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(par_joueuse[cj]["n"]) + "</td><td class='dr'>" + fmt(par_joueuse[cj]["m"]) + " F</td></tr>"
+        html += "</table><div><b>" + str(n1) + " commandes &middot; " + fmt(t1) + " F</b></div>"
+        total_general += t1
+    else:
+        html += "<p style='color:#888;font-size:12px'>Aucune.</p>"
+
+    # 2. tickets attribues
+    html += "<h2>2. Tickets attribues (table tickets)</h2>"
+    n2 = 0; t2 = 0
+    tk = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and (t.get("code_org", "") or "").upper() in orgs:
+            n2 += 1
+            p = _iv(t.get("prix", 0))
+            t2 += p
+            cj = (t.get("code_acheteur", "") or "").upper()
+            d = tk.setdefault(cj, {"m": 0, "n": 0, "nom": t.get("acheteur", "")})
+            d["m"] += p; d["n"] += 1
+    if n2:
+        html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Nb tickets</th><th class='dr'>Prix total</th></tr>"
+        for cj in sorted(tk, key=lambda k: -tk[k]["m"]):
+            html += "<tr><td>" + (tk[cj]["nom"] or nomde(cj) or "—") + "</td><td><b>" + cj + "</b></td><td class='dr'>" + str(tk[cj]["n"]) + "</td><td class='dr'>" + fmt(tk[cj]["m"]) + " F</td></tr>"
+        html += "</table><div><b>" + str(n2) + " tickets &middot; " + fmt(t2) + " F</b></div>"
+        total_general += t2
+    else:
+        html += "<p style='color:#888;font-size:12px'>Aucun.</p>"
+
+    # 3. commandes_tickets
+    html += "<h2>3. Commandes de tickets (autre table)</h2>"
+    n3 = 0; t3 = 0
+    for c in DB.get("commandes_tickets", []):
+        if isinstance(c, dict) and (c.get("code_org", "") or "").upper() in orgs:
+            n3 += 1
+            t3 += _iv(c.get("prix", 0)) or _iv(c.get("total", 0))
+    if n3:
+        html += "<div><b>" + str(n3) + " commandes &middot; " + fmt(t3) + " F</b></div>"
+        total_general += t3
+    else:
+        html += "<p style='color:#888;font-size:12px'>Aucune.</p>"
+
+    # 4. ventes (PDF achetes par l'organisatrice — pas des joueuses)
+    html += "<h2>4. Ventes / achats de PDF par l'organisatrice (pour info)</h2>"
+    n4 = 0; t4 = 0
+    for v in DB.get("ventes", []):
+        if isinstance(v, dict) and (v.get("code_org", "") or "").upper() in orgs:
+            n4 += 1
+            t4 += _iv(v.get("prix", 0)) or _iv(v.get("montant", 0))
+    html += "<div>" + (str(n4) + " ventes &middot; " + fmt(t4) + " F" if n4 else "Aucune.") + "</div>"
+
+    html += "<div style='background:" + ("#FEF6EF;border:2px solid #C55A11" if total_general == 0 else "#E8F5E9;border:2px solid #1E7B34") + ";border-radius:8px;padding:14px;margin-top:16px;font-size:14px'>"
+    if total_general == 0:
+        html += "&#9888;&#65039; <b>Aucune mise payee trouvee sur ce tournoi.</b><br><br>"
+        html += "Les joueuses n'ont donc <b>rien paye via la plateforme</b> pour participer : il n'y a <b>rien a leur rembourser</b> cote pions. "
+        html += "Si elles ont paye VAHINE en especes, en main propre, cela s'est fait <b>hors systeme</b> — la plateforme n'en a aucune trace, et c'est a VAHINE de les rembourser."
+    else:
+        html += "&#9989; <b>Mises payees trouvees : " + fmt(total_general) + " F.</b> Ces montants ont ete pris aux joueuses pour participer — ils devraient leur etre rembourses."
+    html += "</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/chronologie-compte")
 def chronologie_compte():
     """ENQUETE (15/07/2026) : chronologie COMPLETE d'un compte — tous ses gains
