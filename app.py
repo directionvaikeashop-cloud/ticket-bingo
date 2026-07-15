@@ -7433,6 +7433,107 @@ def rehabiliter_iro():
     return html
 
 
+@app.route("/retraits-sur-gains-fictifs")
+def retraits_sur_gains_fictifs():
+    """DOSSIER (15/07/2026) : verifie les joueuses qui ont RETIRE de l'argent reel
+    alors que leurs gains venaient du tournoi truque. Elles ont emporte de l'argent
+    qui n'existait pas : la dette est a leur charge, plus a celle de VAHINE. Montre
+    leurs retraits, leur solde actuel et le bilan. Lecture seule.
+    ?cle=ADMIN[&codes=NR5FUW,EY6K47,OXUZRO]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+    codes = [c.strip().upper() for c in (request.args.get("codes", "") or "NR5FUW,EY6K47,OXUZRO").split(",") if c.strip()]
+    orgs_vahine = {"VAHINE2026TUKEA", "GNY5SP7J"}
+
+    def _iv(x):
+        try:
+            return int(x or 0)
+        except (ValueError, TypeError):
+            return 0
+    def fmt(n): return format(n, ",")
+
+    def nomde(c):
+        c = (c or "").upper()
+        for t in DB.get("tickets", []):
+            if isinstance(t, dict) and (t.get("code_acheteur", "") or "").upper() == c:
+                return t.get("acheteur", "") or ""
+        return (DB.get("codes", {}).get(c, {}) or {}).get("nom", "")
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Retraits sur gains fictifs</title><style>"
+    html += "body{font-family:Arial,sans-serif;background:#fff;color:#111;padding:24px;max-width:940px;margin:0 auto}"
+    html += "h1{color:#C00000;border-bottom:3px solid #C00000;padding-bottom:8px}h2{color:#1F4E79;font-size:15px;margin-top:20px}"
+    html += ".meta{color:#555;font-size:13px;margin-bottom:14px}"
+    html += "table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}"
+    html += "th{background:#E8EEF6;border:1px solid #999;padding:6px;text-align:left}td{border:1px solid #bbb;padding:5px}"
+    html += ".dr{text-align:right;font-weight:bold;white-space:nowrap}.neg{color:#C00000;font-weight:bold}"
+    html += "@media print{.noprint{display:none}}</style></head><body>"
+    html += "<div class='noprint' style='background:#E8EEF6;padding:10px 14px;border-radius:8px;margin-bottom:14px'>&#128424;&#65039; <strong>Ctrl+P &rarr; PDF</strong> &middot; Lecture seule</div>"
+    html += "<h1>&#128184; Retraits d'argent sur gains fictifs</h1>"
+    html += "<div class='meta'>TICKET BINGO — TUKEA IMPORT &middot; " + datetime.datetime.now().strftime("%d/%m/%Y a %H:%M") + " &middot; codes : " + ", ".join(codes) + "</div>"
+
+    total_retire = 0
+    total_fictif = 0
+    recap = []
+    for code in codes:
+        html += "<h2>" + code + (" — " + nomde(code) if nomde(code) else "") + "</h2>"
+        # gains fictifs (tournoi VAHINE)
+        gf = 0
+        for g in DB.get("gains_finaux", []):
+            if isinstance(g, dict) and (g.get("code_gagnant", "") or "").upper() == code \
+               and (g.get("code_org", "") or "").upper() in orgs_vahine:
+                gf += _iv(g.get("montant_credite", 0))
+        total_fictif += gf
+        # retraits
+        rets = []
+        ret_payes = 0
+        for r in DB.get("demandes_retrait", []):
+            if not isinstance(r, dict):
+                continue
+            if (r.get("code_joueur", "") or "").upper() != code:
+                continue
+            st = (r.get("statut", "") or "")
+            m = _iv(r.get("montant_demande", 0))
+            rets.append((str(r.get("date", ""))[:16].replace("T", " "), str(r.get("mode", "")), st, m, _iv(r.get("montant_net", 0))))
+            if st in ("payee", "payee_espece", "validee", "traitee"):
+                ret_payes += m
+        rets.sort(key=lambda x: x[0], reverse=True)
+        total_retire += ret_payes
+        poche = _iv(_xpf_total_pions(DB.get("pions_joueurs", {}).get(code, {})))
+
+        html += "<div style='font-size:14px;margin-bottom:6px'>Gains fictifs recus du tournoi truque : <b class='neg'>" + fmt(gf) + " F</b> &middot; solde actuel de sa poche : <b>" + fmt(poche) + " F</b></div>"
+        if rets:
+            html += "<table><tr><th>Date</th><th>Mode</th><th>Statut</th><th class='dr'>Demande</th><th class='dr'>Net verse</th></tr>"
+            for (d, mode, st, m, net) in rets:
+                paye = st in ("payee", "payee_espece", "validee", "traitee")
+                html += "<tr><td>" + d + "</td><td>" + mode + "</td><td" + (" class='neg'" if paye else "") + ">" + st + "</td><td class='dr'>" + fmt(m) + " F</td><td class='dr'>" + fmt(net) + " F</td></tr>"
+            html += "</table>"
+            html += "<div style='font-size:13px'>Retraits <b>effectivement payes</b> : <b class='neg'>" + fmt(ret_payes) + " F</b></div>"
+        else:
+            html += "<div style='font-size:12px;color:#888'>Aucune demande de retrait enregistree dans la base.</div>"
+        recap.append((code, nomde(code), gf, ret_payes, poche))
+
+    html += "<h2>Recapitulatif</h2>"
+    html += "<table><tr><th>Joueuse</th><th>Code</th><th class='dr'>Gains fictifs recus</th><th class='dr'>Retraits payes (traces)</th><th class='dr'>Solde actuel</th></tr>"
+    for (code, nom, gf, rp, poche) in recap:
+        html += "<tr><td>" + (nom or "—") + "</td><td><b>" + code + "</b></td><td class='dr neg'>" + fmt(gf) + " F</td><td class='dr'>" + fmt(rp) + " F</td><td class='dr'>" + fmt(poche) + " F</td></tr>"
+    html += "<tr style='background:#EEE;font-weight:bold'><td colspan='2'>TOTAUX</td><td class='dr neg'>" + fmt(total_fictif) + " F</td><td class='dr'>" + fmt(total_retire) + " F</td><td></td></tr>"
+    html += "</table>"
+
+    html += "<div style='background:#FEF6EF;border:2px solid #C55A11;border-radius:8px;padding:14px;margin-top:14px;font-size:14px'>"
+    html += "<b>Lecture :</b> si la colonne « Retraits payes » est a 0 alors que ces personnes sont venues chercher de l'argent en especes, "
+    html += "c'est que ces retraits ont ete faits <b>hors systeme</b> (de la main a la main, sans passer par une demande enregistree). "
+    html += "La plateforme n'en a alors aucune trace : le montant doit etre etabli a partir des registres papier de l'administration.<br><br>"
+    html += "<b>Decision de l'administration :</b> l'argent liquide emporte sur la base de gains fictifs est du par <b>ces personnes</b>, et non par VAHINE.</div>"
+
+    html += "<p style='margin-top:20px;text-align:right;font-size:13px'><strong>L'Administration — TATIE TUKEA</strong><br>TUKEA IMPORT — Ticket Bingo, Papeete</p>"
+    html += "</body></html>"
+    return html
+
+
 @app.route("/stock-pions-vahine")
 def stock_pions_vahine():
     """CLOTURE (15/07/2026) : affiche le stock de pions de l'organisatrice VAHINE
