@@ -3905,6 +3905,21 @@ async function supprimerAlerteBingo(alerteId){
   }catch(e){ alert('Erreur réseau'); }
 }
 
+async function supprimerCommandeTickets(commandeId){
+  if(!confirm('Supprimer cette demande de tickets ?\n\n✅ Les pions débités seront automatiquement remboursés au joueur.')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-commande-tickets',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({commande_id:commandeId})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      var m = (d.rembourse||0).toLocaleString('fr-FR');
+      toast('toast-t','🗑️ Demande supprimée. '+m+' XPF de pions remboursés au joueur.');
+      if(typeof checkCommandesTicketsPions==='function') checkCommandesTicketsPions();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
 async function supprimerCommandePions(commandeId){
   if(!confirm('Supprimer cette demande de pions ?\n\n⚠️ Si la joueuse a déjà payé, pensez à la rembourser — les pions ne lui seront pas crédités.')) return;
   try{
@@ -4952,6 +4967,11 @@ function checkCommandesTicketsPions(){
           btn.textContent = '🎫 Valider — Attribuer les fiches au joueur';
           (function(cid){ btn.onclick = function(){ validerTicketPions(cid); }; })(c.id);
           div.appendChild(btn);
+          var btnSup = document.createElement('button');
+          btnSup.style.cssText = 'width:100%;padding:7px;margin-top:6px;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600';
+          btnSup.textContent = '🗑️ Supprimer cette demande';
+          (function(cid){ btnSup.onclick = function(){ supprimerCommandeTickets(cid); }; })(c.id);
+          div.appendChild(btnSup);
           liste.appendChild(div);
         });
         remplirSelectsPdfOrg();
