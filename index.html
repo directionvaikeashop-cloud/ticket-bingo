@@ -668,44 +668,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div class="stat"><div class="stat-v" id="sv">0</div><div class="stat-l">Ventes du jour</div></div>
         <div class="stat"><div class="stat-v" id="sc">0 XPF</div><div class="stat-l">Total du jour</div></div>
       </div>
-
-      <!-- ===== MES OUTILS (nouveau modele loyer) ===== -->
-      <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(5,150,105,.05));border:1px solid rgba(16,185,129,.3)">
-        <div class="ct" style="color:#6ee7b7">🛠️ Mes outils</div>
-
-        <!-- Outil 1 : Fabrique de pieces -->
-        <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px">
-          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">🪙 Ma fabrique de pièces</div>
-          <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Créez vos pions. Ils vont directement dans votre stock.</div>
-          <div class="g2">
-            <div><div class="lbl">Pièces 100 F</div><input id="fab-p100" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-            <div><div class="lbl">Pièces 50 F</div><input id="fab-p50" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-          </div>
-          <div class="g2">
-            <div><div class="lbl">Pièces 20 F</div><input id="fab-p20" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-            <div><div class="lbl">Pièces 10 F</div><input id="fab-p10" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-          </div>
-          <div id="fab-apercu" style="font-size:12px;color:#6ee7b7;text-align:center;margin:8px 0 4px;min-height:16px"></div>
-          <button onclick="fabriquerPions()" id="btn-fab" style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🪙 Fabriquer mes pièces</button>
-          <div id="fab-stock" style="font-size:12px;color:var(--mu);text-align:center;margin-top:8px"></div>
-        </div>
-
-        <!-- Outil 2 : Generation de PDF -->
-        <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px">
-          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">📄 Générer mes cartons (PDF)</div>
-          <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Choisissez un jeu et générez vos cartons. Le PDF se télécharge tout seul.</div>
-          <div class="lbl">Jeu</div>
-          <select id="org-genu-jeu" class="sel-jeu-generateur" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
-            <option value="">Choisir un jeu...</option>
-          </select>
-          <div class="g2">
-            <div><div class="lbl">Nb cartons</div><input id="org-genu-nb" type="number" value="500" min="1" max="1000"/></div>
-            <div><div class="lbl">Série départ</div><input id="org-genu-serie" type="number" value="1" min="1"/></div>
-          </div>
-          <button onclick="orgGenererPDF()" id="btn-org-genu" style="width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:6px">📄 Générer le PDF</button>
-          <div id="org-genu-result" style="margin-top:6px;font-size:12px;text-align:center"></div>
-        </div>
-      </div>
       <div class="card">
         <div class="ct">🎟 Nouvelle vente</div>
         <div class="g2">
@@ -1819,6 +1781,45 @@ function buildOrgSpace(){
   // Tickets
   document.getElementById("tab-org-tickets").innerHTML = `
     <div id="toast-t"></div>
+
+    <!-- ===== MES OUTILS (nouveau modele loyer) ===== -->
+    <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(5,150,105,.05));border:1px solid rgba(16,185,129,.3)">
+      <div class="ct" style="color:#6ee7b7">🛠️ Mes outils</div>
+
+      <!-- Outil 1 : Fabrique de pieces -->
+      <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">🪙 Ma fabrique de pièces</div>
+        <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Créez vos pions. Ils vont directement dans votre stock.</div>
+        <div class="g2">
+          <div><div class="lbl">Pièces 100 F</div><input id="fab-p100" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+          <div><div class="lbl">Pièces 50 F</div><input id="fab-p50" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+        </div>
+        <div class="g2">
+          <div><div class="lbl">Pièces 20 F</div><input id="fab-p20" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+          <div><div class="lbl">Pièces 10 F</div><input id="fab-p10" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+        </div>
+        <div id="fab-apercu" style="font-size:12px;color:#6ee7b7;text-align:center;margin:8px 0 4px;min-height:16px"></div>
+        <button onclick="fabriquerPions()" id="btn-fab" style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🪙 Fabriquer mes pièces</button>
+        <div id="fab-stock" style="font-size:12px;color:var(--mu);text-align:center;margin-top:8px"></div>
+      </div>
+
+      <!-- Outil 2 : Generation de PDF -->
+      <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">📄 Générer mes cartons (PDF)</div>
+        <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Choisissez un jeu et générez vos cartons. Le PDF se télécharge tout seul.</div>
+        <div class="lbl">Jeu</div>
+        <select id="org-genu-jeu" class="sel-jeu-generateur" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
+          <option value="">Choisir un jeu...</option>
+        </select>
+        <div class="g2">
+          <div><div class="lbl">Nb cartons</div><input id="org-genu-nb" type="number" value="500" min="1" max="1000"/></div>
+          <div><div class="lbl">Série départ</div><input id="org-genu-serie" type="number" value="1" min="1"/></div>
+        </div>
+        <button onclick="orgGenererPDF()" id="btn-org-genu" style="width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:6px">📄 Générer le PDF</button>
+        <div id="org-genu-result" style="margin-top:6px;font-size:12px;text-align:center"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="ct">📂 Mes tickets reçus</div>
       <div id="docs-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Chargement...</div></div>
@@ -2334,6 +2335,8 @@ function buildOrgSpace(){
   loadAlertesBingo();
   loadCommandes();
   loadPaiementsStripe();
+  // Remplir le menu des jeux dans "Mes outils" (generation PDF)
+  if(typeof chargerJeuxGenerateurs==='function') chargerJeuxGenerateurs();
 }
 
 function switchJoueurTab(n, el){
@@ -6809,10 +6812,6 @@ function _fabApercu(){
   var el = document.getElementById('fab-apercu');
   if(el) el.textContent = v>0 ? ('Total à fabriquer : '+v.toLocaleString('fr-FR')+' XPF') : '';
 }
-['fab-p100','fab-p50','fab-p20','fab-p10'].forEach(function(id){
-  var e = document.getElementById(id);
-  if(e) e.addEventListener('input', _fabApercu);
-});
 
 async function fabriquerPions(){
   var p100 = parseInt(document.getElementById('fab-p100')?.value||0);
