@@ -5190,6 +5190,62 @@ def reactiver_mon_code():
     return page("✅ Code réactivé", corps, "#059669")
 
 
+@app.route("/api/org/supprimer-pdf-tickets", methods=["POST"])
+def org_supprimer_pdf_tickets():
+    """ORGANISATRICE — Supprime un PDF de tickets recus, pour tout le monde
+    (organisatrice + joueuses). SECURITE : refuse la suppression s'il reste des
+    feuilles NON vendues (personne ne doit perdre une feuille payee)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    d = request.json or {}
+    pdf_url = (d.get("pdf_url", "") or "").strip()
+    code_org = (s.get("code", "") or "").upper()
+    if not pdf_url:
+        return jsonify({"ok": False, "msg": "PDF non précisé"}), 400
+
+    _seed_feuilles_vendues()
+
+    # calculer le total de feuilles et les vendues pour ce PDF chez cet org
+    total = 0
+    for v in DB.get("ventes", []):
+        if (v.get("code_org") or "").upper() == code_org and v.get("pdf_url") == pdf_url:
+            total += int(v.get("pack", 0) or 0) * int(v.get("qty", 1) or 1)
+    pages_vendues = DB.get("feuilles_vendues", {}).get(code_org, {}).get(pdf_url, {})
+    nb_vendues = len(pages_vendues)
+
+    # SECURITE : bloquer s'il reste des feuilles non vendues
+    if total > 0 and nb_vendues < total:
+        reste = total - nb_vendues
+        return jsonify({"ok": False, "bloque": True,
+                        "msg": f"Il reste {reste} feuille(s) non vendue(s). Suppression impossible tant que tout n'est pas vendu.",
+                        "restantes": reste, "total": total, "vendues": nb_vendues}), 400
+
+    # supprimer le PDF partout : ventes + tickets (pour org ET joueuses)
+    n_ventes = len(DB.get("ventes", []))
+    DB["ventes"] = [v for v in DB.get("ventes", [])
+                    if not ((v.get("code_org") or "").upper() == code_org and v.get("pdf_url") == pdf_url)]
+    n_tickets = len(DB.get("tickets", []))
+    DB["tickets"] = [t for t in DB.get("tickets", [])
+                     if not ((t.get("code_org") or "").upper() == code_org and t.get("pdf_url") == pdf_url)]
+
+    # nettoyer le registre des feuilles vendues pour ce pdf
+    if code_org in DB.get("feuilles_vendues", {}) and pdf_url in DB["feuilles_vendues"][code_org]:
+        del DB["feuilles_vendues"][code_org][pdf_url]
+
+    DB.setdefault("pdfs_supprimes", []).insert(0, {
+        "pdf_url": pdf_url, "code_org": code_org, "feuilles_vendues": nb_vendues,
+        "supprime_le": datetime.datetime.now().isoformat()
+    })
+    save_data(immediat=True)
+    supprimes = (n_ventes - len(DB["ventes"])) + (n_tickets - len(DB["tickets"]))
+    return jsonify({"ok": True, "supprimes": supprimes})
+
+
 @app.route("/api/org/supprimer-commande-tickets", methods=["POST"])
 def org_supprimer_commande_tickets():
     """ORGANISATRICE — Supprime une commande de tickets en attente (quand la vente
