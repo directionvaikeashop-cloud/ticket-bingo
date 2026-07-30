@@ -5198,6 +5198,85 @@ def reactiver_mon_code():
     return page("✅ Code réactivé", corps, "#059669")
 
 
+@app.route("/api/org/supprimer-commande-pions", methods=["POST"])
+def org_supprimer_commande_pions():
+    """ORGANISATRICE — Supprime une commande de pions en attente (quand la vente
+    a ete fermee avant reception de la demande). Les pions n'ayant jamais ete
+    credites, aucune valeur n'est retiree. La suppression est tracee au cas ou
+    la joueuse aurait deja paye (rappel de remboursement)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    d = request.json or {}
+    commande_id = (d.get("commande_id", "") or "").strip()
+    code_org = (s.get("code", "") or "").upper()
+    if not commande_id:
+        return jsonify({"ok": False, "msg": "Commande non précisée"}), 400
+
+    trouvee = None
+    for c in DB.get("commandes_pions", []):
+        if c.get("id") == commande_id:
+            # securite : une organisatrice ne supprime que SES commandes
+            if (c.get("code_org", "") or "").upper() != code_org and not s.get("admin"):
+                return jsonify({"ok": False, "msg": "Cette commande n'est pas la vôtre"}), 403
+            # securite : on ne supprime que ce qui n'est PAS deja valide
+            if c.get("statut") == "validee":
+                return jsonify({"ok": False, "msg": "Commande déjà validée — impossible de supprimer"}), 400
+            trouvee = c
+            break
+
+    if not trouvee:
+        return jsonify({"ok": False, "msg": "Commande introuvable"}), 404
+
+    # archiver avant suppression (tracabilite / rappel remboursement)
+    DB.setdefault("commandes_pions_supprimees", []).insert(0, {
+        **trouvee, "supprimee_le": datetime.datetime.now().isoformat(), "supprimee_par": code_org
+    })
+    DB["commandes_pions"] = [c for c in DB.get("commandes_pions", []) if c.get("id") != commande_id]
+    save_data(immediat=True)
+    return jsonify({"ok": True, "montant_paye": trouvee.get("montant_paye", 0)})
+
+
+@app.route("/api/org/supprimer-alerte-bingo", methods=["POST"])
+def org_supprimer_alerte_bingo():
+    """ORGANISATRICE — Supprime une verification bingo de la liste (nettoyage
+    de l'interface). Retire l'alerte du tableau."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    d = request.json or {}
+    alerte_id = (d.get("alerte_id", "") or "").strip()
+    code_org = (s.get("code", "") or "").upper()
+    if not alerte_id:
+        return jsonify({"ok": False, "msg": "Vérification non précisée"}), 400
+
+    trouvee = None
+    for a in DB.get("alertes_bingo", []):
+        if a.get("id") == alerte_id:
+            if (a.get("code_org", "") or "").upper() != code_org and not s.get("admin"):
+                return jsonify({"ok": False, "msg": "Cette vérification n'est pas la vôtre"}), 403
+            trouvee = a
+            break
+
+    if not trouvee:
+        return jsonify({"ok": False, "msg": "Vérification introuvable"}), 404
+
+    DB.setdefault("alertes_bingo_supprimees", []).insert(0, {
+        **trouvee, "supprimee_le": datetime.datetime.now().isoformat(), "supprimee_par": code_org
+    })
+    DB["alertes_bingo"] = [a for a in DB.get("alertes_bingo", []) if a.get("id") != alerte_id]
+    save_data(immediat=True)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/org/generer-jeu", methods=["POST"])
 def org_generer_jeu():
     """ORGANISATRICE — Genere un PDF de cartons pour n'importe quel jeu du registre.
