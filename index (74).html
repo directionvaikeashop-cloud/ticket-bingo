@@ -668,44 +668,6 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         <div class="stat"><div class="stat-v" id="sv">0</div><div class="stat-l">Ventes du jour</div></div>
         <div class="stat"><div class="stat-v" id="sc">0 XPF</div><div class="stat-l">Total du jour</div></div>
       </div>
-
-      <!-- ===== MES OUTILS (nouveau modele loyer) ===== -->
-      <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(5,150,105,.05));border:1px solid rgba(16,185,129,.3)">
-        <div class="ct" style="color:#6ee7b7">🛠️ Mes outils</div>
-
-        <!-- Outil 1 : Fabrique de pieces -->
-        <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px">
-          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">🪙 Ma fabrique de pièces</div>
-          <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Créez vos pions. Ils vont directement dans votre stock.</div>
-          <div class="g2">
-            <div><div class="lbl">Pièces 100 F</div><input id="fab-p100" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-            <div><div class="lbl">Pièces 50 F</div><input id="fab-p50" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-          </div>
-          <div class="g2">
-            <div><div class="lbl">Pièces 20 F</div><input id="fab-p20" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-            <div><div class="lbl">Pièces 10 F</div><input id="fab-p10" type="number" min="0" placeholder="0" inputmode="numeric"/></div>
-          </div>
-          <div id="fab-apercu" style="font-size:12px;color:#6ee7b7;text-align:center;margin:8px 0 4px;min-height:16px"></div>
-          <button onclick="fabriquerPions()" id="btn-fab" style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🪙 Fabriquer mes pièces</button>
-          <div id="fab-stock" style="font-size:12px;color:var(--mu);text-align:center;margin-top:8px"></div>
-        </div>
-
-        <!-- Outil 2 : Generation de PDF -->
-        <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px">
-          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">📄 Générer mes cartons (PDF)</div>
-          <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Choisissez un jeu et générez vos cartons. Le PDF se télécharge tout seul.</div>
-          <div class="lbl">Jeu</div>
-          <select id="org-genu-jeu" class="sel-jeu-generateur" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
-            <option value="">Choisir un jeu...</option>
-          </select>
-          <div class="g2">
-            <div><div class="lbl">Nb cartons</div><input id="org-genu-nb" type="number" value="500" min="1" max="1000"/></div>
-            <div><div class="lbl">Série départ</div><input id="org-genu-serie" type="number" value="1" min="1"/></div>
-          </div>
-          <button onclick="orgGenererPDF()" id="btn-org-genu" style="width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:6px">📄 Générer le PDF</button>
-          <div id="org-genu-result" style="margin-top:6px;font-size:12px;text-align:center"></div>
-        </div>
-      </div>
       <div class="card">
         <div class="ct">🎟 Nouvelle vente</div>
         <div class="g2">
@@ -738,8 +700,8 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         </div>
         <div class="lbl" style="margin-bottom:4px">💳 Mode de paiement</div>
         <select id="b-mode-paiement" style="margin-bottom:10px">
-          <option value="Carte">Carte (5% de frais)</option>
-          <option value="Virement">Virement (5% de frais)</option>
+          <option value="Carte">Carte</option>
+          <option value="Virement">Virement</option>
           <option value="Espèces">Espèces (0% de frais)</option>
         </select>
         <div class="lbl" style="margin-bottom:8px">📎 Document sécurisé (optionnel)</div>
@@ -1819,6 +1781,45 @@ function buildOrgSpace(){
   // Tickets
   document.getElementById("tab-org-tickets").innerHTML = `
     <div id="toast-t"></div>
+
+    <!-- ===== MES OUTILS (nouveau modele loyer) ===== -->
+    <div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(5,150,105,.05));border:1px solid rgba(16,185,129,.3)">
+      <div class="ct" style="color:#6ee7b7">🛠️ Mes outils</div>
+
+      <!-- Outil 1 : Fabrique de pieces -->
+      <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">🪙 Ma fabrique de pièces</div>
+        <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Créez vos pions. Ils vont directement dans votre stock.</div>
+        <div class="g2">
+          <div><div class="lbl">Pièces 100 F</div><input id="fab-p100" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+          <div><div class="lbl">Pièces 50 F</div><input id="fab-p50" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+        </div>
+        <div class="g2">
+          <div><div class="lbl">Pièces 20 F</div><input id="fab-p20" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+          <div><div class="lbl">Pièces 10 F</div><input id="fab-p10" type="number" min="0" placeholder="0" inputmode="numeric" oninput="_fabApercu()"/></div>
+        </div>
+        <div id="fab-apercu" style="font-size:12px;color:#6ee7b7;text-align:center;margin:8px 0 4px;min-height:16px"></div>
+        <button onclick="fabriquerPions()" id="btn-fab" style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🪙 Fabriquer mes pièces</button>
+        <div id="fab-stock" style="font-size:12px;color:var(--mu);text-align:center;margin-top:8px"></div>
+      </div>
+
+      <!-- Outil 2 : Generation de PDF -->
+      <div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">📄 Générer mes cartons (PDF)</div>
+        <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Choisissez un jeu et générez vos cartons. Le PDF se télécharge tout seul.</div>
+        <div class="lbl">Jeu</div>
+        <select id="org-genu-jeu" class="sel-jeu-generateur" style="width:100%;padding:9px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
+          <option value="">Choisir un jeu...</option>
+        </select>
+        <div class="g2">
+          <div><div class="lbl">Nb cartons</div><input id="org-genu-nb" type="number" value="500" min="1" max="1000"/></div>
+          <div><div class="lbl">Série départ</div><input id="org-genu-serie" type="number" value="1" min="1"/></div>
+        </div>
+        <button onclick="orgGenererPDF()" id="btn-org-genu" style="width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:6px">📄 Générer le PDF</button>
+        <div id="org-genu-result" style="margin-top:6px;font-size:12px;text-align:center"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="ct">📂 Mes tickets reçus</div>
       <div id="docs-liste"><div style="text-align:center;padding:20px;font-size:14px;color:var(--mu)">Chargement...</div></div>
@@ -2312,7 +2313,7 @@ function buildOrgSpace(){
         <option value="Virement BT">Virement BT - Banque de Tahiti (entre vous — 0%)</option>
         <option value="Deblock">Deblock (entre vous — 0%)</option>
       </select>
-      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte avec 5%, le joueur commande lui-même ses pions dans son espace.</div>
+      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte, le joueur commande lui-même ses pions dans son espace.</div>
       <button onclick="donnerPionsJoueur()" style="width:100%;padding:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎁 Donner les pions</button>
       <button onclick="voirMonCircuit()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px">📋 Voir mon circuit de traçage</button>
       <button onclick="voirMonReleveFinancier()" style="width:100%;padding:10px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:8px">💰 Mon relevé financier (entrées / dépenses)</button>
@@ -2334,6 +2335,8 @@ function buildOrgSpace(){
   loadAlertesBingo();
   loadCommandes();
   loadPaiementsStripe();
+  // Remplir le menu des jeux dans "Mes outils" (generation PDF)
+  if(typeof chargerJeuxGenerateurs==='function') chargerJeuxGenerateurs();
 }
 
 function switchJoueurTab(n, el){
@@ -3870,6 +3873,7 @@ async function loadAlertesBingo(){
         <button onclick="validerBingo('${a.id}','valide')" style="flex:1;padding:8px;background:rgba(16,185,129,.2);color:#34d399;border:0.5px solid rgba(16,185,129,.4);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">✅ Valider</button>
         <button onclick="validerBingo('${a.id}','refuse')" style="flex:1;padding:8px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:13px">❌ Refuser</button>
       </div>`:''}
+      <button onclick="supprimerAlerteBingo('${a.id}')" style="width:100%;padding:7px;margin-top:8px;background:rgba(148,163,184,.12);color:#94a3b8;border:0.5px solid rgba(148,163,184,.35);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">🗑️ Supprimer cette vérification</button>
     </div>`).join('');
   }catch(e){}
 }
@@ -3885,6 +3889,36 @@ async function validerBingo(alerteId, statut){
       toast('toast-t','🏆 Gagnant validé ! Les PDF entièrement vendus sont nettoyés ; ceux avec des feuilles invendues sont conservés.');
     }
   }catch(e){}
+}
+
+async function supprimerAlerteBingo(alerteId){
+  if(!confirm('Supprimer cette vérification bingo de la liste ?')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-alerte-bingo',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({alerte_id:alerteId})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      toast('toast-t','🗑️ Vérification supprimée');
+      loadAlertesBingo();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
+async function supprimerCommandePions(commandeId){
+  if(!confirm('Supprimer cette demande de pions ?\n\n⚠️ Si la joueuse a déjà payé, pensez à la rembourser — les pions ne lui seront pas crédités.')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-commande-pions',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({commande_id:commandeId})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      var m = (d.montant_paye||0).toLocaleString('fr-FR');
+      toast('toast-t','🗑️ Demande supprimée. Si la joueuse a payé '+m+' XPF, pensez à la rembourser.');
+      if(typeof checkPionsEnAttente==='function') checkPionsEnAttente();
+      if(typeof loadPionsPaiement==='function') loadPionsPaiement();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
 }
 
 async function effacerTicketsNonValides(){
@@ -4098,7 +4132,7 @@ if(urlParams.get('paiement') === 'pions_ok'){
   setTimeout(() => {
     const msg = document.createElement('div');
     msg.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3);text-align:center;max-width:90%';
-    msg.innerHTML = '✅ Paiement reçu — merci !<br><span style="font-size:13px;font-weight:400">Frais de service 5% inclus<br>Vos pions sont crédités 🪙</span>';
+    msg.innerHTML = '✅ Paiement reçu — merci !<br><span style="font-size:13px;font-weight:400">Vos pions sont crédités 🪙</span>';
     document.body.appendChild(msg);
     setTimeout(() => msg.remove(), 8000);
   }, 1000);
@@ -4404,6 +4438,11 @@ function checkPionsEnAttente(){
           btn.textContent = '✅ Valider et créditer les pions';
           (function(cid){ btn.onclick = function(){ validerCommandePions(cid); setTimeout(checkPionsEnAttente,1000); }; })(c.id);
           div.appendChild(btn);
+          var btnSup = document.createElement('button');
+          btnSup.style.cssText = 'width:100%;padding:7px;margin-top:6px;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600';
+          btnSup.textContent = '🗑️ Supprimer cette demande';
+          (function(cid){ btnSup.onclick = function(){ supprimerCommandePions(cid); }; })(c.id);
+          div.appendChild(btnSup);
           liste.appendChild(div);
         });
       }
@@ -5317,11 +5356,10 @@ function majCalculRetrait(){
     document.getElementById('retrait-calcul').innerHTML = 'Entre un montant (minimum 20 XPF).';
     return;
   }
-  var frais = (mode === 'Virement') ? Math.round(montant * 0.05) : 0;
+  var frais = 0;
   var net = montant - frais;
   document.getElementById('retrait-calcul').innerHTML =
     'Montant demandé : <b style="color:#fff">' + montant.toLocaleString() + ' XPF</b><br>' +
-    'Frais (' + (mode === 'Virement' ? '5%' : '0% cash') + ') : <b style="color:#f85149">-' + frais.toLocaleString() + ' XPF</b><br>' +
     'Tu recevras : <b style="color:#3fb950;font-size:15px">' + net.toLocaleString() + ' XPF</b>';
 }
 
@@ -5691,12 +5729,9 @@ function selValeurPionJoueur(val, el){
   calcPionsJoueur();
 }
 
-// Taux de commission : 2% par CARTE, 20% pour les autres modes
+// NOUVEAU MODELE (loyer fixe) : plus aucun frais, quel que soit le mode
 function tauxCommissionPions(mode){
-  var m = (mode || '').toLowerCase();
-  // Espèces (boutique) = 0%, tout paiement électronique (Carte, CCP, Deblock, BT) = 5%
-  if(m.indexOf('espece') >= 0 || m.indexOf('espèce') >= 0 || m.indexOf('cash') >= 0) return 0;
-  return 0.05;
+  return 0;
 }
 
 function calcPionsJoueur(){
@@ -6809,10 +6844,6 @@ function _fabApercu(){
   var el = document.getElementById('fab-apercu');
   if(el) el.textContent = v>0 ? ('Total à fabriquer : '+v.toLocaleString('fr-FR')+' XPF') : '';
 }
-['fab-p100','fab-p50','fab-p20','fab-p10'].forEach(function(id){
-  var e = document.getElementById(id);
-  if(e) e.addEventListener('input', _fabApercu);
-});
 
 async function fabriquerPions(){
   var p100 = parseInt(document.getElementById('fab-p100')?.value||0);
@@ -7657,8 +7688,8 @@ if ('serviceWorker' in navigator) {
 
     <div style="font-size:13px;color:#e6edf3;margin-bottom:6px">Mode de retrait</div>
     <select id="retrait-mode" onchange="majCalculRetrait()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:12px;box-sizing:border-box">
-      <option value="Cash">💵 Cash (0% de frais)</option>
-      <option value="Virement">🏦 Virement (5% de frais)</option>
+      <option value="Cash">💵 Cash</option>
+      <option value="Virement">🏦 Virement</option>
     </select>
 
     <div id="retrait-coords-wrap" style="display:none;margin-bottom:12px">
