@@ -5120,6 +5120,174 @@ def generer_jeu_generique():
         print(f"[GENERER-JEU ERR] {jeu} : {e}")
         return jsonify({"ok": False, "msg": str(e)}), 500
 
+
+# ============================================================================
+# OUTILS ORGANISATRICE (nouveau modele : loyer fixe, outils en libre-service)
+# 30/07/2026 : les organisatrices ont acces aux 2 memes outils que l'admin —
+# generation de PDF de cartons + fabrique de pions dans leur propre stock.
+# ============================================================================
+
+@app.route("/reactiver-mon-code")
+def reactiver_mon_code():
+    """OUTIL (30/07/2026) : verifie l'etat d'un code organisateur et le reactive
+    en un clic (actif + expiration repoussee tres loin, puisqu'on passe au loyer
+    fixe). Apercu sans &confirme=1. ?cle=ADMIN&code=CODE[&confirme=1]"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("<h1 style='font-family:sans-serif'>Acces reserve</h1>", status=403, mimetype="text/html; charset=utf-8")
+
+    code = (request.args.get("code", "") or "").strip().upper()
+    confirme = request.args.get("confirme", "") == "1"
+
+    def page(titre, corps, couleur="#0d9488"):
+        return Response(f'''<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{titre}</title></head>
+        <body style="margin:0;background:#0f0e1f;font-family:system-ui,sans-serif;color:#fff;padding:16px"><div style="max-width:560px;margin:0 auto">
+        <h1 style="font-size:20px;color:{couleur}">{titre}</h1>{corps}</div></body></html>''', mimetype="text/html; charset=utf-8")
+
+    # Formulaire si pas de code
+    if not code:
+        corps = '''<p style="color:#cbd5e1;font-size:14px">Entre le code organisateur a verifier / reactiver.</p>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px">
+          <input id="code" placeholder="ex: MAEVA2026TUKEA" oninput="this.value=this.value.toUpperCase()" style="width:100%;padding:12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:12px;font-family:monospace;font-size:15px">
+          <button onclick="go()" style="width:100%;padding:12px;border:0;border-radius:8px;background:#0d9488;color:#fff;font-weight:700;font-size:15px;cursor:pointer">🔍 Vérifier</button>
+        </div>
+        <script>function go(){var c=document.getElementById('code').value.trim();if(!c){alert('Entre le code');return;}window.location='/reactiver-mon-code?cle=''' + _cle + '''&code='+encodeURIComponent(c);}</script>'''
+        return page("🔑 Réactiver un code organisateur", corps)
+
+    cinfo = DB.get("codes", {}).get(code)
+    if not cinfo:
+        return page("❌ Code introuvable", f'<p style="color:#cbd5e1">Le code <b>{code}</b> n\'existe pas dans la base.</p>', "#f85149")
+
+    # Diagnostic
+    actif = cinfo.get("actif", True)
+    expire_str = cinfo.get("expire", "")
+    est_expire = False
+    if expire_str:
+        try:
+            est_expire = datetime.datetime.now() > datetime.datetime.fromisoformat(expire_str)
+        except (ValueError, TypeError):
+            est_expire = False
+    nom = cinfo.get("nom", code)
+
+    if not confirme:
+        etat_actif = "✅ actif" if actif else "❌ désactivé"
+        etat_exp = ("❌ expiré le " + expire_str[:10]) if est_expire else ("✅ valable jusqu'au " + expire_str[:10] if expire_str else "✅ sans expiration")
+        corps = f'''<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin-bottom:14px;font-size:14px;line-height:2">
+          <div>Nom : <b>{nom}</b></div>
+          <div>Code : <b style="font-family:monospace;color:#67e8f9">{code}</b></div>
+          <div>État : <b>{etat_actif}</b></div>
+          <div>Expiration : <b>{etat_exp}</b></div>
+        </div>
+        <p style="color:#cbd5e1;font-size:14px">La réactivation va rendre ce code <b>actif</b> et repousser son expiration à <b>2099</b> (nouveau modèle : loyer fixe, plus de durée limitée).</p>
+        <a href="/reactiver-mon-code?cle={_cle}&code={code}&confirme=1" style="display:block;text-align:center;background:#059669;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-top:12px">✅ Réactiver ce code</a>'''
+        return page("🔑 État du code " + code, corps)
+
+    # CONFIRMÉ : réactiver
+    cinfo["actif"] = True
+    cinfo["expire"] = "2099-12-31T23:59:59"
+    cinfo["reactive_le"] = datetime.datetime.now().isoformat()
+    save_data(immediat=True)
+
+    corps = f'''<div style="background:#0d3d2f;border:2px solid #059669;border-radius:10px;padding:16px;margin-bottom:14px;font-size:15px">
+      ✅ Le code <b style="font-family:monospace;color:#6ee7b7">{code}</b> ({nom}) est <b>réactivé</b>.<br><br>
+      Il est maintenant <b>actif</b> et valable jusqu'en <b>2099</b>. Tu peux te connecter avec.</div>
+    <p style="color:#cbd5e1;font-size:14px">Va sur l'onglet 🏪 Boutique pour voir tes 2 nouveaux outils.</p>'''
+    return page("✅ Code réactivé", corps, "#059669")
+
+
+@app.route("/api/org/generer-jeu", methods=["POST"])
+def org_generer_jeu():
+    """ORGANISATRICE — Genere un PDF de cartons pour n'importe quel jeu du registre.
+    Meme moteur que l'admin, mais accessible a toute organisatrice connectee
+    (pas besoin d'etre admin)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    d = request.json or {}
+    jeu = (d.get("jeu") or "").strip()
+    infos = GENERATEURS_JEUX.get(jeu)
+    if not infos:
+        return jsonify({"ok": False, "msg": f"Jeu inconnu : {jeu}"}), 404
+
+    nb_tickets = max(1, min(int(d.get("nb_tickets", 500)), 1000))
+    serie_start = max(1, int(d.get("serie_start", 1)))
+
+    slug = "".join(c if c.isalnum() else "_" for c in jeu)
+    output_path = f"/data/{slug}_{serie_start:05d}_to_{serie_start + nb_tickets - 1:05d}.pdf"
+    os.makedirs("/data", exist_ok=True)
+
+    try:
+        infos["generer"](nb_tickets=nb_tickets, serie_start=serie_start, output_path=output_path)
+        # tracer la commande au nom de l'organisatrice
+        save_commande(jeu, nb_tickets, serie_start, output_path, s.get("nom", s.get("code", "")))
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=f"{slug}_{serie_start:05d}.pdf",
+            mimetype="application/pdf"
+        )
+    except Exception as e:
+        print(f"[ORG-GENERER-JEU ERR] {jeu} : {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 500
+
+
+@app.route("/api/org/fabriquer-pions", methods=["POST"])
+def org_fabriquer_pions():
+    """ORGANISATRICE — Fabrique des pions dans SON PROPRE stock (pions_org).
+    Elle choisit les quantites par valeur (100/50/20/10 F). Sans limite.
+    Meme logique que l'outil admin /crediter-stock-org, mais l'organisatrice
+    agit sur son propre code."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    code_org = (s.get("code", "") or "").upper()
+    if not code_org or code_org not in DB.get("codes", {}):
+        return jsonify({"ok": False, "msg": "Code organisatrice introuvable"}), 400
+
+    d = request.json or {}
+    def _iv(x):
+        try:
+            return max(0, int(float(x or 0)))
+        except (ValueError, TypeError):
+            return 0
+    p100, p50, p20, p10 = _iv(d.get("p100")), _iv(d.get("p50")), _iv(d.get("p20")), _iv(d.get("p10"))
+    valeur = p100 * 100 + p50 * 50 + p20 * 20 + p10 * 10
+    if valeur <= 0:
+        return jsonify({"ok": False, "msg": "Indiquez au moins une quantité de pions"}), 400
+
+    # crediter le stock de l'organisatrice
+    DB.setdefault("pions_org", {}).setdefault(code_org, {})
+    poche = DB["pions_org"][code_org]
+    for val, nb in [("100", p100), ("50", p50), ("20", p20), ("10", p10)]:
+        if nb:
+            poche[val] = poche.get(val, 0) + nb
+
+    # tracer dans l'historique du stock (comme l'outil admin)
+    DB.setdefault("historique_stock_org", [])
+    DB["historique_stock_org"].insert(0, {
+        "code_org": code_org, "nom_org": s.get("nom", code_org),
+        "p100": p100, "p50": p50, "p20": p20, "p10": p10,
+        "valeur": valeur, "motif": "Fabrication de pions (organisatrice, libre-service)",
+        "par": code_org, "date": datetime.datetime.now().isoformat()
+    })
+    save_data(immediat=True)
+
+    stock_total = poche.get("100", 0) * 100 + poche.get("50", 0) * 50 + poche.get("20", 0) * 20 + poche.get("10", 0) * 10
+    return jsonify({"ok": True, "valeur": valeur, "stock_total": stock_total,
+                    "detail": {"p100": p100, "p50": p50, "p20": p20, "p10": p10}})
+
+
 # === GENERATION TICKETS TRIPLE ACTION 75 ===
 @app.route("/api/admin/generer-ta75", methods=["POST"])
 def generer_ta75():
