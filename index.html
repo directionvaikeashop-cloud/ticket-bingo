@@ -1996,16 +1996,6 @@ function buildOrgSpace(){
       <div id="v-result"></div>
     </div>
 
-    <!-- REMBOURSER UN JEU DU TOURNOI -->
-    <div class="card" style="margin-top:14px;background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(220,38,38,.06));border:1px solid rgba(239,68,68,.35)">
-      <div class="ct" style="color:#fca5a5">💸 Rembourser un jeu</div>
-      <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Rend leurs mises aux joueuses pour un jeu (annulation, erreur...). Les pions retournent sur le compte des joueuses, et le montant est retiré de votre poche organisateur. Action tracée.</div>
-      <div id="remb-liste-jeux" style="margin-bottom:10px">
-        <div style="text-align:center;padding:10px;font-size:13px;color:var(--mu)">Chargement de vos jeux...</div>
-      </div>
-      <button class="btn-sm" onclick="chargerJeuxRembours()" style="width:100%;padding:9px;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:8px;cursor:pointer;font-size:13px">🔄 Rafraîchir mes jeux</button>
-      <div id="remb-result" style="margin-top:8px"></div>
-    </div>
     <div class="card" style="margin-top:14px">
       <div class="ct" style="justify-content:space-between">
         <span>🎰 Tirage des boules</span>
@@ -2423,7 +2413,7 @@ function switchOrgTab(n, el){
   document.getElementById("tab-org-"+n).classList.add("active");
   el.classList.add("active");
   if(n==="jouer") chargerAnnonce();
-  if(n==="verif"){loadAlertesBingo();chargerJeuxRembours();}
+  if(n==="verif"){loadAlertesBingo();}
   if(n==="tickets"){loadDocs();loadTickets();chargerPDFsOrganisateur();setTimeout(function(){loadVentesPaiement();loadMesCommandes();},500);startAutoRefreshOrg();}
   if(n==="revendeurs") loadRevendeurs();
   if(n==="pions"){loadSoldesPions();loadCommandesPions();setTimeout(function(){loadPionsPaiement();checkCommandesTicketsPions();loadRetraits();},500);}
@@ -2825,6 +2815,35 @@ function badgeFeuilles(etat, pdfUrl){
   return `<div style="margin-top:8px;font-size:11px;color:var(--mu)">📊 ${e.vendues} feuilles vendues</div>`;
 }
 
+// Affiche le bouton Supprimer SEULEMENT si toutes les feuilles sont vendues.
+// Sinon, un message grisé explique pourquoi la suppression est bloquée.
+function blocSupprPdf(etat, pdfUrl){
+  const e = etat.get(pdfUrl);
+  // total connu et feuilles restantes > 0 → on bloque, on explique
+  if(e && e.total>0){
+    const reste = Math.max(0, e.total - e.vendues);
+    if(reste > 0){
+      return `<div style="margin-top:8px;font-size:11px;color:#94a3b8;background:rgba(148,163,184,.1);border:0.5px dashed rgba(148,163,184,.35);border-radius:6px;padding:8px">🔒 Suppression possible quand les <strong>${reste}</strong> feuille(s) restante(s) seront vendues.</div>`;
+    }
+  }
+  // épuisé (ou pas de total → on autorise) : bouton supprimer
+  return `<button onclick="supprimerPdfTickets('${pdfUrl}')" style="margin-top:8px;padding:9px;width:100%;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🗑️ Supprimer ce PDF</button>`;
+}
+
+async function supprimerPdfTickets(pdfUrl){
+  if(!confirm('Supprimer définitivement ce PDF de tickets ?\n\nIl disparaîtra pour vous ET pour les joueuses. Cette action est définitive.')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-pdf-tickets',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({pdf_url:pdfUrl})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      toast('toast-t','🗑️ PDF supprimé.');
+      loadDocs();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
 async function loadDocs(){
   try{
     const [rV,rT]=await Promise.all([fetch("/api/ventes",{headers:{"X-Token":TOKEN}}),fetch("/api/tickets",{headers:{"X-Token":TOKEN}})]);
@@ -2858,6 +2877,7 @@ async function loadDocs(){
             <div style="font-size:11px;color:var(--mu);margin-bottom:8px">🔒 Lecture seule — Non imprimable</div>
             ${badgeFeuilles(etat, v.pdf_url)}
             <button onclick="ouvrirPDFJoueur('${v.pdf_url}','${USER_NOM}','${docId}')" style="padding:10px 20px;background:var(--ac);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;width:100%;margin-top:8px">🎮 Ouvrir et jouer</button>
+            ${blocSupprPdf(etat, v.pdf_url)}
           </div>`:""}
       </div>`;
     }).join("");
