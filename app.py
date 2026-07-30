@@ -867,17 +867,11 @@ def verifier_soldes_negatifs():
 # 0% sur especes (cash)
 # ============================================
 def calculer_frais_service(montant, mode_paiement):
-    """Retourne le montant des frais de service selon le mode de paiement."""
-    try:
-        montant = float(montant)
-    except (ValueError, TypeError):
-        montant = 0
-    mode = str(mode_paiement or "").lower()
-    # Especes / cash = 0% de frais
-    if any(x in mode for x in ["espece", "espèce", "cash", "liquide", "comptant"]):
-        return 0
-    # Tout le reste (carte, virement, deblock, ccp, bt) = 5%
-    return round(montant * 0.05)
+    """Retourne le montant des frais de service selon le mode de paiement.
+    NOUVEAU MODELE (30/07/2026) : loyer fixe 35 000 F/mois pour les organisatrices,
+    donc PLUS AUCUN frais de service sur les paiements (carte, virement, CCP,
+    Deblock, especes). La fonction retourne toujours 0."""
+    return 0
 
 def gen_code(n=8):
     # Alphabet SANS caracteres ambigus (0/O, 1/I/L bannis) pour eviter les
@@ -3052,8 +3046,8 @@ def crediter_pions():
     if "transactions_pions" not in DB:
         DB["transactions_pions"] = []
     
-    # Prendre 5% commission
-    commission = round(prix * 0.05)
+    # Nouveau modele (loyer fixe) : plus de commission
+    commission = 0
     
     DB["pions"][code_joueur] = DB["pions"].get(code_joueur, 0) + nb_pions
     DB["transactions_pions"].append({
@@ -4052,7 +4046,7 @@ def _deduire_valeur_pion(montant, nb_pions, valeur_meta):
     if valeur_meta and str(valeur_meta) in ["20", "50", "100"]:
         return str(valeur_meta)
     if nb_pions > 0:
-        approx = (montant * 0.95) / nb_pions  # frais de service carte 5%
+        approx = montant / nb_pions  # plus de frais (nouveau modele loyer fixe)
         return str(min([20, 50, 100], key=lambda v: abs(v - approx)))
     return "100"
 
@@ -4170,10 +4164,8 @@ def stripe_crediter():
             DB["pions_joueurs"] = {}
         if code not in DB["pions_joueurs"]:
             DB["pions_joueurs"][code] = {}
-        # FRAIS DE SERVICE 5% — DÉDUITS ET AFFICHÉS AU CLIENT (rien n'est complété)
-        # Le client paie le montant, 5% de frais de service sont déduits,
-        # et il reçoit la valeur en pions qui correspond réellement à ce qu'il a payé net.
-        frais_service = round(montant * 0.05)
+        # NOUVEAU MODELE (loyer fixe) : plus de frais de service
+        frais_service = 0
         montant_net = montant - frais_service
         pions_credites = max(1, montant_net // int(valeur))
 
@@ -5198,6 +5190,62 @@ def reactiver_mon_code():
     return page("✅ Code réactivé", corps, "#059669")
 
 
+@app.route("/api/org/supprimer-commande-tickets", methods=["POST"])
+def org_supprimer_commande_tickets():
+    """ORGANISATRICE — Supprime une commande de tickets en attente (quand la vente
+    a ete fermee avant l'attribution des fiches). Les pions du joueur ayant ete
+    debites au moment de la commande, ils lui sont INTEGRALEMENT REMBOURSES
+    (partie reelle dans sa poche, partie bonus dans son bonus)."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Connectez-vous d'abord"}), 403
+
+    d = request.json or {}
+    commande_id = (d.get("commande_id", "") or "").strip()
+    code_org = (s.get("code", "") or "").upper()
+    if not commande_id:
+        return jsonify({"ok": False, "msg": "Commande non précisée"}), 400
+
+    trouvee = None
+    for c in DB.get("commandes_tickets_pions", []):
+        if c.get("id") == commande_id:
+            if (c.get("code_org", "") or "").upper() != code_org and not s.get("admin"):
+                return jsonify({"ok": False, "msg": "Cette commande n'est pas la vôtre"}), 403
+            if c.get("statut") == "validee":
+                return jsonify({"ok": False, "msg": "Commande déjà validée — impossible de supprimer"}), 400
+            trouvee = c
+            break
+
+    if not trouvee:
+        return jsonify({"ok": False, "msg": "Commande introuvable"}), 404
+
+    code_joueur = (trouvee.get("code_joueur", "") or "").upper()
+    paye_reel = int(trouvee.get("paye_reel", 0) or 0)
+    paye_bonus = int(trouvee.get("paye_bonus", 0) or 0)
+
+    # REMBOURSER les pions au joueur (reel + bonus)
+    if paye_reel > 0:
+        poche = DB.setdefault("pions_joueurs", {}).setdefault(code_joueur, {})
+        _crediter_pions_montant(poche, paye_reel)
+        DB["pions_joueurs"][code_joueur] = poche
+    if paye_bonus > 0:
+        poche_b = DB.setdefault("pions_bonus_joueurs", {}).setdefault(code_joueur, {})
+        _crediter_pions_montant(poche_b, paye_bonus)
+        DB["pions_bonus_joueurs"][code_joueur] = poche_b
+
+    # archiver puis retirer
+    DB.setdefault("commandes_tickets_supprimees", []).insert(0, {
+        **trouvee, "supprimee_le": datetime.datetime.now().isoformat(),
+        "supprimee_par": code_org, "pions_rembourses": paye_reel + paye_bonus
+    })
+    DB["commandes_tickets_pions"] = [c for c in DB.get("commandes_tickets_pions", []) if c.get("id") != commande_id]
+    save_data(immediat=True)
+    return jsonify({"ok": True, "rembourse": paye_reel + paye_bonus, "code_joueur": code_joueur})
+
+
 @app.route("/api/org/supprimer-commande-pions", methods=["POST"])
 def org_supprimer_commande_pions():
     """ORGANISATRICE — Supprime une commande de pions en attente (quand la vente
@@ -5770,8 +5818,8 @@ def stripe_checkout_pions():
     if not code or valeur_pion not in [20, 50, 100] or montant < 500:
         return jsonify({"ok": False, "msg": "Données invalides"}), 400
 
-    # Calcul COTE SERVEUR (anti-triche) : frais de service CARTE = 5%, pions sur la valeur restante
-    commission = round(montant * 0.05)
+    # Nouveau modele (loyer fixe) : plus de frais de service carte
+    commission = 0
     nb_pions = int((montant - commission) // valeur_pion)
     if nb_pions <= 0:
         return jsonify({"ok": False, "msg": "Montant trop faible pour cette valeur de pion"}), 400
@@ -15614,12 +15662,8 @@ def demander_retrait():
     if montant > solde_total:
         return jsonify({"ok": False, "msg": f"Solde insuffisant — vous avez {solde_total} XPF de pions"}), 400
     
-    # Calcul des frais : Cash = 0%, Virement = 5%
-    mode_bas = mode.lower()
-    if "virement" in mode_bas or "ccp" in mode_bas or "bt" in mode_bas or "deblock" in mode_bas:
-        frais = round(montant * 0.05)
-    else:
-        frais = 0  # Cash
+    # Nouveau modele (loyer fixe) : plus aucun frais, quel que soit le mode
+    frais = 0
     montant_net = montant - frais
     
     if "demandes_retrait" not in DB:
@@ -16398,8 +16442,8 @@ def stripe_auto_credit():
                 if not code or montant <= 0:
                     continue
                 
-                # Calcul 5% de frais de service
-                frais = round(montant * 0.05)
+                # Nouveau modele (loyer fixe) : plus de frais de service
+                frais = 0
                 net = montant - frais
                 pions_credites = max(1, net // int(valeur))
                 valeur_str = str(valeur)
