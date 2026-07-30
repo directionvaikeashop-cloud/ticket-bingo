@@ -3873,6 +3873,7 @@ async function loadAlertesBingo(){
         <button onclick="validerBingo('${a.id}','valide')" style="flex:1;padding:8px;background:rgba(16,185,129,.2);color:#34d399;border:0.5px solid rgba(16,185,129,.4);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">✅ Valider</button>
         <button onclick="validerBingo('${a.id}','refuse')" style="flex:1;padding:8px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:13px">❌ Refuser</button>
       </div>`:''}
+      <button onclick="supprimerAlerteBingo('${a.id}')" style="width:100%;padding:7px;margin-top:8px;background:rgba(148,163,184,.12);color:#94a3b8;border:0.5px solid rgba(148,163,184,.35);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">🗑️ Supprimer cette vérification</button>
     </div>`).join('');
   }catch(e){}
 }
@@ -3888,6 +3889,36 @@ async function validerBingo(alerteId, statut){
       toast('toast-t','🏆 Gagnant validé ! Les PDF entièrement vendus sont nettoyés ; ceux avec des feuilles invendues sont conservés.');
     }
   }catch(e){}
+}
+
+async function supprimerAlerteBingo(alerteId){
+  if(!confirm('Supprimer cette vérification bingo de la liste ?')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-alerte-bingo',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({alerte_id:alerteId})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      toast('toast-t','🗑️ Vérification supprimée');
+      loadAlertesBingo();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
+}
+
+async function supprimerCommandePions(commandeId){
+  if(!confirm('Supprimer cette demande de pions ?\n\n⚠️ Si la joueuse a déjà payé, pensez à la rembourser — les pions ne lui seront pas crédités.')) return;
+  try{
+    const r = await fetch('/api/org/supprimer-commande-pions',{method:'POST',headers:{'Content-Type':'application/json','X-Token':TOKEN},body:JSON.stringify({commande_id:commandeId})});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      var m = (d.montant_paye||0).toLocaleString('fr-FR');
+      toast('toast-t','🗑️ Demande supprimée. Si la joueuse a payé '+m+' XPF, pensez à la rembourser.');
+      if(typeof checkPionsEnAttente==='function') checkPionsEnAttente();
+      if(typeof loadPionsPaiement==='function') loadPionsPaiement();
+    } else {
+      alert(d.msg || 'Erreur');
+    }
+  }catch(e){ alert('Erreur réseau'); }
 }
 
 async function effacerTicketsNonValides(){
@@ -4407,6 +4438,11 @@ function checkPionsEnAttente(){
           btn.textContent = '✅ Valider et créditer les pions';
           (function(cid){ btn.onclick = function(){ validerCommandePions(cid); setTimeout(checkPionsEnAttente,1000); }; })(c.id);
           div.appendChild(btn);
+          var btnSup = document.createElement('button');
+          btnSup.style.cssText = 'width:100%;padding:7px;margin-top:6px;background:rgba(239,68,68,.15);color:#fca5a5;border:0.5px solid rgba(239,68,68,.4);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600';
+          btnSup.textContent = '🗑️ Supprimer cette demande';
+          (function(cid){ btnSup.onclick = function(){ supprimerCommandePions(cid); }; })(c.id);
+          div.appendChild(btnSup);
           liste.appendChild(div);
         });
       }
