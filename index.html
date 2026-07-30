@@ -700,8 +700,8 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
         </div>
         <div class="lbl" style="margin-bottom:4px">💳 Mode de paiement</div>
         <select id="b-mode-paiement" style="margin-bottom:10px">
-          <option value="Carte">Carte (5% de frais)</option>
-          <option value="Virement">Virement (5% de frais)</option>
+          <option value="Carte">Carte</option>
+          <option value="Virement">Virement</option>
           <option value="Espèces">Espèces (0% de frais)</option>
         </select>
         <div class="lbl" style="margin-bottom:8px">📎 Document sécurisé (optionnel)</div>
@@ -2313,7 +2313,7 @@ function buildOrgSpace(){
         <option value="Virement BT">Virement BT - Banque de Tahiti (entre vous — 0%)</option>
         <option value="Deblock">Deblock (entre vous — 0%)</option>
       </select>
-      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte avec 5%, le joueur commande lui-même ses pions dans son espace.</div>
+      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">💡 Pour un paiement par carte, le joueur commande lui-même ses pions dans son espace.</div>
       <button onclick="donnerPionsJoueur()" style="width:100%;padding:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🎁 Donner les pions</button>
       <button onclick="voirMonCircuit()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px">📋 Voir mon circuit de traçage</button>
       <button onclick="voirMonReleveFinancier()" style="width:100%;padding:10px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-top:8px">💰 Mon relevé financier (entrées / dépenses)</button>
@@ -4132,7 +4132,7 @@ if(urlParams.get('paiement') === 'pions_ok'){
   setTimeout(() => {
     const msg = document.createElement('div');
     msg.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3);text-align:center;max-width:90%';
-    msg.innerHTML = '✅ Paiement reçu — merci !<br><span style="font-size:13px;font-weight:400">Frais de service 5% inclus<br>Vos pions sont crédités 🪙</span>';
+    msg.innerHTML = '✅ Paiement reçu — merci !<br><span style="font-size:13px;font-weight:400">Vos pions sont crédités 🪙</span>';
     document.body.appendChild(msg);
     setTimeout(() => msg.remove(), 8000);
   }, 1000);
@@ -5356,11 +5356,10 @@ function majCalculRetrait(){
     document.getElementById('retrait-calcul').innerHTML = 'Entre un montant (minimum 20 XPF).';
     return;
   }
-  var frais = (mode === 'Virement') ? Math.round(montant * 0.05) : 0;
+  var frais = 0;
   var net = montant - frais;
   document.getElementById('retrait-calcul').innerHTML =
     'Montant demandé : <b style="color:#fff">' + montant.toLocaleString() + ' XPF</b><br>' +
-    'Frais (' + (mode === 'Virement' ? '5%' : '0% cash') + ') : <b style="color:#f85149">-' + frais.toLocaleString() + ' XPF</b><br>' +
     'Tu recevras : <b style="color:#3fb950;font-size:15px">' + net.toLocaleString() + ' XPF</b>';
 }
 
@@ -5730,12 +5729,9 @@ function selValeurPionJoueur(val, el){
   calcPionsJoueur();
 }
 
-// Taux de commission : 2% par CARTE, 20% pour les autres modes
+// NOUVEAU MODELE (loyer fixe) : plus aucun frais, quel que soit le mode
 function tauxCommissionPions(mode){
-  var m = (mode || '').toLowerCase();
-  // Espèces (boutique) = 0%, tout paiement électronique (Carte, CCP, Deblock, BT) = 5%
-  if(m.indexOf('espece') >= 0 || m.indexOf('espèce') >= 0 || m.indexOf('cash') >= 0) return 0;
-  return 0.05;
+  return 0;
 }
 
 function calcPionsJoueur(){
@@ -7692,8 +7688,8 @@ if ('serviceWorker' in navigator) {
 
     <div style="font-size:13px;color:#e6edf3;margin-bottom:6px">Mode de retrait</div>
     <select id="retrait-mode" onchange="majCalculRetrait()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#fff;margin-bottom:12px;box-sizing:border-box">
-      <option value="Cash">💵 Cash (0% de frais)</option>
-      <option value="Virement">🏦 Virement (5% de frais)</option>
+      <option value="Cash">💵 Cash</option>
+      <option value="Virement">🏦 Virement</option>
     </select>
 
     <div id="retrait-coords-wrap" style="display:none;margin-bottom:12px">
