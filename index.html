@@ -2073,6 +2073,17 @@ function buildOrgSpace(){
       <div id="surveillance-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">En attente d'activité…</div></div>
     </div>
 
+    <!-- 🏦 GESTIONNAIRE DE COMPTE JOUEUSE -->
+    <div class="card" style="background:linear-gradient(135deg,rgba(16,185,129,.12),rgba(5,150,105,.07));border:1px solid rgba(16,185,129,.35)">
+      <div class="ct" style="color:#34d399">🏦 Vérifier le compte d'une joueuse</div>
+      <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Une joueuse se plaint de son solde ? Tape son code pour voir tout son compte façon banque : solde, entrées, sorties, gains, dettes.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="gest-code" placeholder="Code joueuse (ex: NR5FUW)" style="flex:1;padding:10px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:#fff;font-size:14px;text-transform:uppercase"/>
+        <button onclick="ouvrirCompteJoueuse()" style="padding:10px 16px;background:#10b981;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;white-space:nowrap">🔍 Ouvrir</button>
+      </div>
+      <div id="gest-result"></div>
+    </div>
+
     <!-- 📮 RÉCLAMATIONS -->
     <div class="card">
       <div class="ct" style="justify-content:space-between"><span>📮 Réclamations<span id="reclamations-badge" style="display:none;background:#dc2626;color:#fff;font-size:11px;padding:2px 8px;border-radius:20px;margin-left:8px"></span></span><button class="btn-sm" onclick="chargerReclamations()">↻</button></div>
@@ -3049,6 +3060,63 @@ async function analyserPageNumeroPDF(page, pageNum){
       carteNumeros[c.num].push({page: pageNum, x: xPct, y: yPct});
     });
   }catch(e){ console.error('analyserPage error:', e); }
+}
+
+// 🏦 GESTIONNAIRE DE COMPTE JOUEUSE (côté organisateur) — vue façon banque
+async function ouvrirCompteJoueuse(){
+  var code = (document.getElementById('gest-code').value || '').trim().toUpperCase();
+  var res = document.getElementById('gest-result');
+  if(!code){ res.innerHTML = '<div style="color:#f87171;font-size:12px">Entre le code de la joueuse.</div>'; return; }
+  res.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement du compte...</div>';
+  try{
+    var r = await fetch('/api/releve-complet/' + encodeURIComponent(code), {headers:{'X-Token':TOKEN}});
+    var d = await r.json();
+    if(!d.ok){ res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Compte introuvable') + '</div>'; return; }
+    var rz = d.resume || {};
+    var solde = d.solde_actuel || 0;
+    var soldeColor = solde < 0 ? '#f87171' : (solde === 0 ? '#fbbf24' : '#34d399');
+    var soldeLabel = solde < 0 ? '🔴 COMPTE À DÉCOUVERT' : (solde === 0 ? 'Solde vide' : '✅ Solde disponible');
+    var html = '<div style="background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:12px">';
+    // Bandeau solde
+    html += '<div style="text-align:center;padding:12px;background:rgba(255,255,255,.04);border-radius:8px;margin-bottom:10px">';
+    html += '<div style="font-size:11px;color:var(--mu)">' + (d.code || code) + '</div>';
+    html += '<div style="font-size:24px;font-weight:800;color:' + soldeColor + '">' + solde.toLocaleString() + ' XPF</div>';
+    html += '<div style="font-size:11px;color:' + soldeColor + ';font-weight:700">' + soldeLabel + '</div>';
+    html += '</div>';
+    // Résumé chiffré
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;margin-bottom:10px">';
+    html += '<div style="padding:6px 8px;background:rgba(52,211,153,.1);border-radius:6px">Achats/reçus : <b style="color:#34d399">+' + (rz.achats_payes||0) + '</b></div>';
+    html += '<div style="padding:6px 8px;background:rgba(52,211,153,.1);border-radius:6px">Gains : <b style="color:#34d399">+' + (rz.gains||0) + '</b></div>';
+    html += '<div style="padding:6px 8px;background:rgba(239,68,68,.1);border-radius:6px">Dépensé : <b style="color:#f87171">-' + (rz.depenses||0) + '</b></div>';
+    html += '<div style="padding:6px 8px;background:rgba(239,68,68,.1);border-radius:6px">Corrections : <b style="color:#f87171">-' + (rz.corrections||0) + '</b></div>';
+    html += '</div>';
+    // Alerte découvert
+    if(solde < 0){
+      html += '<div style="padding:8px 10px;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.5);border-radius:6px;margin-bottom:10px">';
+      html += '<div style="font-size:12px;font-weight:800;color:#f87171">⚠️ Cette joueuse ne peut pas jouer</div>';
+      html += '<div style="font-size:11px;color:#fca5a5;margin-top:2px">Son compte est à découvert. Elle doit régulariser auprès de l\'administration avant de rejouer.</div>';
+      html += '</div>';
+    }
+    // Mouvements détaillés
+    if(d.lignes && d.lignes.length){
+      html += '<div style="font-size:11px;color:var(--mu);margin-bottom:4px">Derniers mouvements :</div>';
+      html += '<div style="max-height:220px;overflow-y:auto">';
+      d.lignes.slice().reverse().forEach(function(l){
+        var m = l.montant || 0;
+        var c = m > 0 ? '#34d399' : (m < 0 ? '#f87171' : 'var(--mu)');
+        var signe = m > 0 ? '+' : '';
+        html += '<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">';
+        html += '<div><span style="color:var(--mu)">' + (l.date||'') + '</span> · ' + (l.type||'') + ' <span style="color:var(--mu)">' + (l.detail||'') + '</span></div>';
+        html += '<div style="color:' + c + ';font-weight:700;white-space:nowrap">' + signe + m + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    res.innerHTML = html;
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau. Réessaie.</div>';
+  }
 }
 
 // 👁️ SURVEILLANCE EN DIRECT (côté organisateur)
