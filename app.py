@@ -20353,6 +20353,8 @@ def activite_ping():
             a["dernier_pointage"] = maintenant
         if d.get("jeu"):
             a["jeu"] = d.get("jeu")
+        if d.get("serie"):
+            a["serie"] = d.get("serie")
         if "nb_coches" in d:
             try:
                 a["nb_coches"] = int(d.get("nb_coches") or 0)
@@ -20407,6 +20409,19 @@ def activite_joueurs():
                 secs = (maintenant - datetime.datetime.fromisoformat(a.get("derniere_activite", ""))).total_seconds()
             except Exception:
                 secs = 99999
+            # Jeu annonce par l'organisateur de cette joueuse (pour detecter un decalage)
+            jeu_joueuse = a.get("jeu", "")
+            jeu_annonce = ""
+            for org in orgs_de.get(code, set()):
+                for ann in DB.get("annonces_jeux", []):
+                    if ann.get("code_org") == org:
+                        jeu_annonce = ann.get("jeu", "")
+                        break
+                if jeu_annonce:
+                    break
+            # Decalage = la joueuse a ouvert un PDF d'un AUTRE jeu que celui annonce
+            decalage_jeu = bool(jeu_joueuse and jeu_annonce and
+                                jeu_joueuse.strip().upper() != jeu_annonce.strip().upper())
             out.append({
                 "code": code,
                 "nom": nom_de.get(code, ""),
@@ -20414,7 +20429,10 @@ def activite_joueurs():
                 "pdf_ouvert": a.get("pdf_ouvert", ""),
                 "dernier_pointage": a.get("dernier_pointage", ""),
                 "nb_coches": a.get("nb_coches", 0),
-                "jeu": a.get("jeu", ""),
+                "jeu": jeu_joueuse,
+                "serie": a.get("serie", ""),
+                "jeu_annonce": jeu_annonce,
+                "decalage_jeu": decalage_jeu,
                 "en_train_de_jouer": (secs <= 35),
                 "secondes_inactif": int(secs) if secs < 99999 else None,
                 "signal": a.get("signal", ""),
@@ -20424,12 +20442,14 @@ def activite_joueurs():
 
     def _priorite(x):
         sig = x.get("signal", "")
-        if sig.startswith("souci"):
-            rang = 0  # les soucis tout en haut
-        elif sig == "prete":
+        if x.get("decalage_jeu"):
+            rang = 0  # decalage de jeu = alerte prioritaire tout en haut
+        elif sig.startswith("souci"):
             rang = 1
-        else:
+        elif sig == "prete":
             rang = 2
+        else:
+            rang = 3
         return (rang, x["secondes_inactif"] if x["secondes_inactif"] is not None else 99999)
     out.sort(key=_priorite)
     return jsonify(out)
