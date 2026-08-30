@@ -3521,6 +3521,12 @@ def commander_ticket_pions():
     # neutralise peut consulter son releve, mais ne peut plus jouer.
     if code_joueur in set((x or "").upper() for x in DB.get("comptes_neutralises", [])):
         return jsonify({"ok": False, "msg": "Ce compte est en lecture seule et ne peut plus participer aux jeux."}), 403
+    # BLOCAGE COMPTE A DECOUVERT : un solde negatif (dette / avance especes non remboursee)
+    # empeche de jouer tant que le compte n'est pas regularise.
+    _pj_decouvert = DB.get("pions_joueurs", {}).get(code_joueur, {})
+    _solde_decouvert = _pj_decouvert.get("100", 0) * 100 + _pj_decouvert.get("50", 0) * 50 + _pj_decouvert.get("20", 0) * 20 + _pj_decouvert.get("10", 0) * 10
+    if _solde_decouvert < 0:
+        return jsonify({"ok": False, "msg": f"🔴 Compte à découvert ({_solde_decouvert} XPF). Vous devez régulariser votre compte auprès de l'administration avant de pouvoir rejouer."}), 403
     jeu = d.get("jeu", "")
     prix = int(d.get("prix", 0))
     nb_tickets = int(d.get("nb_tickets", 1))
@@ -13259,6 +13265,53 @@ def dettes_joueuses():
         html += "<p style='color:#3fb950'>&#9989; Aucune dette en cours.</p>"
     html += "</body></html>"
     return html
+
+
+@app.route("/comptes-decouvert")
+def comptes_decouvert():
+    """ADMIN — Liste tous les comptes joueuses a DECOUVERT (solde negatif).
+    Ces comptes ne peuvent plus jouer tant qu'ils ne sont pas regularises.
+    ?cle=ADMIN"""
+    global DB
+    DB = load_data()
+    _cle = (request.args.get("cle", "") or "").strip().upper()
+    _info = DB.get("codes", {}).get(_cle)
+    if not (_info and _info.get("admin")):
+        return Response("Acces reserve.", status=403, mimetype="text/plain; charset=utf-8")
+
+    # Noms depuis les tickets
+    noms = {}
+    for t in DB.get("tickets", []):
+        if isinstance(t, dict) and t.get("code_acheteur") and t.get("acheteur"):
+            noms[(t.get("code_acheteur") or "").upper()] = t.get("acheteur")
+
+    def solde(p):
+        return p.get("100", 0) * 100 + p.get("50", 0) * 50 + p.get("20", 0) * 20 + p.get("10", 0) * 10
+
+    decouverts = []
+    for code, p in DB.get("pions_joueurs", {}).items():
+        s = solde(p)
+        if s < 0:
+            decouverts.append((code, noms.get(code, ""), s))
+    decouverts.sort(key=lambda x: x[2])  # les plus negatifs en premier
+    total = sum(s for _, _, s in decouverts)
+
+    html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Comptes a decouvert</title><style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:20px;max-width:720px;margin:0 auto}h1{color:#f85149}table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}th{background:#161b22;border:1px solid #30363d;padding:9px;text-align:left;color:#8b949e}td{border:1px solid #30363d;padding:8px}a{color:#58a6ff}</style></head><body>"
+    html += "<h1>&#128308; Comptes a decouvert (solde negatif)</h1>"
+    html += "<p style='color:#8b949e;font-size:13px'>Ces comptes ne peuvent PAS jouer tant qu'ils ne sont pas regularises. Le blocage est automatique a l'achat de tickets.</p>"
+    html += "<div style='background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:12px'>TOTAL A DECOUVERT : <b style='font-size:18px;color:#f85149'>" + format(total, ",") + " XPF</b> &middot; " + str(len(decouverts)) + " compte(s)</div>"
+    if decouverts:
+        html += "<table><tr><th>Code</th><th>Nom</th><th style='text-align:right'>Solde</th></tr>"
+        for code, nom, s in decouverts:
+            html += "<tr><td style='font-family:monospace;color:#a78bfa'><b>" + code + "</b></td>"
+            html += "<td style='font-size:12px;color:#94a3b8'>" + (nom or "-") + "</td>"
+            html += "<td style='text-align:right;font-weight:bold;color:#f85149'>" + format(s, ",") + " F</td></tr>"
+        html += "</table>"
+        html += "<p style='color:#8b949e;font-size:12px;margin-top:14px'>Pour regulariser un compte : enregistre la dette avec /ajouter-dette-joueuse, ou remets le solde a 0 quand le remboursement est fait.</p>"
+    else:
+        html += "<p style='color:#3fb950'>&#9989; Aucun compte a decouvert. Tout est en ordre.</p>"
+    html += "</body></html>"
+    return Response(html, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/verif-comptable-org")
