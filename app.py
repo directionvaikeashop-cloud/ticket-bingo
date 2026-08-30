@@ -2586,163 +2586,6 @@ def donner_pions():
     save_data(immediat=True)
     return jsonify({"ok": True})
 
-@app.route("/api/org/crediter-paiement-admin", methods=["POST"])
-def crediter_paiement_admin():
-    """ORGANISATEUR — Credite des pions a une joueuse suite a un paiement recu
-    sur le COMPTE ADMIN (carte / virement / CCP). Ne debite PAS le stock de
-    l'organisateur. Enregistre une DETTE : l'admin doit ce montant a l'organisateur
-    (car l'argent est arrive chez l'admin, mais c'est l'org qui paie les gains)."""
-    global DB
-    DB = load_data()
-    token = request.headers.get("X-Token", "")
-    s = verif_session(token)
-    if not s:
-        return jsonify({"ok": False, "msg": "Acces refuse"}), 403
-    code_org = s["code"]
-    # RESERVE A HEINI (CPFRD66H) : seul cet organisateur peut crediter des
-    # paiements recus sur le compte admin.
-    if code_org != "CPFRD66H":
-        return jsonify({"ok": False, "msg": "Outil non disponible pour ce compte."}), 403
-    d = request.json or {}
-    code_joueur = (d.get("code_joueur", "") or "").upper().strip()
-    montant = int(d.get("montant", 0) or 0)
-    mode_paiement = str(d.get("mode_paiement", "Carte")).strip()
-    reference = str(d.get("reference", "")).strip()
-    if not code_joueur or montant <= 0:
-        return jsonify({"ok": False, "msg": "Code joueuse et montant (>0) obligatoires"}), 400
-    if montant % 10 != 0:
-        return jsonify({"ok": False, "msg": "Le montant doit etre un multiple de 10 XPF"}), 400
-
-    # Crediter la joueuse (decomposition 100/50/20/10)
-    DB.setdefault("pions_joueurs", {})
-    DB["pions_joueurs"].setdefault(code_joueur, {})
-    reste = montant
-    n100 = reste // 100; reste -= n100 * 100
-    n50 = reste // 50; reste -= n50 * 50
-    n20 = reste // 20; reste -= n20 * 20
-    n10 = reste // 10; reste -= n10 * 10
-    pj = DB["pions_joueurs"][code_joueur]
-    if n100: pj["100"] = pj.get("100", 0) + n100
-    if n50: pj["50"] = pj.get("50", 0) + n50
-    if n20: pj["20"] = pj.get("20", 0) + n20
-    if n10: pj["10"] = pj.get("10", 0) + n10
-
-    now = datetime.datetime.now().isoformat()
-
-    # Tracer dans le releve joueuse (comme un achat de pions)
-    DB.setdefault("transactions_joueur_org", [])
-    DB["transactions_joueur_org"].insert(0, {
-        "id": secrets.token_hex(4).upper(),
-        "code_joueur": code_joueur,
-        "code_org": code_org,
-        "nom_org": s.get("nom", code_org),
-        "valeur_pion": 0,
-        "nb_pions": 0,
-        "montant_total": montant,
-        "mode_paiement": mode_paiement + (" — paiement compte admin" if mode_paiement else "paiement compte admin"),
-        "reference": reference,
-        "frais_service": 0,
-        "source": "paiement_compte_admin",
-        "date": now
-    })
-
-    # Enregistrer la DETTE : l'admin doit ce montant a l'organisateur
-    DB.setdefault("dettes_admin_org", [])
-    DB["dettes_admin_org"].insert(0, {
-        "id": secrets.token_hex(4).upper(),
-        "code_org": code_org,
-        "nom_org": s.get("nom", code_org),
-        "code_joueur": code_joueur,
-        "montant": montant,
-        "mode_paiement": mode_paiement,
-        "reference": reference,
-        "statut": "du",           # "du" = l'admin doit encore ; "regle" = paye
-        "ip": _get_client_ip() if "_get_client_ip" in globals() else "",
-        "date": now
-    })
-
-    save_data(immediat=True)
-    solde = pj.get("100", 0)*100 + pj.get("50", 0)*50 + pj.get("20", 0)*20 + pj.get("10", 0)*10
-    return jsonify({
-        "ok": True,
-        "code_joueur": code_joueur,
-        "montant_credite": montant,
-        "nouveau_solde": solde,
-        "mode_paiement": mode_paiement
-    })
-
-@app.route("/api/admin/dettes-organisateurs", methods=["GET"])
-def dettes_organisateurs():
-    """ADMIN — Bilan de ce que l'admin doit a chaque organisateur (paiements
-    recus sur le compte admin, a reverser). Regroupe par organisateur."""
-    global DB
-    DB = load_data()
-    token = request.headers.get("X-Token", "")
-    s = verif_session(token)
-    if not s or not s.get("admin"):
-        return jsonify({"ok": False, "msg": "Acces admin requis"}), 403
-
-    # Regrouper par organisateur les dettes "du"
-    par_org = {}
-    for det in DB.get("dettes_admin_org", []):
-        if det.get("statut") != "du":
-            continue
-        org = det.get("code_org", "")
-        if org not in par_org:
-            par_org[org] = {
-                "code_org": org,
-                "nom_org": det.get("nom_org", org),
-                "total": 0,
-                "operations": []
-            }
-        par_org[org]["total"] += int(det.get("montant", 0) or 0)
-        par_org[org]["operations"].append({
-            "id": det.get("id", ""),
-            "date": det.get("date", "")[:16].replace("T", " "),
-            "code_joueur": det.get("code_joueur", ""),
-            "montant": det.get("montant", 0),
-            "mode_paiement": det.get("mode_paiement", ""),
-            "reference": det.get("reference", "")
-        })
-
-    result = sorted(par_org.values(), key=lambda x: -x["total"])
-    total_general = sum(o["total"] for o in result)
-    return jsonify({
-        "ok": True,
-        "total_general": total_general,
-        "organisateurs": result
-    })
-
-@app.route("/api/admin/regler-dette-org", methods=["POST"])
-def regler_dette_org():
-    """ADMIN — Marque comme reglees toutes les dettes envers un organisateur
-    (l'admin a reverse l'argent reel). Ou une seule operation via son id."""
-    global DB
-    DB = load_data()
-    token = request.headers.get("X-Token", "")
-    s = verif_session(token)
-    if not s or not s.get("admin"):
-        return jsonify({"ok": False, "msg": "Acces admin requis"}), 403
-    d = request.json or {}
-    code_org = (d.get("code_org", "") or "").upper().strip()
-    op_id = (d.get("id", "") or "").strip()
-    now = datetime.datetime.now().isoformat()
-    nb = 0
-    total = 0
-    for det in DB.get("dettes_admin_org", []):
-        if det.get("statut") != "du":
-            continue
-        match = (op_id and det.get("id") == op_id) or (code_org and not op_id and det.get("code_org") == code_org)
-        if match:
-            det["statut"] = "regle"
-            det["date_reglement"] = now
-            det["regle_par"] = s.get("code", "ADMIN")
-            nb += 1
-            total += int(det.get("montant", 0) or 0)
-    if nb:
-        save_data(immediat=True)
-    return jsonify({"ok": True, "nb_reglees": nb, "total_regle": total})
-
 @app.route("/api/admin/reset-donnees", methods=["POST"])
 def reset_donnees_admin():
     """Remet toutes les données à zéro sauf les codes"""
@@ -15964,6 +15807,10 @@ def demander_retrait():
     
     if code_joueur in DB.get("codes_bloques", []):
         return jsonify({"ok": False, "msg": "Ce code a été désactivé"}), 403
+    # REGLE : les retraits d'especes se font UNIQUEMENT LE VENDREDI.
+    # (0=lundi ... 4=vendredi ... 6=dimanche)
+    if datetime.datetime.now().weekday() != 4:
+        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI. Reviens vendredi pour faire ta demande."}), 400
     if not code_joueur or montant < 20:
         return jsonify({"ok": False, "msg": "Montant invalide (minimum 20 XPF)"}), 400
     
@@ -16083,6 +15930,97 @@ def valider_retrait():
     
     return jsonify({"ok": False, "msg": "Demande introuvable"}), 404
 
+
+@app.route("/api/retrait/rapport-admin", methods=["POST"])
+def retrait_rapport_admin():
+    """ORGANISATEUR — Envoie a l'administration le rapport des retraits d'especes
+    valides (du vendredi). L'admin voit ainsi tout ce qui est sorti en especes."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Acces refuse"}), 403
+    code_org = s["code"]
+    # Rassembler les retraits valides de cet organisateur PAS encore rapportes
+    retraits = []
+    total = 0
+    for r in DB.get("demandes_retrait", []):
+        if r.get("code_org") == code_org and r.get("statut") == "validee" and not r.get("rapporte_admin"):
+            retraits.append({
+                "id": r.get("id"),
+                "code_joueur": r.get("code_joueur"),
+                "montant": r.get("montant_demande"),
+                "mode": r.get("mode", "Cash"),
+                "date_validation": r.get("date_validation", "")[:16].replace("T", " ")
+            })
+            total += int(r.get("montant_demande", 0) or 0)
+    if not retraits:
+        return jsonify({"ok": False, "msg": "Aucun retrait validé à rapporter."}), 400
+    # Creer le rapport
+    now = datetime.datetime.now().isoformat()
+    rapport = {
+        "id": "RAP" + datetime.datetime.now().strftime("%Y%m%d%H%M%S"),
+        "code_org": code_org,
+        "nom_org": s.get("nom", code_org),
+        "nb_retraits": len(retraits),
+        "total": total,
+        "retraits": retraits,
+        "date": now
+    }
+    DB.setdefault("rapports_retraits", []).insert(0, rapport)
+    # Marquer les retraits comme rapportes
+    for r in DB.get("demandes_retrait", []):
+        if r.get("code_org") == code_org and r.get("statut") == "validee" and not r.get("rapporte_admin"):
+            r["rapporte_admin"] = True
+            r["rapport_id"] = rapport["id"]
+    save_data(immediat=True)
+
+    # ENVOI DU RAPPORT PAR EMAIL A L'ADMINISTRATION
+    try:
+        if SENDGRID_API_KEY:
+            lignes_html = ""
+            for rt in retraits:
+                lignes_html += ("<tr><td style='padding:6px;border:1px solid #ddd'>" + str(rt.get("date_validation", ""))
+                                + "</td><td style='padding:6px;border:1px solid #ddd'>" + str(rt.get("code_joueur", ""))
+                                + "</td><td style='padding:6px;border:1px solid #ddd'>" + str(rt.get("mode", ""))
+                                + "</td><td style='padding:6px;border:1px solid #ddd;text-align:right;font-weight:bold'>"
+                                + format(int(rt.get("montant", 0) or 0), ",") + " XPF</td></tr>")
+            corps = ("<div style='font-family:sans-serif;max-width:600px'>"
+                     "<h2 style='color:#0891b2'>💵 Rapport de retraits d'espèces</h2>"
+                     "<p><b>Organisatrice :</b> " + str(rapport["nom_org"]) + " (" + str(code_org) + ")<br>"
+                     "<b>Date du rapport :</b> " + rapport["date"][:16].replace("T", " ") + "<br>"
+                     "<b>Nombre de retraits :</b> " + str(len(retraits)) + "</p>"
+                     "<table style='border-collapse:collapse;width:100%'>"
+                     "<tr style='background:#0891b2;color:#fff'><th style='padding:8px'>Date</th><th style='padding:8px'>Joueuse</th><th style='padding:8px'>Mode</th><th style='padding:8px'>Montant</th></tr>"
+                     + lignes_html +
+                     "<tr style='background:#f0f9ff'><td colspan='3' style='padding:8px;text-align:right;font-weight:bold'>TOTAL</td>"
+                     "<td style='padding:8px;text-align:right;font-weight:bold;color:#0891b2'>" + format(total, ",") + " XPF</td></tr>"
+                     "</table>"
+                     "<p style='color:#888;font-size:12px;margin-top:16px'>Rapport généré automatiquement par Ticket Bingo.</p></div>")
+            message_mail = Mail(
+                from_email=(FROM_EMAIL, FROM_NAME),
+                to_emails="directionvaikeashop@gmail.com",
+                subject="💵 Rapport retraits espèces — " + str(rapport["nom_org"]) + " (" + format(total, ",") + " XPF)",
+                html_content=corps)
+            SendGridAPIClient(SENDGRID_API_KEY).send(message_mail)
+    except Exception as _e_mail:
+        pass  # l'email est un plus ; le rapport est deja enregistre dans l'app
+
+    return jsonify({"ok": True, "rapport_id": rapport["id"], "nb_retraits": len(retraits), "total": total})
+
+@app.route("/api/admin/rapports-retraits")
+def admin_rapports_retraits():
+    """ADMIN — Voir tous les rapports de retraits d'especes envoyes par les organisateurs."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s or not s.get("admin"):
+        return jsonify({"ok": False, "msg": "Acces admin requis"}), 403
+    rapports = DB.get("rapports_retraits", [])
+    total_general = sum(int(r.get("total", 0) or 0) for r in rapports)
+    return jsonify({"ok": True, "total_general": total_general, "rapports": rapports})
 
 @app.route("/api/retrait/refuser", methods=["POST"])
 def refuser_retrait():
