@@ -6909,11 +6909,22 @@ def releve_code(code):
     # Commandes pions joueurs
     for cpo in DB.get("commandes_pions_joueurs", []):
         if isinstance(cpo, dict) and cpo.get("code_joueur") == code:
+            # Le montant en pions = nb_pions x valeur_pion (les champs reels de la base).
+            _nb = int(cpo.get("nb_pions", 0) or 0)
+            _val = int(cpo.get("valeur_pion", 0) or 0)
+            _montant_pions = _nb * _val
+            if not _montant_pions:
+                _montant_pions = int(cpo.get("montant_total_xpf", 0) or cpo.get("montant_net", 0) or 0)
+            _statut = cpo.get("statut", "")
+            _entree = _montant_pions if _statut == "validee" else 0
+            _desc = str(_nb) + " pions x " + str(_val) + " XPF"
+            if _statut and _statut != "validee":
+                _desc += " (" + str(_statut) + ")"
             transactions.append({
                 "date": cpo.get("date", "?"),
                 "type": "Achat pions",
-                "description": "Pack " + str(cpo.get("pack_type", "?")),
-                "entree": cpo.get("montant_total_xpf", 0),
+                "description": _desc,
+                "entree": _entree,
                 "sortie": 0
             })
 
