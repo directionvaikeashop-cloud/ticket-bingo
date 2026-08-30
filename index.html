@@ -2885,6 +2885,21 @@ async function loadDocs(){
 }
 
 // === PDF JOUEUR ===
+function ouvrirPdfNatif(url){
+  // Solution de secours pour les petits téléphones (Samsung A05, etc.) qui n'arrivent
+  // pas à afficher le PDF avec le lecteur intégré (trop lourd en mémoire).
+  // Ouvre le PDF directement avec le lecteur natif du téléphone (léger et universel).
+  if(!url){ alert("Ticket indisponible"); return; }
+  try {
+    window.open(url, '_blank');
+  } catch(e) {
+    // Si window.open est bloqué, forcer via un lien
+    var a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+}
+
 function ouvrirPDFJoueur(url,nom,venteId,pageDebut,pageFin,jeu,serie){
   jeuPointage = jeu || '';
   serieBasePointage = parseInt((String(serie||'').match(/\d+/)||['0'])[0], 10) || 0;
@@ -2904,7 +2919,8 @@ function ouvrirPDFJoueur(url,nom,venteId,pageDebut,pageFin,jeu,serie){
       <div style="display:flex;gap:8px;align-items:center">
         <span id="nb-coches" style="font-size:12px;color:#6b7280">0 cochés</span>
         <button onclick="resetCoches('${cleCoches}',overlayActuel)" style="padding:5px 10px;background:rgba(239,68,68,.2);color:#f87171;border:0.5px solid rgba(239,68,68,.3);border-radius:6px;cursor:pointer;font-size:12px">🔄</button>
-        <button onclick="fermerPDF()" style="padding:8px 16px;background:rgba(239,68,68,.3);color:#f0f2f8;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700" onclick="fermerPDF()">✕ Fermer</button>
+        <button onclick="ouvrirPdfNatif('${url}')" style="padding:8px 12px;background:rgba(34,197,94,.25);color:#4ade80;border:0.5px solid rgba(34,197,94,.4);border-radius:6px;cursor:pointer;font-size:13px;font-weight:700" title="Si le ticket ne s'affiche pas">📄 Ouvrir simple</button>
+        <button onclick="fermerPDF()" style="padding:8px 16px;background:rgba(239,68,68,.3);color:#f0f2f8;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700">✕ Fermer</button>
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#111218;border-bottom:1px solid rgba(255,255,255,0.07)">
@@ -3064,10 +3080,26 @@ async function chargerSurveillance(){
           + '<button onclick="effacerSignal(\'' + j.code + '\')" style="padding:4px 9px;background:var(--s2);color:var(--mu);border:0.5px solid var(--bd);border-radius:6px;cursor:pointer;font-size:11px;white-space:nowrap">✓ Traité</button>'
           + '</div>';
       }
-      return '<div style="padding:10px;background:var(--s2);border:0.5px solid var(--bd);border-radius:8px;margin-bottom:6px">'
+      // Jeu réel ouvert par la joueuse + alerte si ça ne correspond pas au jeu annoncé
+      var jeuHtml = '';
+      if(j.jeu){
+        var serieTxt = j.serie ? (' · série ' + j.serie) : '';
+        jeuHtml = '<div style="font-size:11px;color:#a9a0cc;margin-top:2px">📄 Ticket ouvert : <b style="color:#c4b5fd">' + j.jeu + '</b>' + serieTxt + '</div>';
+      }
+      var alerteHtml = '';
+      if(j.decalage_jeu){
+        alerteHtml = '<div style="margin-top:8px;padding:8px 10px;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.5);border-radius:6px">'
+          + '<div style="font-size:12px;font-weight:800;color:#f87171">⚠️ JEU DIFFÉRENT DE L\'ANNONCE</div>'
+          + '<div style="font-size:11px;color:#fca5a5;margin-top:2px">Annoncé : <b>' + (j.jeu_annonce||'?') + '</b> — Elle a ouvert : <b>' + j.jeu + '</b></div>'
+          + '</div>';
+      }
+      var bordure = j.decalage_jeu ? '1px solid rgba(239,68,68,.5)' : '0.5px solid var(--bd)';
+      return '<div style="padding:10px;background:var(--s2);border:' + bordure + ';border-radius:8px;margin-bottom:6px">'
         + '<div style="font-weight:700;font-size:13px">' + (j.nom || j.code) + ' <span style="color:var(--mu);font-size:11px">(' + j.code + ')</span></div>'
         + '<div style="font-size:11px;color:' + couleur + ';font-weight:600">' + statut + '</div>'
         + '<div style="font-size:11px;color:var(--mu)">' + (j.nb_coches || 0) + ' numéros pointés · ' + depuis + '</div>'
+        + jeuHtml
+        + alerteHtml
         + signalHtml
         + '</div>';
     }).join('');
@@ -3232,7 +3264,13 @@ function pingActivite(type){
     if(typeof codeJoueurActuel === 'undefined' || !codeJoueurActuel) return; // seulement une vraie joueuse connectée
     fetch('/api/activite/ping', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({code_joueur: codeJoueurActuel, type: type, nb_coches: nbCochesActuel()})
+      body: JSON.stringify({
+        code_joueur: codeJoueurActuel,
+        type: type,
+        nb_coches: nbCochesActuel(),
+        jeu: (typeof jeuPointage !== 'undefined' ? jeuPointage : ''),
+        serie: (typeof serieBasePointage !== 'undefined' ? String(serieBasePointage) : '')
+      })
     });
   }catch(e){}
 }
@@ -3312,7 +3350,16 @@ async function chargerPDFJoueur(url,cleCoches,overlay,cochesExistantes,pageDebut
   }catch(e){
     console.error("PDF error:",e);
     const loading=overlay.querySelector('#pdf-loading');
-    if(loading){loading.textContent='❌ Erreur de chargement — '+e.message;loading.style.color='#f87171';}
+    if(loading){
+      // Sur les petits téléphones (Samsung A05, etc.), l'affichage intégré peut échouer
+      // par manque de mémoire. On propose alors d'ouvrir le ticket en mode simple (léger).
+      loading.innerHTML = '<div style="text-align:center;padding:16px">'
+        + '<div style="color:#f87171;font-size:14px;margin-bottom:12px">L\'affichage n\'a pas pu se charger sur ce téléphone.</div>'
+        + '<button onclick="ouvrirPdfNatif(\''+url+'\')" style="padding:12px 20px;background:#22c55e;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer">📄 Ouvrir mon ticket en simple</button>'
+        + '<div style="color:#6b7280;font-size:12px;margin-top:10px">Ton ticket s\'ouvrira avec le lecteur de ton téléphone</div>'
+        + '</div>';
+      loading.style.color='#fff';
+    }
   }
 }
 
