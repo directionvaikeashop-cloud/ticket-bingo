@@ -1199,6 +1199,13 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
     <!-- TAB ADMIN -->
     <div id="tab-admin" class="tab">
       <div id="toast-adm"></div>
+
+      <!-- 💵 RAPPORTS DE RETRAITS D'ESPÈCES (envoyés par les organisateurs) -->
+      <div class="card" style="background:linear-gradient(135deg,rgba(8,145,178,.14),rgba(14,116,144,.07));border:1px solid rgba(8,145,178,.4);margin-bottom:14px">
+        <div class="ct" style="justify-content:space-between"><span style="color:#22d3ee">💵 Rapports de retraits d'espèces</span><button class="btn-sm" onclick="chargerRapportsRetraits()">↻</button></div>
+        <div style="font-size:12px;color:var(--mu);margin-bottom:10px">Les retraits en espèces (vendredi) validés et rapportés par tes organisateurs. Pour suivre tout l'argent qui sort en cash.</div>
+        <div id="rapports-retraits-liste"><div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Cliquez ↻ pour voir les rapports</div></div>
+      </div>
       
       <!-- RESET ADMIN -->
       <div style="background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(220,38,38,.05));border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;margin-bottom:14px">
@@ -5376,6 +5383,40 @@ function voirMesVentesTickets(){
   var code = (ADMIN ? '' : (CODE_ORG || ''));
   if(!code){ alert('Code organisateur introuvable'); return; }
   window.open('/ventes-tickets/' + encodeURIComponent(code), '_blank');
+}
+
+async function chargerRapportsRetraits(){
+  var liste = document.getElementById('rapports-retraits-liste');
+  if(!liste) return;
+  liste.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Chargement...</div>';
+  try{
+    var r = await fetch('/api/admin/rapports-retraits', {headers:{'X-Token':TOKEN}});
+    var d = await r.json();
+    if(!d.ok){ liste.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg||'Erreur') + '</div>'; return; }
+    if(!d.rapports || !d.rapports.length){
+      liste.innerHTML = '<div style="text-align:center;padding:12px;font-size:13px;color:var(--mu)">Aucun rapport de retrait pour le moment.</div>';
+      return;
+    }
+    var html = '<div style="padding:10px;background:rgba(8,145,178,.12);border-radius:8px;margin-bottom:10px;text-align:center">TOTAL RETIRÉ EN ESPÈCES : <b style="font-size:18px;color:#22d3ee">' + d.total_general.toLocaleString() + ' XPF</b></div>';
+    d.rapports.forEach(function(rap){
+      html += '<div style="background:var(--s2);border:0.5px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:8px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+      html += '<div><div style="font-weight:700;font-size:13px">' + (rap.nom_org||rap.code_org) + '</div><div style="font-size:11px;color:var(--mu)">' + (rap.date||"").slice(0,16).replace("T"," ") + ' · ' + rap.nb_retraits + ' retrait(s)</div></div>';
+      html += '<div style="font-size:17px;font-weight:800;color:#22d3ee">' + rap.total.toLocaleString() + ' XPF</div>';
+      html += '</div>';
+      html += '<div style="max-height:140px;overflow-y:auto">';
+      (rap.retraits||[]).forEach(function(rt){
+        html += '<div style="display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">';
+        html += '<div><span style="color:var(--mu)">' + (rt.date_validation||'') + '</span> · ' + rt.code_joueur + ' <span style="color:var(--mu)">(' + rt.mode + ')</span></div>';
+        html += '<div style="color:#22d3ee;font-weight:700">' + rt.montant + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    liste.innerHTML = html;
+  }catch(e){
+    liste.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau.</div>';
+  }
 }
 
 async function envoyerRapportRetraits(){
