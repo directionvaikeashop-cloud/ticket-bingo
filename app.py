@@ -1756,6 +1756,42 @@ def get_tickets():
             return jsonify(tickets)
     return jsonify([])
 
+def _variantes_code_ambigu(code):
+    """Genere les variantes d'un code en remplacant les caracteres ambigus
+    (O<->0, I<->1, L<->1) pour retrouver un ancien code malgre une faute de saisie.
+    Retourne une liste de codes candidats, code original en premier."""
+    code = (code or "").upper().strip()
+    # Chaque position ambigue peut prendre plusieurs valeurs
+    groupes = {
+        "O": ["O", "0"], "0": ["0", "O"],
+        "I": ["I", "1", "L"], "1": ["1", "I", "L"], "L": ["L", "1", "I"],
+    }
+    variantes = [""]
+    for ch in code:
+        options = groupes.get(ch, [ch])
+        variantes = [v + o for v in variantes for o in options]
+        # Garde-fou : limiter l'explosion combinatoire
+        if len(variantes) > 200:
+            variantes = variantes[:200]
+            break
+    # Code original en premier, sans doublons
+    seen = set()
+    ordonnees = []
+    for v in [code] + variantes:
+        if v not in seen:
+            seen.add(v)
+            ordonnees.append(v)
+    return ordonnees
+
+def _chercher_ticket_par_code(code):
+    """Cherche un ticket pour un code donne (tickets_acheteurs puis tickets)."""
+    ticket_id = DB.get("tickets_acheteurs", {}).get(code)
+    if ticket_id:
+        ticket = next((t for t in DB["tickets"] if t["id"] == ticket_id), None)
+        if ticket:
+            return ticket
+    return next((t for t in DB["tickets"] if t.get("code_acheteur", "").upper() == code), None)
+
 @app.route("/api/ticket/acheteur/<code>")
 def get_ticket_acheteur(code):
     global DB
@@ -1764,19 +1800,22 @@ def get_ticket_acheteur(code):
     if code in DB.get("codes_bloques", []):
         journaliser_connexion(code, "echec_desactive", "joueur")
         return jsonify({"ok": False, "msg": "Ce code a été désactivé. Contactez votre organisateur."}), 403
-    # Chercher dans tickets_acheteurs
-    ticket_id = DB.get("tickets_acheteurs", {}).get(code)
-    if ticket_id:
-        ticket = next((t for t in DB["tickets"] if t["id"] == ticket_id), None)
-        if ticket:
-            journaliser_connexion(code, "reussi", "joueur", ticket.get("acheteur", ""))
-            return jsonify({"ok": True, "ticket": ticket})
-    # Chercher directement dans tickets par code_acheteur
-    ticket = next((t for t in DB["tickets"] if t.get("code_acheteur", "").upper() == code), None)
+    # 1) Recherche exacte
+    ticket = _chercher_ticket_par_code(code)
     if ticket:
         journaliser_connexion(code, "reussi", "joueur", ticket.get("acheteur", ""))
         return jsonify({"ok": True, "ticket": ticket})
-    # ALERTE + JOURNAL : un joueur essaie un code introuvable
+    # 2) Recherche tolerante : anciens codes avec caracteres ambigus (O/0, I/L/1)
+    for variante in _variantes_code_ambigu(code):
+        if variante == code:
+            continue
+        if variante in DB.get("codes_bloques", []):
+            continue
+        ticket = _chercher_ticket_par_code(variante)
+        if ticket:
+            journaliser_connexion(variante, "reussi_normalise", "joueur", ticket.get("acheteur", ""))
+            return jsonify({"ok": True, "ticket": ticket, "code_reel": variante})
+    # 3) ALERTE + JOURNAL : un joueur essaie un code introuvable
     if code:
         journaliser_connexion(code, "echec_code_inexistant", "joueur")
         creer_alerte_systeme("Code joueur introuvable", "info",
