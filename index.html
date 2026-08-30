@@ -2323,8 +2323,11 @@ function buildOrgSpace(){
     </div>
     <div class="card" style="background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(217,119,6,.08));border:1px solid rgba(245,158,11,.3)">
       <div class="ct" style="justify-content:space-between"><span>💵 Demandes de retrait des joueuses</span><button class="btn-sm" onclick="loadRetraits()">↻</button></div>
-      <div style="font-size:11px;color:var(--mu);margin-bottom:8px">Tes joueuses qui veulent convertir leurs pions en argent. Valide pour retirer leurs pions de leur compte.</div>
+      <div style="font-size:11px;color:var(--mu);margin-bottom:6px">Tes joueuses qui veulent convertir leurs pions en argent. Valide pour retirer leurs pions de leur compte.</div>
+      <div style="font-size:11px;color:#fbbf24;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;padding:7px 9px;margin-bottom:8px">🗓️ <b>Règle :</b> les retraits en espèces se font uniquement le <b>VENDREDI</b>. Après validation, envoie ton rapport à l'administration.</div>
       <div id="liste-retraits" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button onclick="envoyerRapportRetraits()" style="width:100%;margin-top:10px;padding:11px;background:#0891b2;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">📤 Envoyer le rapport des retraits à l'administration</button>
+      <div id="rapport-retrait-result" style="margin-top:8px"></div>
     </div>
   `
 
@@ -5373,6 +5376,23 @@ function voirMesVentesTickets(){
   var code = (ADMIN ? '' : (CODE_ORG || ''));
   if(!code){ alert('Code organisateur introuvable'); return; }
   window.open('/ventes-tickets/' + encodeURIComponent(code), '_blank');
+}
+
+async function envoyerRapportRetraits(){
+  var res = document.getElementById('rapport-retrait-result');
+  if(!confirm('Envoyer le rapport des retraits validés à l\'administration ?\n\nTous tes retraits validés non encore rapportés seront transmis.')) return;
+  res.innerHTML = '<div style="font-size:12px;color:var(--mu)">Envoi en cours...</div>';
+  try{
+    var r = await fetch('/api/retrait/rapport-admin', {method:'POST', headers:{'X-Token':TOKEN}});
+    var d = await r.json();
+    if(d.ok){
+      res.innerHTML = '<div style="background:rgba(16,185,129,.2);border:1px solid #10b981;border-radius:8px;padding:9px;color:#34d399;font-size:12px">✅ Rapport envoyé à l\'administration : ' + d.nb_retraits + ' retrait(s), total ' + d.total.toLocaleString() + ' XPF.</div>';
+    } else {
+      res.innerHTML = '<div style="color:#f87171;font-size:12px">' + (d.msg || 'Erreur') + '</div>';
+    }
+  }catch(e){
+    res.innerHTML = '<div style="color:#f87171;font-size:12px">Erreur réseau.</div>';
+  }
 }
 
 async function loadRetraits(){
