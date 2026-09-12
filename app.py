@@ -2586,6 +2586,80 @@ def donner_pions():
     save_data(immediat=True)
     return jsonify({"ok": True})
 
+@app.route("/api/org/retrait-espece", methods=["POST"])
+def org_retrait_espece():
+    """ORGANISATEUR — Enregistre un retrait en especes : l'organisatrice a paye
+    la joueuse en cash, on retire les pions correspondants de son compte.
+    REGLE : uniquement le VENDREDI. Operation tracee + comptee dans le rapport
+    de retraits a envoyer a l'administration."""
+    global DB
+    DB = load_data()
+    token = request.headers.get("X-Token", "")
+    s = verif_session(token)
+    if not s:
+        return jsonify({"ok": False, "msg": "Acces refuse"}), 403
+    code_org = s["code"]
+    # REGLE VENDREDI (0=lundi ... 4=vendredi)
+    if datetime.datetime.now().weekday() != 4:
+        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI."}), 400
+    d = request.json or {}
+    code_joueur = (d.get("code_joueur", "") or "").upper().strip()
+    montant = int(d.get("montant", 0) or 0)
+    if not code_joueur or montant <= 0:
+        return jsonify({"ok": False, "msg": "Code joueuse et montant (>0) obligatoires"}), 400
+    if montant % 10 != 0:
+        return jsonify({"ok": False, "msg": "Le montant doit etre un multiple de 10 XPF"}), 400
+    # Verifier le solde de la joueuse
+    pj = DB.get("pions_joueurs", {}).get(code_joueur, {})
+    solde = pj.get("100", 0)*100 + pj.get("50", 0)*50 + pj.get("20", 0)*20 + pj.get("10", 0)*10
+    if montant > solde:
+        return jsonify({"ok": False, "msg": f"Montant supérieur au solde de la joueuse ({solde} XPF)"}), 400
+    # Debiter les pions (des plus gros aux plus petits + monnaie)
+    reste = montant
+    for val in ["100", "50", "20", "10"]:
+        vi = int(val)
+        if reste <= 0:
+            break
+        use = min(pj.get(val, 0), reste // vi)
+        pj[val] = pj.get(val, 0) - use
+        reste -= use * vi
+    if reste > 0:
+        for val in ["20", "50", "100"]:
+            vi = int(val)
+            if pj.get(val, 0) > 0 and vi >= reste:
+                pj[val] -= 1
+                rendu = vi - reste
+                if rendu > 0:
+                    pj["10"] = pj.get("10", 0) + (rendu // 10)
+                reste = 0
+                break
+    now = datetime.datetime.now().isoformat()
+    nouveau_solde = pj.get("100", 0)*100 + pj.get("50", 0)*50 + pj.get("20", 0)*20 + pj.get("10", 0)*10
+    # Tracer comme un retrait valide (pour le releve joueuse ET le rapport admin)
+    DB.setdefault("demandes_retrait", [])
+    DB["demandes_retrait"].insert(0, {
+        "id": secrets.token_hex(4).upper(),
+        "code_joueur": code_joueur,
+        "code_org": code_org,
+        "nom_org": s.get("nom", code_org),
+        "montant_demande": montant,
+        "mode": "Espèces",
+        "statut": "validee",
+        "source": "retrait_direct_org",
+        "date": now,
+        "date_validation": now,
+        "rapporte_admin": False,
+        "ip": _get_client_ip()
+    })
+    save_data(immediat=True)
+    return jsonify({
+        "ok": True,
+        "code_joueur": code_joueur,
+        "montant_retire": montant,
+        "solde_avant": solde,
+        "solde_apres": nouveau_solde
+    })
+
 @app.route("/api/org/crediter-paiement-admin", methods=["POST"])
 def crediter_paiement_admin():
     """ORGANISATEUR (HEINI uniquement) — Credite des pions suite a un paiement
