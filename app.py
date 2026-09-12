@@ -2599,9 +2599,12 @@ def org_retrait_espece():
     if not s:
         return jsonify({"ok": False, "msg": "Acces refuse"}), 403
     code_org = s["code"]
-    # REGLE VENDREDI (0=lundi ... 4=vendredi)
-    if datetime.datetime.now().weekday() != 4:
-        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI."}), 400
+    # REGLE RETRAITS : avant le 01/10/2026 -> vendredi uniquement.
+    # A partir du 01/10/2026 -> tous les jours (apres chaque tournoi).
+    _maintenant = datetime.datetime.now()
+    _bascule = datetime.datetime(2026, 10, 1)
+    if _maintenant < _bascule and _maintenant.weekday() != 4:
+        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI (jusqu'au 30/09). À partir du 1er octobre 2026, ils seront possibles tous les jours."}), 400
     d = request.json or {}
     code_joueur = (d.get("code_joueur", "") or "").upper().strip()
     montant = int(d.get("montant", 0) or 0)
@@ -15992,10 +15995,11 @@ def demander_retrait():
     
     if code_joueur in DB.get("codes_bloques", []):
         return jsonify({"ok": False, "msg": "Ce code a été désactivé"}), 403
-    # REGLE : les retraits d'especes se font UNIQUEMENT LE VENDREDI.
-    # (0=lundi ... 4=vendredi ... 6=dimanche)
-    if datetime.datetime.now().weekday() != 4:
-        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI. Reviens vendredi pour faire ta demande."}), 400
+    # REGLE : avant le 01/10/2026 -> vendredi uniquement ; apres -> tous les jours.
+    _maintenant = datetime.datetime.now()
+    _bascule = datetime.datetime(2026, 10, 1)
+    if _maintenant < _bascule and _maintenant.weekday() != 4:
+        return jsonify({"ok": False, "msg": "🗓️ Les retraits en espèces se font uniquement le VENDREDI (jusqu'au 30/09). À partir du 1er octobre 2026, tous les jours."}), 400
     if not code_joueur or montant < 20:
         return jsonify({"ok": False, "msg": "Montant invalide (minimum 20 XPF)"}), 400
     
